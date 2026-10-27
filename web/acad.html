@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>RealCAD</title>
+<style>
+*{box-sizing:border-box;margin:0;font-family:'Segoe UI',system-ui,sans-serif}
+:root{--title:#2f3640;--ribbon:#3b434d;--panel:#444d58;--edge:#23282f;--line:#555f6b;
+  --txt:#e4e8ec;--mut:#9aa4b0;--accent:#3a8edd;--ok:#5fd38d;--bad:#ff6b6b;--canvas:#171a1f}
+html,body{height:100%}
+body{height:100vh;display:flex;flex-direction:column;background:var(--canvas);color:var(--txt);
+  font-size:12px;overflow:hidden}
+.titlebar{display:flex;align-items:center;gap:10px;background:var(--title);padding:5px 10px;border-bottom:1px solid #000}
+.logo{width:20px;height:20px;border-radius:3px;background:#c0392b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:12px}
+.titlebar .app{color:#cfd6dd}.titlebar .doc{color:#9aa4b0}
+.titlebar .search{margin-left:18px;background:#2a2f36;border:1px solid var(--line);border-radius:3px;
+  padding:3px 8px;color:#8b94a0;font-size:11px;min-width:240px}
+.titlebar .right{margin-left:auto;color:#8b94a0;font-size:11px;display:flex;gap:12px}
+.tabs{display:flex;gap:2px;background:var(--ribbon);padding:4px 8px 0;border-bottom:1px solid var(--edge)}
+.tab{padding:5px 13px;color:var(--mut);border-radius:3px 3px 0 0}
+.tab.on{color:#fff;background:var(--panel)}
+.ribbon{display:flex;background:var(--panel);border-bottom:1px solid var(--edge);padding:5px 6px 2px}
+.group{display:flex;flex-direction:column;align-items:center;padding:0 9px;border-right:1px solid var(--line)}
+.grow{display:flex;gap:4px}
+.tool{min-width:52px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--txt);
+  padding:5px 4px;border-radius:3px;cursor:pointer;text-align:center}
+.tool:hover{background:#525c68;outline:1px solid var(--accent)}
+.tool svg{width:22px;height:22px;stroke:#d7dee6;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.tool .ko{font-size:11px;line-height:1.1}.tool .en{font-size:9px;color:var(--mut);line-height:1}
+.glabel{font-size:10px;color:var(--mut);margin-top:4px}
+.main{flex:1;position:relative;min-height:0}
+#c{display:block;width:100%;height:100%}
+.viewcube{position:absolute;top:14px;right:14px;width:52px;height:52px;border:1px solid #7a8591;
+  background:linear-gradient(135deg,#5a6672,#3f4954);display:grid;place-items:center;color:#d7dee6;font-size:10px;
+  transform:perspective(220px) rotateX(16deg) rotateY(-22deg)}
+.navbar{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:#333a42;
+  border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;overflow:hidden}
+.navbar b{width:26px;height:26px;display:grid;place-items:center;cursor:pointer}
+.navbar b svg{width:14px;height:14px;stroke:#b7c0cc;fill:none;stroke-width:1.5}
+.navbar b:hover{background:#454e58}
+.ucs{position:absolute;left:18px;bottom:16px;pointer-events:none}
+.ucs svg{width:60px;height:60px}
+/* 명령창 (AutoCAD command window): 위=로그 스크롤, 아래=입력 */
+.cmdwin{background:rgba(18,21,26,.97);border-top:1px solid var(--edge);display:flex;flex-direction:column;
+  height:150px;font-family:'Consolas','D2Coding',monospace;font-size:12px}
+.log{flex:1;overflow:auto;padding:6px 10px;line-height:1.5}
+.log .you{color:#eaeef2}.log .you::before{content:'명령 Command: ';color:#8bb8e8}
+.log .sys{color:#aeb6bf}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}
+.log .n{color:#8bb8e8}
+.cmdin{display:flex;align-items:center;gap:8px;border-top:1px solid #2a2f36;padding:6px 10px}
+.cmdin .ps{color:#8bb8e8}
+.cmdin input{flex:1;background:transparent;border:0;color:#eef2f6;font:inherit;outline:none}
+.cmdin .micbtn{display:flex;align-items:center;gap:5px;color:var(--mut);cursor:pointer}
+.cmdin .micbtn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.5}
+.status{display:flex;align-items:center;gap:12px;background:var(--title);border-top:1px solid var(--edge);
+  padding:4px 12px;color:var(--mut)}
+.status .m{color:#cfd6dd}.status .r{margin-left:auto;display:flex;gap:12px}
+/* iTerm 느낌: 투명 유리(글래스) 오버레이 — 3D가 뒤로 비친다 */
+body{display:block;position:relative}
+.main{position:fixed;inset:0;z-index:0}
+.top{position:fixed;top:0;left:0;right:0;z-index:3;
+  backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);
+  box-shadow:0 1px 0 rgba(0,0,0,.4)}
+.bottom{position:fixed;bottom:0;left:0;right:0;z-index:3;
+  backdrop-filter:blur(10px) saturate(1.15);-webkit-backdrop-filter:blur(10px) saturate(1.15)}
+.titlebar{background:rgba(47,54,64,.46);border-bottom:1px solid rgba(0,0,0,.35)}
+.tabs{background:rgba(59,67,77,.38);border-bottom:1px solid rgba(35,40,47,.5)}
+.ribbon{background:rgba(68,77,88,.36);border-bottom:1px solid rgba(35,40,47,.5)}
+.tool:hover{background:rgba(82,92,104,.6)}
+.cmdwin{background:rgba(14,17,22,.22);border-top:1px solid rgba(120,135,150,.25)}
+.log,.cmdin{text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.cmdin{border-top:1px solid rgba(120,135,150,.18);background:rgba(14,17,22,.15)}
+.status{background:rgba(47,54,64,.3)}
+.viewcube{top:162px}
+.ucs{bottom:206px}
+.navbar{background:rgba(51,58,66,.5);backdrop-filter:blur(8px)}
+.tog{cursor:pointer;padding:1px 5px;border-radius:3px}
+.tog.on{color:#d2e8da;background:rgba(90,165,110,.26)}
+#viewcube{cursor:pointer}
+.navbar b{cursor:pointer}
+.navbar b.on{background:rgba(90,165,110,.32)}
+.micbtn.on{color:#8fd6a0;background:rgba(90,165,110,.2)}
+</style></head>
+<body>
+<div class="top">
+<div class="titlebar">
+  <div class="logo">R</div><span class="app">RealCAD 2026</span><span class="doc">새 문서 / untitled.rcd</span>
+  <input class="search" id="topsearch" placeholder="여기에 만들 것을 입력하고 Enter / describe a part" style="border:none;outline:none;background:transparent;color:inherit;font:inherit;width:100%"/>
+  <span class="right"><span>도움말 Help</span><span>로그인 Sign in</span></span>
+</div>
+<div class="tabs">
+  <div class="tab on">홈 Home</div><div class="tab">삽입 Insert</div>
+  <div class="tab">주석 Annotate</div><div class="tab">출력 Output</div><div class="tab">검증 Verify</div>
+</div>
+<div class="ribbon" id="ribbon"></div>
+</div><!-- /top -->
+
+<div class="main">
+  <canvas id="c"></canvas>
+  <div class="viewcube" id="viewcube" title="탑뷰 / Top view">TOP</div>
+  <div class="navbar">
+    <b title="맞춤 Fit" data-nav="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h14V10"/></svg></b>
+    <b title="자동회전 Orbit" data-nav="orbit"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12a8 4 0 0 0 16 0"/></svg></b>
+    <b title="확대 Zoom in" data-nav="zoomin"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M8 10h4M10 8v4"/></svg></b>
+    <b title="축소 Zoom out" data-nav="zoomout"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M8 10h4"/></svg></b>
+  </div>
+  <div class="ucs"><svg viewBox="0 0 60 60">
+    <path d="M12 48 V12" stroke="#5aff7a" stroke-width="2" fill="none"/>
+    <path d="M12 48 H48" stroke="#ff5a5a" stroke-width="2" fill="none"/>
+    <path d="M12 48 l10 8" stroke="#5a9dff" stroke-width="2" fill="none"/>
+    <text x="50" y="50" fill="#ff5a5a" font-size="9">X</text>
+    <text x="4" y="12" fill="#5aff7a" font-size="9">Y</text>
+    <text x="24" y="58" fill="#5a9dff" font-size="9">Z</text></svg></div>
+  <div id="opBox" style="position:absolute;left:14px;bottom:176px;background:rgba(40,46,54,.92);border:1px solid rgba(90,100,110,.5);backdrop-filter:blur(8px);padding:6px 11px;border-radius:8px;font-size:11px;color:#cfd6dd;display:flex;align-items:center;gap:8px;z-index:6">
+    투명도 / Opacity <input id="opSlider" type="range" min="5" max="100" value="100" style="width:96px;accent-color:#7f8b97">
+  </div>
+</div>
+
+<div class="bottom">
+<div class="cmdwin">
+  <div class="log" id="log">
+    <div class="sys">텍스트로 설계를 시작하세요 / Describe a part to start. 예: "연필꽂이 지름 80 높이 100" · "100x60 판 1/4-20 구멍 4개"</div>
+  </div>
+  <div class="cmdin"><span class="ps">명령 입력 / Command:</span>
+    <input id="cmd" placeholder="자연어로 설계를 입력하세요 · Describe a part in natural language"/>
+    <span class="micbtn" id="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>음성 Voice</span>
+  </div>
+</div>
+<div class="status">
+  <span class="m">모델 Model</span><span>배치 Layout1</span><span>1240.5, 318.0, 0.0</span>
+  <span class="r"><span class="tog on" id="t-grid">격자 Grid</span><span class="tog" id="t-snap">스냅 Snap</span><span class="tog" id="t-ortho">직교 Ortho</span><span class="m">mm</span></span>
+</div>
+</div><!-- /bottom -->
+
+<script>
+// tab: 0홈 1삽입 2주석 3출력 4검증 — 모든 버튼에 act 연결(죽은 버튼 없음)
+const GROUPS=[
+ {tab:0, label:'생성 / Create', tools:[
+   {ko:'설계',en:'Design',act:'design',svg:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20l3-4"/>'},
+   {ko:'자동',en:'Auto',act:'auto',svg:'<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>'},
+   {ko:'음성',en:'Voice',act:'voice',svg:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/>'},
+   {ko:'사진',en:'Photo',act:'photo',svg:'<rect x="3" y="7" width="18" height="12" rx="2"/><circle cx="12" cy="13" r="3.4"/><path d="M8.5 7l1.2-2h4.6l1.2 2"/>'}]},
+ {tab:0, label:'편집 / Edit', tools:[
+   {ko:'비우기',en:'Clear',act:'clear',svg:'<path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13M10 11v6M14 11v6"/>'}]},
+ {tab:1, label:'부품 참조 / Part', tools:[
+   {ko:'참조',en:'Import',act:'wrap',svg:'<path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6M9 14l3-3 3 3M12 11v6"/>'},
+   {ko:'조립',en:'Assembly',act:'assembly',svg:'<rect x="3" y="7" width="11" height="11"/><rect x="10" y="3" width="11" height="11"/>'},
+   {ko:'볼트',en:'Bolt',act:'bolt',svg:'<path d="M8 6h8l3 3v6l-3 3H8l-3-3V9z"/><circle cx="12" cy="12" r="3"/>'}]},
+ {tab:2, label:'주석 / Annotate', tools:[
+   {ko:'치수',en:'Dim',act:'dim',svg:'<path d="M3 8v8M21 8v8M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3"/>'}]},
+ {tab:3, label:'출력 / Output', tools:[
+   {ko:'프린터',en:'Printer',act:'printer',svg:'<rect x="6" y="3" width="12" height="7"/><path d="M6 10H4v7h4M18 10h2v7h-4M8 14h8v7H8z"/>'},
+   {ko:'분할',en:'Split',act:'split',svg:'<path d="M4 4l16 16M20 4L4 20"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/>'},
+   {ko:'내보내기',en:'Export',act:'export',svg:'<path d="M12 3v11M8 11l4 4 4-4M5 20h14"/>'}]},
+ {tab:4, label:'검증 / Verify', tools:[
+   {ko:'검증',en:'Verify',act:'verify',svg:'<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>'}]},
+];
+const rb=document.getElementById('ribbon');
+function renderRibbon(active){
+  rb.innerHTML='';
+  for(const g of GROUPS){ if(g.tab!==active) continue;
+    const gd=document.createElement('div'); gd.className='group';
+    const row=document.createElement('div'); row.className='grow';
+    for(const t of g.tools) row.innerHTML+=`<div class="tool" data-act="${t.act||''}"><svg viewBox="0 0 24 24">${t.svg}</svg><span class="ko">${t.ko}</span><span class="en">${t.en}</span></div>`;
+    gd.appendChild(row);
+    const lb=document.createElement('div'); lb.className='glabel'; lb.textContent=g.label; gd.appendChild(lb);
+    rb.appendChild(gd);
+  }
+}
+const tabEls=document.querySelectorAll('.tabs .tab');
+tabEls.forEach((el,i)=>el.addEventListener('click',()=>{
+  tabEls.forEach(x=>x.classList.remove('on')); el.classList.add('on'); renderRibbon(i);
+}));
+renderRibbon(0);
+</script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(devicePixelRatio);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x171a1f);
+const camera=new THREE.PerspectiveCamera(42,1,0.1,8000); camera.up.set(0,0,1); camera.position.set(80,-120,95);
+let activeCam=camera;
+const controls=new THREE.OrbitControls(camera,canvas); controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xcdd6e0,0x20242b,1.0));
+const k=new THREE.DirectionalLight(0xffffff,0.75); k.position.set(70,-110,160); scene.add(k);
+const grid=new THREE.GridHelper(400,40,0x3a4048,0x262b31); grid.rotation.x=Math.PI/2; scene.add(grid);
+const loader=new THREE.STLLoader(); let grp=new THREE.Group(); scene.add(grp);
+window._opMats=[];
+function regMat(mat){ mat.transparent=true; window._opMats.push(mat); return mat; }
+window.setOpacity=function(v){ for(const m of window._opMats){ m.opacity=v; m.depthWrite=(v>=0.98); } };
+function fit(){const b=new THREE.Box3().setFromObject(grp); if(!isFinite(b.min.z))return;
+  grid.position.z=b.min.z;
+  const ctr=b.getCenter(new THREE.Vector3()),s=b.getSize(new THREE.Vector3());
+  controls.target.copy(ctr); const d=Math.max(s.x,s.y,s.z)*1.8;
+  camera.position.set(ctr.x+d*0.55,ctr.y-d,ctr.z+d*0.65); controls.update();}
+window.loadModel=function(partUrl,boltsUrl){
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp);
+  let pending=boltsUrl?2:1;
+  const one=(u,c,m)=>loader.load(u+'?'+Date.now(),gg=>{gg.computeVertexNormals();
+    grp.add(new THREE.Mesh(gg,regMat(new THREE.MeshStandardMaterial({color:c,metalness:m,roughness:0.5,opacity:1}))));
+    if(--pending===0) fit();});
+  window._opMats=[]; one(partUrl,0x9aa7b2,0.1); if(boltsUrl) one(boltsUrl,0xd1495b,0.4);
+};
+window.loadPieces=function(urls,axis){
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp);
+  const cols=[0x8f9ba6,0xc98a5a,0x7a9e7e,0xb06b8e]; let pending=urls.length;
+  urls.forEach((u,i)=>loader.load(u+'?'+Date.now(),gg=>{gg.computeVertexNormals();
+    const mesh=new THREE.Mesh(gg,new THREE.MeshStandardMaterial({color:cols[i%cols.length],metalness:0.1,roughness:0.5}));
+    const off=(i-(urls.length-1)/2)*20;
+    if(axis==='X')mesh.position.x+=off; else if(axis==='Y')mesh.position.y+=off; else mesh.position.z+=off;
+    grp.add(mesh); if(--pending===0) fit();}));
+};
+window.loadAssembly=function(refUrl,caseUrl,lidUrl){
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp); let pending=2+(lidUrl?1:0);
+  const add=(u,mat)=>loader.load(u+'?'+Date.now(),gg=>{gg.computeVertexNormals();
+    grp.add(new THREE.Mesh(gg,mat)); if(--pending===0)fit();});
+  window._opMats=[];
+  add(refUrl,new THREE.MeshStandardMaterial({color:0x37a05a,metalness:0.2,roughness:0.5,transparent:true,opacity:1}));
+  add(caseUrl,regMat(new THREE.MeshStandardMaterial({color:0x9aa7b2,metalness:0.1,roughness:0.5,opacity:0.45})));
+  if(lidUrl) add(lidUrl,regMat(new THREE.MeshStandardMaterial({color:0x6c7884,metalness:0.1,roughness:0.5,opacity:0.6})));
+  if(window._opSlider) window._opSlider.value=45;
+};
+// #7 기본 브래킷 자동 로드 안 함 — 빈 화면에서 시작
+function size(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);
+  camera.aspect=w/h;camera.updateProjectionMatrix();
+  if(activeCam!==camera){const d=activeCam.position.distanceTo(controls.target);const fov=camera.fov*Math.PI/180;const hy=Math.tan(fov/2)*d,hx=hy*w/h;activeCam.left=-hx;activeCam.right=hx;activeCam.top=hy;activeCam.bottom=-hy;activeCam.updateProjectionMatrix();}}
+addEventListener('resize',size); size();
+(function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,activeCam);})();
+window._opSlider=document.getElementById('opSlider');
+window._opSlider.addEventListener('input',e=>window.setOpacity(e.target.value/100));
+
+// ===== #6 뷰큐브 탑뷰 / #5 nav 버튼 / #2 상태바 토글 / #9 클릭 선택·부분삭제 =====
+window._fit=fit;
+function topView(){const b=new THREE.Box3().setFromObject(grp);const empty=b.isEmpty();
+  const ctr=empty?new THREE.Vector3(0,0,0):b.getCenter(new THREE.Vector3());
+  const s=empty?200:Math.max(1,...b.getSize(new THREE.Vector3()).toArray());
+  controls.target.copy(ctr);activeCam.position.set(ctr.x,ctr.y-0.0001,ctr.z+s*2.2);controls.update();}
+document.getElementById('viewcube').onclick=topView;
+document.querySelectorAll('.navbar b').forEach(b=>b.onclick=()=>{const n=b.dataset.nav;
+  if(n==='home')fit();
+  else if(n==='orbit'){controls.autoRotate=!controls.autoRotate;controls.autoRotateSpeed=2.2;b.classList.toggle('on',controls.autoRotate);}
+  else if(n==='zoomin')activeCam.position.lerp(controls.target,0.2);
+  else if(n==='zoomout')activeCam.position.lerp(controls.target,-0.25);
+  controls.update();});
+document.getElementById('t-grid').onclick=function(){grid.visible=!grid.visible;this.classList.toggle('on',grid.visible);};
+document.getElementById('t-snap').onclick=function(){this.classList.toggle('on');};  // 표시 전용(기하 스냅 미구현)
+document.getElementById('t-ortho').onclick=function(){
+  const on=!this.classList.contains('on');this.classList.toggle('on',on);
+  if(on){const d=camera.position.distanceTo(controls.target),w=canvas.clientWidth,h=canvas.clientHeight,fov=camera.fov*Math.PI/180,hy=Math.tan(fov/2)*d,hx=hy*w/h;
+    const o=new THREE.OrthographicCamera(-hx,hx,hy,-hy,0.1,8000);o.up.copy(camera.up);o.position.copy(camera.position);o.lookAt(controls.target);
+    controls.object=o;activeCam=o;}
+  else{camera.position.copy(activeCam.position);controls.object=camera;activeCam=camera;}
+  controls.update();};
+// 클릭 선택(드래그 제외) + Delete/부분삭제
+let selected=null;const _ray=new THREE.Raycaster(),_ndc=new THREE.Vector2();let _down=null;
+canvas.addEventListener('pointerdown',e=>_down=[e.clientX,e.clientY]);
+canvas.addEventListener('pointerup',e=>{if(!_down)return;const mv=Math.hypot(e.clientX-_down[0],e.clientY-_down[1]);_down=null;if(mv>5)return;
+  const r=canvas.getBoundingClientRect();_ndc.x=((e.clientX-r.left)/r.width)*2-1;_ndc.y=-((e.clientY-r.top)/r.height)*2+1;
+  _ray.setFromCamera(_ndc,activeCam);const hits=_ray.intersectObjects(grp.children,true);
+  if(selected&&selected.material&&selected.material.emissive)selected.material.emissive.setHex(selected._em||0);
+  if(hits.length){selected=hits[0].object;if(selected.material&&selected.material.emissive){selected._em=selected.material.emissive.getHex();selected.material.emissive.setHex(0x2b4a6b);}logline('sys','부품 선택됨 / selected — Delete 키 또는 "비우기"로 이 부품만 삭제');}
+  else selected=null;});
+window._deleteSelected=function(){if(selected){grp.remove(selected);selected=null;return true;}return false;};
+addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&(!document.activeElement||document.activeElement.tagName!=='INPUT')){if(window._deleteSelected())logline('sys','<span class="ok">선택 부품 삭제 / deleted</span>');}});
+</script>
+<script>
+/* ---- RealCAD 동작 연결 ---- */
+const logEl=document.getElementById('log'), cmdEl=document.getElementById('cmd');
+let lastDownloads=null, lastContract=null, lastResult=null, busy=false;
+function logline(cls,html){const d=document.createElement('div');d.className=cls;d.innerHTML=html;
+  logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;return d;}
+function num(v){return (v==null)?'':(+v).toFixed(2);}
+
+function renderResult(d, wait){
+  if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+d.error+'</span>'; return; }
+  const c=d.contract; lastContract=c; lastResult=d; let sm;
+  if(d.kind==='container'){const k=c.container; sm=`컨테이너 Container: ${k.shape} ${k.shape==='round'?('Ø'+k.outer_d):(k.length+'×'+k.width)} × h${k.height}, 벽 ${k.wall}`+(k.dividers?`, 칸막이 ${k.dividers}`:'');}
+  else if(d.kind==='gear'){const k=c.gear; sm=`기어 Gear: ${k.teeth}T, 모듈 ${k.module}, 두께 ${k.thickness}, 보어 Ø${k.bore}`;}
+  else if(d.kind==='enclosure'){const k=c.enclosure; sm=`케이스 Enclosure: ${k.board}, 벽 ${k.wall}, 바닥 ${k.base}, 기둥 ${k.standoff_h}, 포트 ${k.open_ports?'열림/open':'닫힘'}`;}
+  else{sm=`plate ${c.plate.length}×${c.plate.width}×${c.plate.thickness}`+(c.wall?`, wall x=${c.wall.x}`:'')+`, ${d.fastener} × ${c.holes.length} · 구멍 Ø${d.hole_dia}`;}
+  wait.innerHTML='계약 Contract: '+sm;
+  for(const f of d.findings){
+    const mark=f.ok?'<span class="ok">통과 OK</span>':(f.severity==='HARD'?'<span class="bad">실패 FAIL</span>':'<span style="color:#d6b25f">경고 WARN</span>');
+    logline('sys',`${mark} ${f.code} ${f.message}`+((f.actual!=null&&f.required!=null)?` <span class="n">${num(f.actual)} / ${num(f.required)}</span>`:'')+(f.standard?` · ${f.standard}`:''));
+  }
+  logline('sys', (d.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패 / FAILED</span>')
+    +(d.fixed?` · 메타 자동 수정 ${d.iters}회 / auto-fixed`:'')
+    +(d.downloads?` · 내보내기 준비 / export ready: STL · 3MF · STEP · OBJ`:''));
+  lastDownloads=d.downloads||null;
+  window.loadModel(d.part_url, d.bolts_url);
+}
+async function design(prompt){
+  if(busy||!prompt) return; busy=true;
+  const wait=logline('sys','Muse Spark 설계 중 / designing…');
+  try{ const r=await fetch('api/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
+    renderResult(await r.json(), wait); }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+e.message+'</span>'; }
+  busy=false;
+}
+async function designPhoto(file, note){
+  if(busy||!file) return; busy=true;
+  logline('you','사진 / photo: '+file.name+(note?' — '+note:''));
+  const wait=logline('sys','Muse Spark가 사진에서 치수 읽는 중 / reading photo…');
+  try{ const fd=new FormData(); fd.append('image',file); fd.append('note',note||'');
+    const r=await fetch('api/design_photo',{method:'POST',body:fd}); renderResult(await r.json(), wait); }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+e.message+'</span>'; }
+  busy=false;
+}
+function doExport(){
+  if(!lastDownloads){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
+  const line=logline('sys','내보내기 포맷 선택 / pick format — ');
+  for(const [fmt,url] of Object.entries(lastDownloads)){
+    const a=document.createElement('a'); a.href=url; a.download=''; a.textContent=fmt;
+    a.style.cssText='color:#7fb0e0;cursor:pointer;margin-right:12px;text-decoration:underline'; line.appendChild(a);
+  }
+  const all=document.createElement('span'); all.textContent='전체 All'; all.style.cssText='color:#8fd6a0;cursor:pointer;text-decoration:underline';
+  all.onclick=()=>{ for(const url of Object.values(lastDownloads)){ const a=document.createElement('a'); a.href=url; a.download=''; document.body.appendChild(a); a.click(); a.remove(); } };
+  line.appendChild(all);
+}
+async function designWrap(file){
+  if(busy||!file) return; busy=true;
+  logline('you','외부참조 / reference: '+file.name);
+  const wait=logline('sys','참조 치수 측정 + 케이스 생성 중 / measuring & wrapping…');
+  try{ const fd=new FormData(); fd.append('model',file);
+    const r=await fetch('api/wrap',{method:'POST',body:fd}); const d=await r.json();
+    if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+d.error+'</span>'; busy=false; return; }
+    wait.innerHTML=`참조 치수 / reference ${d.size.join('×')}mm → ${d.sealed?'밀폐 케이스(뚜껑+나사+가스켓+포트)':'케이스'} 생성 (틈 ${d.clearance}mm)`;
+    for(const f of d.findings){ const mark=f.ok?'<span class="ok">통과 OK</span>':'<span class="bad">실패 FAIL</span>';
+      logline('sys',`${mark} ${f.code} ${f.message}`); }
+    logline('sys','<span class="ok">■ 케이스 생성 / wrapped</span> · 초록 참조 + 반투명 바디'+(d.lid_url?' + 뚜껑':'')+' 어셈블리 · 내보내기: STL · 3MF · STEP · OBJ');
+    lastDownloads=d.downloads||null; lastContract=null;
+    window.loadAssembly(d.ref_url,d.case_url,d.lid_url);
+  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+e.message+'</span>'; }
+  busy=false;
+}
+async function doSplit(){
+  if(!lastContract){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
+  logline('sys','프린터 빌드볼륨 220×220×250 기준 분할 확인 / checking split…');
+  try{
+    const r=await fetch('api/split',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contract:lastContract,build:[220,220,250]})});
+    const d=await r.json();
+    if(d.error){ logline('sys','<span class="bad">오류 / error: '+d.error+'</span>'); return; }
+    if(d.fits){ logline('sys','<span class="ok">■ 프린터에 들어감 / fits</span> ('+d.size.join('×')+'mm ≤ 220×220×250) — 분할 불필요 / no split needed'); }
+    else{ logline('sys','<span style="color:#d6b25f">■ 베드보다 큼 / too big</span> ('+d.size.join('×')+') → '+d.axis+'축 '+d.n+'조각 분할 + 다월 Ø'+d.dowel.dia+' 정렬핀 / split into '+d.n+' + dowels');
+      window.loadPieces(d.pieces,d.axis); }
+  }catch(e){ logline('sys','<span class="bad">오류 / error: '+e.message+'</span>'); }
+}
+let _rec=null;
+function startVoice(){
+  const mic=document.getElementById('mic');
+  if(_rec){ const r=_rec; _rec=null; try{r.onend=null;r.stop();}catch(e){} mic.classList.remove('on'); logline('sys','🎙 음성 종료 / voice off'); return; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ logline('sys','이 브라우저는 음성 인식을 지원하지 않아요 / voice not supported'); return; }
+  _rec=new SR(); _rec.lang='ko-KR'; _rec.interimResults=false; _rec.continuous=true;
+  mic.classList.add('on');
+  logline('sys','🎙 듣는 중 — 다시 누르면 종료 / listening (click mic again to stop)');
+  _rec.onresult=e=>{ const t=e.results[e.results.length-1][0].transcript.trim(); if(!t) return; logline('sys','들림 / heard: '+t); if(clarifyState) answerClarify(t); else handleCommand(t); };
+  _rec.onerror=ev=>{ if(ev.error!=='no-speech'&&ev.error!=='aborted') logline('sys','음성 오류 / voice error: '+ev.error); };
+  _rec.onend=()=>{ if(_rec){ try{_rec.start();}catch(e){} } };   // 끊겨도 자동 재시작(끌 때까지 계속)
+  _rec.start();
+}
+async function clarify(prompt){
+  try{const r=await fetch('api/clarify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
+    const d=await r.json(); return d.questions||[];}catch(e){return [];}
+}
+function looksSpecific(t){  // 치수·단위·숫자2개↑ 있으면 역질문 없이 바로 설계
+  if(!/\d/.test(t)) return false;
+  if(/\d\s*(mm|cm|파이|π|ø|Ø|φ|지름|반지름|높이|두께|길이|폭|가로|세로|개|홀|구멍|칸|T\b|M\d|x|×|\*)/i.test(t)) return true;
+  return (t.match(/\d+/g)||[]).length>=2;
+}
+function doClear(){
+  if(window._deleteSelected && window._deleteSelected()){ logline('sys','<span class="ok">■ 선택 부품만 삭제 / deleted selected</span> (부분 비우기)'); return; }
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp); window._opMats=[]; grid.position.z=0;
+  if(window._opSlider) window._opSlider.value=100;
+  lastDownloads=null; lastContract=null; lastResult=null; clarifyState=null;
+  logline('sys','<span class="ok">■ 전체 비움 / cleared all</span> (부품 클릭 후 비우기=부분 삭제)');
+}
+function doVerify(){
+  if(!lastResult){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
+  logline('sys', lastResult.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패 / FAILED</span>');
+  for(const f of (lastResult.findings||[])){ const mark=f.ok?'<span class="ok">OK</span>':(f.severity==='HARD'?'<span class="bad">FAIL</span>':'<span style="color:#d6b25f">WARN</span>'); logline('sys',`${mark} ${f.code} ${f.message}`); }
+}
+function doDim(){
+  const b=new THREE.Box3().setFromObject(grp); if(!isFinite(b.min.x)){ logline('sys','모델 없음 / nothing to measure'); return; }
+  const s=b.getSize(new THREE.Vector3());
+  logline('sys',`치수 / dimensions: ${s.x.toFixed(1)} × ${s.y.toFixed(1)} × ${s.z.toFixed(1)} mm`);
+}
+function doBolt(){
+  if(lastResult&&lastResult.fastener&&lastResult.fastener!=='-') logline('sys',`볼트 / fastener: ${lastResult.fastener}, 구멍 Ø${lastResult.hole_dia}mm`);
+  else logline('sys','볼트 있는 설계를 먼저 하세요 / design a bolted part first (예: "100x60 판 1/4-20 구멍 4개")');
+}
+const CLEAR_RE=/^(다\s*)?(삭제|지워|지우기|비워|비우기|초기화|클리어|clear|reset|delete)(\s*(해|해줘|all|everything))?\s*$/i;
+let clarifyState=null;   // {orig, questions, idx, answers} — 역질문을 하나씩
+function askClarify(){
+  const qq=clarifyState.questions[clarifyState.idx];
+  logline('sys',`확인 ${clarifyState.idx+1}/${clarifyState.questions.length} — ${qq.question} <span class="n">(추천 ${(qq.suggestion||'').replace(/</g,'&lt;')} · 그냥 Enter=추천값)</span>`);
+}
+function answerClarify(v){
+  const qq=clarifyState.questions[clarifyState.idx];
+  const ans=(v||qq.suggestion||'').toString();
+  logline('you', v?v.replace(/</g,'&lt;'):('(추천값: '+(qq.suggestion||'')+')'));
+  clarifyState.answers.push(qq.question+'='+ans); clarifyState.idx++;
+  if(clarifyState.idx<clarifyState.questions.length){ askClarify(); }
+  else{ const combined=clarifyState.orig+' / '+clarifyState.answers.join(', '); clarifyState=null; design(combined); }
+}
+async function handleCommand(text){
+  if(busy) return;
+  if(!text) return;
+  if(CLEAR_RE.test(text.trim())){ logline('you',text.replace(/</g,'&lt;')); doClear(); return; }
+  logline('you',text.replace(/</g,'&lt;'));
+  if(looksSpecific(text)){ design(text); return; }
+  const q=await clarify(text);
+  if(q.length){ clarifyState={orig:text,questions:q,idx:0,answers:[]}; logline('sys','몇 가지만 하나씩 확인할게 / quick questions, one at a time:'); askClarify(); }
+  else { design(text); }
+}
+cmdEl.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'||e.isComposing||e.keyCode===229) return;   // 한글 IME 중복 엔터 방지
+  e.preventDefault();
+  const v=cmdEl.value.trim(); cmdEl.value='';
+  if(clarifyState){ answerClarify(v); return; }
+  handleCommand(v);
+});
+document.getElementById('mic').onclick=startVoice;
+// #11 상단 타이틀바 검색창 → Enter로 설계
+const topSearch=document.getElementById('topsearch');
+if(topSearch) topSearch.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'||e.isComposing||e.keyCode===229) return; e.preventDefault();
+  const v=topSearch.value.trim(); topSearch.value='';
+  if(clarifyState) answerClarify(v); else handleCommand(v);
+});
+document.addEventListener('click',e=>{const t=e.target.closest('[data-act]'); if(!t)return;
+  const a=t.dataset.act, v=cmdEl.value.trim();
+  if(a==='design'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 설계를 누르세요 / type what to make, then Design'); cmdEl.focus(); return; } cmdEl.value=''; handleCommand(v); }
+  else if(a==='auto'){ clarifyState=null; cmdEl.value=''; const p=v||'a round pencil holder about 80mm diameter, 100mm tall, 2mm wall'; logline('you',p.replace(/</g,'&lt;')+' <span class="n">(자동/auto)</span>'); design(p); }
+  else if(a==='export') doExport();
+  else if(a==='voice') startVoice();
+  else if(a==='split'||a==='printer') doSplit();
+  else if(a==='clear') doClear();
+  else if(a==='verify') doVerify();
+  else if(a==='dim') doDim();
+  else if(a==='bolt') doBolt();
+  else if(a==='assembly'||a==='wrap') document.getElementById('refInput').click();
+  else if(a==='photo') document.getElementById('photoInput').click();
+});
+const photoInput=document.createElement('input');
+photoInput.type='file'; photoInput.accept='image/*'; photoInput.id='photoInput'; photoInput.style.display='none';
+document.body.appendChild(photoInput);
+photoInput.addEventListener('change',()=>{ const f=photoInput.files[0]; if(f){ designPhoto(f, cmdEl.value.trim()); cmdEl.value=''; } photoInput.value=''; });
+const refInput=document.createElement('input');
+refInput.type='file'; refInput.accept='.step,.stp,.stl,.obj,.3mf,.ply'; refInput.id='refInput'; refInput.style.display='none';
+document.body.appendChild(refInput);
+refInput.addEventListener('change',()=>{ const f=refInput.files[0]; if(f) designWrap(f); refInput.value=''; });
+</script>
+</body></html>

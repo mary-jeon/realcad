@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RealCAD</title>
+<style>
+  :root{--bg:#eef1f4;--panel:#fff;--ink:#223039;--mut:#6b7a85;--line:#dfe5ea;
+        --ok:#2e7d52;--warn:#b7791f;--bad:#c0392b;--brand:#2b6c8f}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif}
+  #app{display:flex;height:100%}
+  #side{width:380px;min-width:320px;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;padding:18px;gap:12px;overflow:auto}
+  h1{font-size:18px;margin:0}
+  h1 small{color:var(--mut);font-weight:500;font-size:12px}
+  textarea{width:100%;height:84px;resize:vertical;padding:10px;border:1px solid var(--line);
+    border-radius:10px;font:inherit}
+  button{background:var(--brand);color:#fff;border:0;border-radius:10px;padding:11px;
+    font-weight:600;cursor:pointer}
+  button:disabled{opacity:.55;cursor:default}
+  .ex{font-size:12px;color:var(--mut)}
+  .ex a{color:var(--brand);cursor:pointer;text-decoration:underline;margin-right:8px}
+  #status{font-size:13px;color:var(--mut);min-height:18px}
+  .verdict{font-weight:700;font-size:15px;padding:8px 10px;border-radius:9px;display:none}
+  .verdict.pass{background:#e6f4ec;color:var(--ok)}
+  .verdict.fail{background:#fbe9e7;color:var(--bad)}
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;
+    background:#eaf1f5;color:var(--brand);margin-left:6px}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  li{font-size:12.5px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;line-height:1.35}
+  li .c{font-weight:700;margin-right:5px}
+  li.ok{border-left:3px solid var(--ok)}
+  li.warn{border-left:3px solid var(--warn)}
+  li.bad{border-left:3px solid var(--bad);background:#fdf2f0}
+  a.dl{font-size:13px;color:var(--brand)}
+  #view{flex:1;position:relative}
+  #c{display:block}
+  #hint{position:absolute;bottom:12px;left:14px;color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <h1>RealCAD <small>프롬프트 → 실제로 조립되는 CAD</small></h1>
+    <textarea id="prompt" placeholder="예: 벽에 거는 브래킷, 80x50mm, 한쪽에 25mm 벽, 1/4-20 볼트 구멍 2개"></textarea>
+    <div class="ex">예시:
+      <a data-p="A wall-mount bracket 80x50mm, 6mm thick, 25mm wall on one edge, two 1/4-20 bolt holes, bolts clear of the wall.">벽걸이 브래킷</a>
+      <a data-p="A flat mounting plate 100x60mm, 5mm thick, four #10-24 bolt holes near the corners.">4홀 마운트판</a>
+    </div>
+    <div id="questions"></div>
+    <button id="go">설계하기</button>
+    <button id="auto" style="background:#5a6b76">✨ 그냥 알아서 해줘 (추천값)</button>
+    <div id="status"></div>
+    <div id="verdict" class="verdict"></div>
+    <ul id="report"></ul>
+    <a id="dl" class="dl" style="display:none" download>⬇ STEP 파일 받기</a>
+  </aside>
+  <main id="view">
+    <canvas id="c"></canvas>
+    <div id="hint">마우스로 돌리기 · 휠로 확대</div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(devicePixelRatio);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xeef1f4);
+const camera=new THREE.PerspectiveCamera(42,1,0.1,8000); camera.up.set(0,0,1);
+camera.position.set(90,-130,120);
+const controls=new THREE.OrbitControls(camera,canvas); controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xffffff,0x49535c,0.95));
+const key=new THREE.DirectionalLight(0xffffff,0.8); key.position.set(80,-120,170); scene.add(key);
+const fill=new THREE.DirectionalLight(0xffffff,0.3); fill.position.set(-110,70,50); scene.add(fill);
+const grid=new THREE.GridHelper(260,26,0xc7d0d7,0xdbe2e7); grid.rotation.x=Math.PI/2; scene.add(grid);
+let group=new THREE.Group(); scene.add(group);
+
+function size(){const w=canvas.parentElement.clientWidth,h=canvas.parentElement.clientHeight;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();}
+addEventListener('resize',size); size();
+(function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera);})();
+
+const loader=new THREE.STLLoader();
+function loadSTL(url,color,metal){return new Promise(res=>{loader.load(url,g=>{
+  g.computeVertexNormals();
+  const mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color,metalness:metal,roughness:0.55}));
+  group.add(mesh); res();});});}
+
+async function show(part,bolts){
+  scene.remove(group); group=new THREE.Group(); scene.add(group);
+  await loadSTL(part,0x9aa7b2,0.1);
+  if(bolts) await loadSTL(bolts,0xd1495b,0.4);
+  const box=new THREE.Box3().setFromObject(group);
+  const c=box.getCenter(new THREE.Vector3()), s=box.getSize(new THREE.Vector3());
+  controls.target.copy(c);
+  const d=Math.max(s.x,s.y,s.z)*1.9;
+  camera.position.set(c.x+d*0.6,c.y-d,c.z+d*0.8); controls.update();
+}
+
+const rep=document.getElementById('report'), stt=document.getElementById('status'),
+      vd=document.getElementById('verdict'), dl=document.getElementById('dl'),
+      go=document.getElementById('go'), promptEl=document.getElementById('prompt'),
+      qbox=document.getElementById('questions');
+document.querySelectorAll('.ex a').forEach(a=>a.onclick=()=>{promptEl.value=a.dataset.p;reset();});
+
+let mode='ask';   // 'ask' → clarify, 'design' → run with answers
+function reset(){mode='ask';qbox.innerHTML='';go.textContent='설계하기';}
+
+async function clarifyStep(){
+  const prompt=promptEl.value.trim(); if(!prompt)return;
+  go.disabled=true; stt.textContent='필요한 걸 확인하는 중…'; qbox.innerHTML='';
+  rep.innerHTML=''; vd.style.display='none'; dl.style.display='none';
+  try{
+    const r=await fetch('api/clarify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt})});
+    const d=await r.json();
+    if(d.questions && d.questions.length){
+      for(const q of d.questions){
+        const wrap=document.createElement('div'); wrap.style.margin='6px 0';
+        wrap.innerHTML=`<label style="font-size:12.5px;display:block;margin-bottom:3px">${q.question}</label>`;
+        const inp=document.createElement('input'); inp.dataset.key=q.key||q.question;
+        inp.value=q.suggestion||''; inp.placeholder=q.suggestion||'';
+        inp.style.cssText='width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font:inherit';
+        wrap.appendChild(inp); qbox.appendChild(wrap);
+      }
+      stt.textContent='몇 가지만 확인해줘 (기본값 채워놨어)';
+      mode='design'; go.textContent='이 조건으로 설계';
+    }else{
+      await runDesign(prompt,null);
+    }
+  }catch(e){ stt.textContent='오류: '+e.message; }
+  go.disabled=false;
+}
+
+async function runDesign(prompt,answers){
+  go.disabled=true; stt.textContent='Muse Spark가 설계 중…'; rep.innerHTML=''; vd.style.display='none'; dl.style.display='none';
+  try{
+    const r=await fetch('api/design',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt,answers})});
+    if(!r.ok) throw new Error('서버 '+r.status);
+    const d=await r.json();
+    if(d.error){ stt.textContent='⚠️ '+d.error; go.disabled=false; return; }
+    stt.textContent=`${d.fastener}, 구멍 Ø${d.hole_dia}mm · 반복 ${d.iters}회`;
+    vd.className='verdict '+(d.passed?'pass':'fail');
+    vd.innerHTML=(d.passed?'검증 통과 ✅':'검증 실패 ❌')+(d.fixed?'<span class="badge">메타가 자동 수정</span>':'');
+    vd.style.display='block';
+    for(const f of d.findings){
+      const li=document.createElement('li');
+      li.className=f.ok?'ok':(f.severity==='HARD'?'bad':'warn');
+      const mark=f.ok?'✅':(f.severity==='HARD'?'❌':'⚠️');
+      let t=`<span class="c">${mark} [${f.code}]</span>${f.message}`;
+      if(f.actual!=null&&f.required!=null) t+=` <span style="color:var(--mut)">(실제 ${(+f.actual).toFixed(2)} / 기준 ${(+f.required).toFixed(2)}mm)</span>`;
+      if(f.standard) t+=` · ${f.standard}`;
+      li.innerHTML=t; rep.appendChild(li);
+    }
+    dl.href=d.step_url; dl.style.display='inline';
+    await show(d.part_url,d.bolts_url);
+    reset();   // 다음 설계는 다시 역질문부터
+  }catch(e){ stt.textContent='오류: '+e.message; }
+  go.disabled=false;
+}
+
+go.onclick=()=>{
+  if(mode==='ask') return clarifyStep();
+  const answers={};
+  qbox.querySelectorAll('input').forEach(i=>{answers[i.dataset.key]=i.value;});
+  runDesign(promptEl.value.trim(), answers);
+};
+document.getElementById('auto').onclick=()=>{
+  const p=promptEl.value.trim(); if(!p)return; reset(); runDesign(p,null);
+};
+promptEl.addEventListener('input', reset);
+</script>
+</body>
+</html>

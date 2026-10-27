@@ -1,0 +1,8 @@
+.venv/
+out/
+__pycache__/
+*.pyc
+*.step
+*.stl
+.env
+web/gen/

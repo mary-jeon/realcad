@@ -1,0 +1,333 @@
+"""build123d 로 부품·볼트 솔리드를 만든다.
+
+좌표 약속: 부품 윗면 = z=0. 볼트는 위에서 꽂히므로 머리는 z>0(윗면 위), 축은 z<0(재료 안).
+"""
+from __future__ import annotations
+import math
+from build123d import (
+    Part, Box, Cylinder, Sphere, Pos, Rot, RegularPolygon, Circle,
+    Polygon, RectangleRounded, extrude, Plane,
+)
+from ..fasteners.standards import Fastener
+
+
+def plate(length: float, width: float, thickness: float) -> Part:
+    """윗면이 z=0 인 판 (두께만큼 아래로)."""
+    return Pos(0, 0, -thickness / 2) * Box(length, width, thickness)
+
+
+def drill(part: Part, x: float, y: float, dia: float, depth: float) -> Part:
+    """(x,y)에서 아래로 관통/맹공 구멍을 뚫는다."""
+    cutter = Pos(x, y, -depth / 2 + 0.01) * Cylinder(radius=dia / 2, height=depth + 0.1)
+    return part - cutter
+
+
+def wall(x: float, width: float, height: float, thickness: float) -> Part:
+    """판 윗면(z=0)에서 위로 선 벽. x 위치, y방향 width, z방향 height."""
+    return Pos(x, 0, height / 2) * Box(thickness, width, height)
+
+
+def hex_bolt_solid(f: Fastener, grip_mm: float) -> Part:
+    """육각 볼트 솔리드. 머리는 z 0..head_height, 축은 -grip..0."""
+    shaft = Pos(0, 0, -grip_mm / 2) * Cylinder(radius=f.nominal_dia_mm / 2, height=grip_mm)
+    hexa = RegularPolygon(radius=f.head_across_corners_mm / 2, side_count=6)
+    head = extrude(hexa, amount=f.head_height_mm)  # Plane.XY 기준 +Z
+    return Part() + shaft + head
+
+
+def place(solid: Part, x: float, y: float) -> Part:
+    return Pos(x, y, 0) * solid
+
+
+def build_container(cc) -> Part:
+    """통/컵/박스 — 바닥 z=0, 벽+바닥 두께, 위가 열린 용기. 격자 위에 바로 앉는다."""
+    ih = max(cc.height - cc.base, 1.0)
+    if cc.shape == "box":
+        outer = Pos(0, 0, cc.height / 2) * Box(cc.length, cc.width, cc.height)
+        inner = Pos(0, 0, cc.base + ih / 2 + 0.1) * Box(
+            max(cc.length - 2 * cc.wall, 1), max(cc.width - 2 * cc.wall, 1), ih + 0.2)
+        part = outer - inner
+        if cc.dividers and cc.dividers > 0:
+            step = cc.length / (cc.dividers + 1)
+            for i in range(1, cc.dividers + 1):
+                part = part + Pos(-cc.length / 2 + step * i, 0, cc.base + ih / 2) * \
+                    Box(cc.wall, cc.width - 2 * cc.wall, ih)
+    else:
+        outer = Pos(0, 0, cc.height / 2) * Cylinder(radius=cc.outer_d / 2, height=cc.height)
+        inner = Pos(0, 0, cc.base + ih / 2 + 0.1) * Cylinder(
+            radius=max(cc.outer_d / 2 - cc.wall, 0.5), height=ih + 0.2)
+        part = outer - inner
+    return part
+
+
+def build_gear(g) -> Part:
+    """스퍼 기어(근사) — 뿌리원 + 이 N개 + 축 구멍. 바닥 z=0."""
+    z = max(int(g.teeth), 4); m = g.module; th = g.thickness
+    pitch_r = m * z / 2
+    outer_r = pitch_r + m
+    root_r = max(pitch_r - 1.25 * m, m)
+    tooth_w = m * 1.6
+    body = Pos(0, 0, th / 2) * Cylinder(radius=root_r, height=th)
+    tlen = outer_r - root_r + 1.0
+    for i in range(z):
+        tooth = Pos((root_r + outer_r) / 2 - 0.5, 0, th / 2) * Box(tlen, tooth_w, th)
+        body = body + Rot(0, 0, 360.0 * i / z) * tooth
+    if g.bore and g.bore > 0:
+        body = body - Pos(0, 0, th / 2) * Cylinder(radius=g.bore / 2, height=th + 1)
+    return body
+
+
+# 보드 프리셋(공개 표준 치수): l×w, 나사구멍 사각 간격 dx×dy, 나사·파일럿
+BOARDS = {
+    "raspberry_pi_4":    {"l": 85.6, "w": 56.0, "dx": 58.0, "dy": 49.0, "screw": "M2.5", "pilot": 2.2},
+    "raspberry_pi_5":    {"l": 85.0, "w": 56.0, "dx": 58.0, "dy": 49.0, "screw": "M2.5", "pilot": 2.2},
+    "raspberry_pi_3b":   {"l": 85.6, "w": 56.0, "dx": 58.0, "dy": 49.0, "screw": "M2.5", "pilot": 2.2},
+    "raspberry_pi_zero": {"l": 65.0, "w": 30.0, "dx": 58.0, "dy": 23.0, "screw": "M2.5", "pilot": 2.2},
+    "arduino_uno":       {"l": 68.6, "w": 53.3, "dx": 50.8, "dy": 27.9, "screw": "M3",   "pilot": 2.6},
+}
+
+
+def board_spec(name: str) -> dict:
+    return BOARDS.get(name, BOARDS["raspberry_pi_4"])
+
+
+def build_enclosure(e) -> Part:
+    """기판 케이스: 외함 + 보드 고정 기둥(나사 파일럿홀) + 포트 쪽 열림. 바닥 z=0."""
+    b = board_spec(e.board)
+    bl, bw = b["l"], b["w"]
+    inner_l, inner_w = bl + 2 * e.clearance, bw + 2 * e.clearance
+    outer_l, outer_w = inner_l + 2 * e.wall, inner_w + 2 * e.wall
+    total_h = e.base + e.standoff_h + e.inner_h
+
+    outer = Pos(0, 0, total_h / 2) * Box(outer_l, outer_w, total_h)
+    cav_h = total_h - e.base
+    inner = Pos(0, 0, e.base + cav_h / 2 + 0.1) * Box(inner_l, inner_w, cav_h + 0.2)
+    part = outer - inner
+
+    so_top = e.base + e.standoff_h
+    hx, hy = b["dx"] / 2, b["dy"] / 2
+    for sx in (-hx, hx):
+        for sy in (-hy, hy):
+            part = part + Pos(sx, sy, so_top / 2) * Cylinder(radius=3.0, height=so_top)
+            part = part - Pos(sx, sy, so_top - 3 + 0.1) * Cylinder(radius=b["pilot"] / 2, height=6)
+
+    if e.open_ports:                       # 긴 벽(±y) 포트 쪽 열기
+        oh = total_h - (so_top + 2)
+        for sign in (-1, 1):
+            part = part - Pos(0, sign * outer_w / 2, (so_top + 2) + oh / 2) * \
+                Box(bl - 6, e.wall * 4, oh)
+    return part
+
+
+def build_wrap_case(l: float, w: float, h: float,
+                    clearance: float = 2.0, wall: float = 2.0,
+                    base: float = 2.0, top_gap: float = 5.0,
+                    mounts=None, standoff_h: float = 0.0, pilot: float = 2.2) -> Part:
+    """외부참조 바운딩박스 l×w×h 를 감싸는 케이스. 바닥 z=0.
+    mounts=[(x,y),...] 가 있으면 그 위치에 기둥(standoff)+나사 파일럿홀을 세워 보드를 조립한다."""
+    lift = standoff_h if (mounts and standoff_h > 0) else 0.0
+    inner_l, inner_w = l + 2 * clearance, w + 2 * clearance
+    inner_h = lift + h + top_gap
+    total_h = base + inner_h
+    outer = Pos(0, 0, total_h / 2) * Box(inner_l + 2 * wall, inner_w + 2 * wall, total_h)
+    inner = Pos(0, 0, base + inner_h / 2 + 0.1) * Box(inner_l, inner_w, inner_h + 0.2)
+    part = outer - inner
+    if mounts and standoff_h > 0:
+        for (mx, my) in mounts:
+            part = part + Pos(mx, my, base + standoff_h / 2) * Cylinder(radius=3.0, height=standoff_h)
+            part = part - Pos(mx, my, base + standoff_h - 3 + 0.1) * Cylinder(radius=pilot / 2, height=6)
+    return part
+
+
+def pi_port_cuts(holes_rel, size, base, lift, h, clearance, wall):
+    """감지한 나사구멍으로 파이4 보드 방향을 잡고, 각 커넥터(USB×2스택·랜·HDMI×2·USB-C·오디오·SD)
+    개별 구멍을 '플러그 여유'까지 더해 계산. 반환: [(cx,cy,cz,sx,sy,sz), ...] (케이스 프레임).
+    보드 좌표는 커뮤니티 근사값(±1~2mm)."""
+    inner_l, inner_w = size[0] + 2 * clearance, size[1] + 2 * clearance
+    outer_l, outer_w = inner_l + 2 * wall, inner_w + 2 * wall
+    hx = sorted(set(round(p[0], 1) for p in holes_rel))
+    hy = sorted(set(round(p[1], 1) for p in holes_rel))
+    if len(hx) < 2 or len(hy) < 2:
+        return []
+    hx0, hx1, hy0, hy1 = hx[0], hx[-1], hy[0], hy[-1]
+    bz = base + lift
+    usb_plus_x = (size[0] / 2 - hx1) > (hx0 + size[0] / 2)       # USB/랜이 +x?
+    hdmi_minus_y = (hy0 + size[1] / 2) > (size[1] / 2 - hy1)      # 전원/HDMI가 -y?
+
+    def bx2cx(bx):   # 보드 x(3.5=첫 구멍) → 케이스 x
+        return (bx + (hx0 - 3.5)) if usb_plus_x else ((hx1 + 3.5) - bx)
+
+    def by2cy(by):
+        return (by + (hy0 - 3.5)) if hdmi_minus_y else ((hy1 + 3.5) - by)
+
+    t = wall * 4
+    xw = (outer_l / 2) if usb_plus_x else (-outer_l / 2)          # USB/랜 벽
+    sdw = -xw                                                     # SD 벽
+    yw = (-outer_w / 2) if hdmi_minus_y else (outer_w / 2)        # 전원/HDMI 벽
+    cuts = []
+    # USB/Ethernet 짧은 끝면 — (보드 y, 개구폭(+여유), z하한, z상한)
+    for by, ww, z0, z1 in [(9.0, 16, 2, 17), (27.0, 16, 2, 17), (45.75, 17, 2, 15.5)]:
+        cuts.append((xw, by2cy(by), bz + (z0 + z1) / 2, t, ww, z1 - z0))
+    # 전원/HDMI/오디오 긴 변 — (보드 x, 개구폭(+여유), z하한, z상한)
+    for bx, ww, z0, z1 in [(11.2, 11, 1.5, 6), (26.0, 9, 1.5, 6), (39.5, 9, 1.5, 6), (53.5, 8, 1.5, 8)]:
+        cuts.append((bx2cx(bx), yw, bz + (z0 + z1) / 2, ww, t, z1 - z0))
+    # SD카드 반대 짧은 끝면
+    cuts.append((sdw, by2cy(28.0), bz + 1.5, t, 15, 4))
+    return cuts
+
+
+def build_case_with_lid(l, w, h, clearance=2.5, wall=2.5, base=2.5,
+                        standoff_h=4.0, mounts=None, lid_t=3.0,
+                        gasket=True, screw="M3", ports=False, port_cuts=None):
+    """밀폐형 케이스(바디+뚜껑). 바디: 벽 막힘 + 보드 기둥 + 모서리 나사보스 + 가스켓 홈.
+    뚜껑: 모서리 나사 관통홀 + 안쪽 립. return (body, lid).  (방수/IP 지향)"""
+    pilot = {"M2.5": 2.1, "M3": 2.5}.get(screw, 2.5)
+    clear = {"M2.5": 2.8, "M3": 3.4}.get(screw, 3.4)
+    inner_l, inner_w = l + 2 * clearance, w + 2 * clearance
+    outer_l, outer_w = inner_l + 2 * wall, inner_w + 2 * wall
+    lift = standoff_h if (mounts and standoff_h > 0) else 0.0
+    inner_h = lift + h + 4.0
+    total_h = base + inner_h
+
+    outer = Pos(0, 0, total_h / 2) * Box(outer_l, outer_w, total_h)
+    inner = Pos(0, 0, base + inner_h / 2 + 0.1) * Box(inner_l, inner_w, inner_h + 0.2)
+    body = outer - inner
+
+    if mounts and standoff_h > 0:                       # 보드 고정 기둥
+        for (mx, my) in mounts:
+            body = body + Pos(mx, my, base + standoff_h / 2) * Cylinder(radius=3.0, height=standoff_h)
+            body = body - Pos(mx, my, base + standoff_h - 3 + 0.1) * Cylinder(radius=pilot / 2, height=6)
+
+    br = 3.5
+    corners = [(sx * (outer_l / 2 - br), sy * (outer_w / 2 - br)) for sx in (-1, 1) for sy in (-1, 1)]
+    for (cx, cy) in corners:                            # 모서리 나사 보스(벽 모서리)
+        body = body + Pos(cx, cy, total_h / 2) * Cylinder(radius=br, height=total_h)
+        body = body - Pos(cx, cy, total_h - 12 / 2 + 0.1) * Cylinder(radius=pilot / 2, height=12)
+
+    if port_cuts:                                       # 면별 포트 묶음 컷(파이 포트맵)
+        for (cx, cy, cz, sx, sy, sz) in port_cuts:
+            body = body - Pos(cx, cy, cz) * Box(sx, sy, sz)
+    elif ports:                                         # 범용: 긴 벽에 커넥터 높이만큼
+        board_bottom = base + lift
+        oz0, oz1 = board_bottom + 1.5, board_bottom + h - 1.0
+        ow = max(l - 10, 5)
+        for sign in (-1, 1):
+            body = body - Pos(0, sign * outer_w / 2, (oz0 + oz1) / 2) * \
+                Box(ow, wall * 4, max(oz1 - oz0, 2))
+
+    if gasket:                                          # 윗면 가스켓 홈(링)
+        gw, gd = 1.6, 1.5
+        cl, cw = (inner_l + outer_l) / 2, (inner_w + outer_w) / 2
+        ring_o = Pos(0, 0, total_h - gd / 2 + 0.1) * Box(cl + gw, cw + gw, gd + 0.2)
+        ring_i = Pos(0, 0, total_h - gd / 2 + 0.1) * Box(cl - gw, cw - gw, gd + 0.3)
+        body = body - (ring_o - ring_i)
+
+    lid_z = total_h + 6 + lid_t / 2                     # 조립뷰: 뚜껑을 위로 띄움
+    lid = Pos(0, 0, lid_z) * Box(outer_l, outer_w, lid_t)
+    for (cx, cy) in corners:
+        lid = lid - Pos(cx, cy, lid_z) * Cylinder(radius=clear / 2, height=lid_t + 1)
+    lid = lid + Pos(0, 0, lid_z - lid_t / 2 - 1.2) * Box(inner_l - 0.6, inner_w - 0.6, 2.4)  # 안쪽 립
+    return body, lid
+
+
+def build_profile(p) -> Part:
+    """평면 윤곽 → 두께만큼 돌출. 바닥 z=0, 위로 thickness. watertight 단일 솔리드."""
+    r = max(p.outer_d / 2.0, 0.5)
+    th = max(p.thickness, 0.1)
+    shape = (p.shape or "asterisk").lower()
+    if shape == "disc":
+        sk = Circle(radius=r)
+    elif shape == "polygon":
+        sk = RegularPolygon(radius=r, side_count=max(int(p.points or 6), 3))
+    elif shape == "rounded_rect":
+        cr = p.corner_radius if p.corner_radius and p.corner_radius > 0 else p.outer_d * 0.1
+        cr = max(min(cr, r - 0.01), 0.1)
+        sk = RectangleRounded(p.outer_d, p.outer_d, cr)
+    elif shape == "star":
+        n = max(int(p.points or 6), 3)
+        inner = r * 0.45
+        pts = []
+        for i in range(2 * n):
+            rad = r if i % 2 == 0 else inner
+            a = math.pi * i / n
+            pts.append((rad * math.cos(a), rad * math.sin(a)))
+        sk = Polygon(*pts)
+    else:  # asterisk — 중심에서 방사형으로 뻗은 둥근 막대 n개의 합집합(스픽 로고형)
+        n = max(int(p.arms or 6), 2)
+        aw = p.arm_width if p.arm_width and p.arm_width > 0 else p.outer_d * 0.12
+        aw = max(aw, 1.0)
+        sk = Circle(radius=aw * 0.6)                      # 중심 허브(연결 보장)
+        for i in range(n):
+            arm = Pos(r / 2, 0) * RectangleRounded(r, aw, aw / 2 * 0.99)
+            sk = sk + Rot(0, 0, 360.0 * i / n) * arm
+    return extrude(sk, amount=th)
+
+
+def _wedge_cutter(radius: float, height: float, deg: float) -> Part:
+    """+x 축을 중심으로 deg 만큼 벌어진 파이형 쐐기(C클립 입을 자른다). z 0..height 관통."""
+    half = math.radians(deg) / 2.0
+    steps = max(4, int(deg / 8))
+    pts = [(0.0, 0.0)]
+    for i in range(steps + 1):
+        a = -half + (2 * half) * i / steps
+        pts.append((radius * math.cos(a), radius * math.sin(a)))
+    return Pos(0, 0, -0.1) * extrude(Polygon(*pts), amount=height + 0.2)
+
+
+def build_clamp(c) -> Part:
+    """봉을 무는 C자 클립 + 선택적 부착물. 바닥 z=0. 입은 +x 로 벌어짐."""
+    ri = c.rod_d / 2.0 + max(c.clearance, 0.0)
+    R = ri + max(c.wall, 0.8)
+    h = max(c.height, 1.0)
+    part = Pos(0, 0, h / 2) * Cylinder(radius=R, height=h) \
+        - Pos(0, 0, h / 2) * Cylinder(radius=ri, height=h + 1)
+    if c.gap_deg and c.gap_deg > 0:
+        part = part - _wedge_cutter(R + 2, h, min(c.gap_deg, 300))
+    if c.attach == "pocket":
+        pw, pd, ph, w = max(c.pocket_w, 2), max(c.pocket_d, 2), max(c.pocket_h, 2), max(c.wall, 1.2)
+        cx = -(R - 2.0) - pd / 2.0                        # 입 반대쪽(-x)에 2mm 겹쳐 접합
+        part = part + Pos(cx, 0, ph / 2) * Box(pd, pw, ph)
+        part = part - Pos(cx, 0, w + ph / 2 + 0.1) * \
+            Box(max(pd - 2 * w, 1), max(pw - 2 * w, 1), ph)   # 위가 열린 주머니
+    elif c.attach == "plate":
+        tl, tw, tt = max(c.tab_l, 2), max(c.tab_w, 2), max(c.tab_t, 0.8)
+        cx = -(R - 2.0) - tl / 2.0
+        part = part + Pos(cx, 0, tt / 2) * Box(tl, tw, tt)
+    return part
+
+
+def build_ball(b) -> Part:
+    """속 빈 구 쉘(달 조명) + 바닥 소켓 구멍. 바닥극 z=0 에 앉힘. watertight."""
+    R = max(b.outer_d / 2.0, 1.0)
+    inner_r = max(R - max(b.wall, 0.4), 0.5)
+    shell = Sphere(radius=R) - Sphere(radius=inner_r)
+    if b.socket_d and b.socket_d > 0:
+        sh = b.socket_h if (b.socket_h and b.socket_h > 0) else (max(b.wall, 0.4) + 3)
+        shell = shell - Pos(0, 0, -R + sh / 2 - 0.1) * \
+            Cylinder(radius=b.socket_d / 2.0, height=sh)
+    return Pos(0, 0, R) * shell                           # 바닥극을 z=0 으로
+
+
+def build_from_contract(c):
+    """DesignContract → (Part, Fastener|None, hole_dia|None). kind로 분기."""
+    if c.kind == "container":
+        return build_container(c.container), None, None
+    if c.kind == "gear":
+        return build_gear(c.gear), None, None
+    if c.kind == "enclosure":
+        return build_enclosure(c.enclosure), None, None
+    if c.kind == "profile":
+        return build_profile(c.profile), None, None
+    if c.kind == "clamp":
+        return build_clamp(c.clamp), None, None
+    if c.kind == "ball":
+        return build_ball(c.ball), None, None
+    from ..fasteners.standards import get
+    f = get(c.fastener)
+    part = plate(c.plate.length, c.plate.width, c.plate.thickness)
+    if c.wall is not None:
+        part = part + wall(c.wall.x, c.plate.width, c.wall.height, c.wall.thickness)
+    dia = f.clearance(c.fit)
+    for h in c.holes:
+        part = drill(part, h.x, h.y, dia, c.plate.thickness)
+    return part, f, dia

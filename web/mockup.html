@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>RealCAD 시안</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Baloo+2:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+/* ---------- A: 미니멀 화이트 (Shapr3D) ---------- */
+[data-t="a"]{--bg:#f6f8fa;--panel:#fff;--ink:#1c2630;--mut:#8a97a2;--line:#e9edf1;
+  --brand:#2f6df6;--ok:#1f9d57;--bad:#e23d3d;--font:'Inter',system-ui;--num:'Inter';
+  --rad:12px;--btnrad:10px;--shadow:0 1px 3px rgba(20,30,40,.06);--head:1px solid var(--line)}
+/* ---------- B: 다크 엔지니어링 (Fusion) ---------- */
+[data-t="b"]{--bg:#12161c;--panel:#1a2029;--ink:#e6edf3;--mut:#8b98a6;--line:#2a333f;
+  --brand:#28c2d6;--ok:#36d08a;--bad:#ff6b6b;--font:'Inter',system-ui;--num:'JetBrains Mono';
+  --rad:8px;--btnrad:6px;--shadow:none;--head:1px solid var(--line)}
+/* ---------- C: 친근한 메이커 (Tinkercad) ---------- */
+[data-t="c"]{--bg:#fff7ef;--panel:#fff;--ink:#3a2f28;--mut:#a08a7a;--line:#f0e3d6;
+  --brand:#ff7a4d;--ok:#2bb673;--bad:#e8503a;--font:'Baloo 2',system-ui;--num:'Baloo 2';
+  --rad:18px;--btnrad:16px;--shadow:0 6px 18px rgba(255,140,90,.14);--head:none}
+body{font-family:var(--font);background:var(--bg);color:var(--ink);height:100vh;display:flex}
+.side{width:360px;background:var(--panel);border-right:var(--head);padding:20px;
+  display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow);overflow:auto}
+h1{font-size:19px;font-weight:700}h1 small{display:block;color:var(--mut);font-size:12px;font-weight:500;margin-top:2px}
+.pill{display:inline-block;font-size:11px;background:color-mix(in srgb,var(--brand) 14%,transparent);
+  color:var(--brand);padding:3px 9px;border-radius:20px;font-weight:600}
+textarea{width:100%;height:70px;padding:11px;border:1px solid var(--line);border-radius:var(--rad);
+  font:inherit;background:var(--bg);color:var(--ink);resize:none}
+.btn{border:0;border-radius:var(--btnrad);padding:12px;font-weight:700;font-family:inherit;
+  color:#fff;background:var(--brand);cursor:pointer;box-shadow:var(--shadow)}
+.btn.ghost{background:transparent;color:var(--brand);border:1.5px solid var(--brand)}
+.mic{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut)}
+.mic b{width:34px;height:34px;border-radius:50%;background:color-mix(in srgb,var(--brand) 14%,transparent);
+  color:var(--brand);display:grid;place-items:center;font-size:16px}
+.verdict{font-weight:700;padding:9px 12px;border-radius:var(--rad);
+  background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+ul{list-style:none;display:flex;flex-direction:column;gap:7px}
+li{font-size:12.5px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--rad);
+  border-left:3px solid var(--ok)}
+li .n{font-family:var(--num);color:var(--mut)}
+.c{font-weight:700;margin-right:5px}
+.dl{color:var(--brand);font-weight:600;font-size:13px;text-decoration:none}
+.view{flex:1;position:relative;display:grid;place-items:center;
+  background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--brand) 6%,var(--bg)),var(--bg))}
+.view img{max-width:88%;max-height:88%;object-fit:contain;filter:drop-shadow(0 12px 24px rgba(0,0,0,.12))}
+.tag{position:absolute;top:16px;left:18px;font-size:12px;color:var(--mut)}
+.badge{position:absolute;top:14px;right:18px;font-size:12px;font-weight:700;color:var(--brand)}
+</style></head>
+<body data-t="a">
+<aside class="side">
+  <div><h1>RealCAD<small>프롬프트 → 실제로 조립되는 CAD</small></h1></div>
+  <span class="pill" id="pill">미니멀 화이트</span>
+  <textarea>벽에 거는 브래킷, 80x50mm, 한쪽에 25mm 벽, 1/4-20 볼트 구멍 2개</textarea>
+  <div class="mic"><b>🎤</b> 말로 설명하기 (음성 입력)</div>
+  <button class="btn">설계하기</button>
+  <button class="btn ghost">✨ 그냥 알아서 해줘</button>
+  <div class="verdict">검증 통과 ✅ <span style="font-weight:500;font-size:12px">· 메타가 1회 수정</span></div>
+  <ul>
+    <li><span class="c">✅ [H2]</span>홀-볼트 공차 <span class="n">(7.14 / 7.14mm)</span> · ASME B18.2.8</li>
+    <li><span class="c">✅ [H1]</span>볼트 머리 간섭 없음 <span class="n">(0.00mm)</span></li>
+    <li><span class="c">✅ [H4]</span>연단거리 <span class="n">(13.0 / 9.52mm)</span></li>
+  </ul>
+  <a class="dl" href="#">⬇ STEP 파일 받기</a>
+</aside>
+<main class="view">
+  <div class="tag">마우스로 돌리기 · 휠로 확대</div>
+  <div class="badge" id="b">A안</div>
+  <img src="sample3d.jpg" alt="3D">
+</main>
+<script>
+  const t=new URLSearchParams(location.search).get('t')||'a';
+  document.body.dataset.t=t;
+  const names={a:['미니멀 화이트','A안'],b:['다크 엔지니어링','B안'],c:['친근한 메이커','C안']};
+  document.getElementById('pill').textContent=names[t][0];
+  document.getElementById('b').textContent=names[t][1];
+</script>
+</body></html>

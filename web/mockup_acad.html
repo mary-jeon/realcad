@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>RealCAD — AutoCAD style</title>
+<style>
+*{box-sizing:border-box;margin:0;font-family:'Segoe UI',system-ui,sans-serif}
+:root{--app:#2b2b2b;--panel:#363636;--panel2:#3f3f3f;--edge:#1f1f1f;--line:#4a4a4a;
+  --txt:#d9d9d9;--mut:#9a9a9a;--accent:#2a7de1;--ok:#5fd38d;--bad:#ff6b6b;--canvas:#20242a}
+body{height:100vh;display:flex;flex-direction:column;background:var(--app);color:var(--txt);font-size:13px}
+/* 상단 앱바 + 리본 */
+.appbar{display:flex;align-items:center;gap:10px;background:var(--edge);padding:6px 10px;border-bottom:1px solid #000}
+.alogo{width:22px;height:22px;border-radius:4px;background:#2a7de1;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px}
+.qtab{color:var(--mut);font-size:12px;padding:2px 8px}
+.qtab.on{color:#fff;border-bottom:2px solid var(--accent)}
+.ribbon{display:flex;gap:2px;background:var(--panel);border-bottom:1px solid var(--edge);padding:6px 8px}
+.group{display:flex;flex-direction:column;align-items:center;padding:0 10px;border-right:1px solid var(--line)}
+.grow{display:flex;gap:6px}
+.tool{width:46px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--txt);
+  padding:4px;border-radius:4px;cursor:pointer}
+.tool:hover{background:#4a4a4a;outline:1px solid var(--accent)}
+.tool .ic{font-size:17px}.tool small{font-size:10px;color:var(--mut)}
+.glabel{font-size:10px;color:var(--mut);margin-top:3px}
+/* 본체 */
+.body{flex:1;display:flex;min-height:0}
+.canvas{flex:1;position:relative;background:
+  linear-gradient(var(--canvas),var(--canvas)),
+  repeating-linear-gradient(0deg,transparent 0 23px,rgba(255,255,255,.035) 23px 24px),
+  repeating-linear-gradient(90deg,transparent 0 23px,rgba(255,255,255,.035) 23px 24px);
+  background-blend-mode:normal;display:grid;place-items:center;overflow:hidden}
+.canvas img{max-width:80%;max-height:82%;filter:drop-shadow(0 14px 30px rgba(0,0,0,.5))}
+.viewcube{position:absolute;top:16px;right:16px;width:56px;height:56px;border:1px solid #6a6a6a;
+  background:linear-gradient(135deg,#55606b,#3c454e);display:grid;place-items:center;color:#cfd6dd;
+  font-size:10px;transform:perspective(200px) rotateX(18deg) rotateY(-24deg)}
+.ucs{position:absolute;left:20px;bottom:18px;font-size:11px;color:#9aa}
+.ucs b{color:#ff5a5a}.ucs i{color:#5aff7a;font-style:normal}.ucs u{color:#5a9dff;text-decoration:none}
+.navbar{position:absolute;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;
+  gap:1px;background:#3a3a3a;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.navbar div{width:28px;height:26px;display:grid;place-items:center;color:#bbb;font-size:13px}
+.navbar div:hover{background:#4a4a4a}
+/* 우측 팔레트 */
+.palette{width:270px;background:var(--panel);border-left:1px solid var(--edge);display:flex;flex-direction:column}
+.ptitle{background:var(--panel2);padding:7px 10px;font-size:12px;color:#cfcfcf;border-bottom:1px solid var(--edge);
+  display:flex;justify-content:space-between}
+.pbody{padding:10px;display:flex;flex-direction:column;gap:7px;overflow:auto}
+.verdict{background:rgba(95,211,141,.14);color:var(--ok);font-weight:700;padding:7px 9px;border-radius:3px;font-size:12px}
+.row{font-size:12px;padding:7px 9px;background:var(--panel2);border-left:3px solid var(--ok);border-radius:2px}
+.row .n{color:var(--mut);font-family:'Consolas',monospace}
+.c{font-weight:700;color:#cfe3ff}
+. exp{color:var(--accent)}
+/* 명령줄 */
+.cmd{background:var(--edge);border-top:1px solid #000;padding:6px 10px;font-family:'Consolas',monospace;font-size:13px}
+.cmd .hist{color:var(--mut);font-size:12px;margin-bottom:3px}
+.cmd .in{display:flex;align-items:center;gap:8px;color:#eaeaea}
+.cmd .in .ps{color:var(--accent);font-weight:700}
+.cmd .mic{margin-left:auto;color:var(--mut)}
+.status{display:flex;align-items:center;gap:14px;background:var(--panel);border-top:1px solid var(--edge);
+  padding:4px 12px;font-size:11px;color:var(--mut)}
+.status .on{color:#cfe3ff}
+</style></head>
+<body>
+<div class="appbar">
+  <div class="alogo">R</div>
+  <b style="font-size:12px">RealCAD</b>
+  <span class="qtab on">홈</span><span class="qtab">삽입</span><span class="qtab">주석</span>
+  <span class="qtab">출력</span><span class="qtab">검증</span>
+  <span style="margin-left:auto;color:#9a9a9a;font-size:11px">도면1.rcd</span>
+</div>
+<div class="ribbon">
+  <div class="group"><div class="grow">
+    <div class="tool"><span class="ic">💬</span><small>설계</small></div>
+    <div class="tool"><span class="ic">✨</span><small>알아서</small></div>
+    <div class="tool"><span class="ic">🎤</span><small>음성</small></div>
+  </div><span class="glabel">생성</span></div>
+  <div class="group"><div class="grow">
+    <div class="tool"><span class="ic">📐</span><small>치수</small></div>
+    <div class="tool"><span class="ic">🔩</span><small>볼트</small></div>
+    <div class="tool"><span class="ic">🧩</span><small>조립</small></div>
+  </div><span class="glabel">부품</span></div>
+  <div class="group"><div class="grow">
+    <div class="tool"><span class="ic">✅</span><small>검증</small></div>
+    <div class="tool"><span class="ic">🖨️</span><small>프린터</small></div>
+    <div class="tool"><span class="ic">🧱</span><small>분할</small></div>
+  </div><span class="glabel">검증/출력</span></div>
+  <div class="group"><div class="grow">
+    <div class="tool"><span class="ic">⬇️</span><small>STEP</small></div>
+    <div class="tool"><span class="ic">🟫</span><small>STL</small></div>
+  </div><span class="glabel">내보내기</span></div>
+</div>
+<div class="body">
+  <div class="canvas">
+    <div class="viewcube">TOP</div>
+    <div class="navbar"><div>⌂</div><div>↺</div><div>🔍</div><div>✋</div></div>
+    <img src="sample3d.jpg" alt="3D">
+    <div class="ucs"><b>X</b> <i>Y</i> <u>Z</u> · UCS</div>
+  </div>
+  <div class="palette">
+    <div class="ptitle"><span>검증 리포트</span><span style="color:#777">▢ ✕</span></div>
+    <div class="pbody">
+      <div class="verdict">검증 통과 ✅ · 메타 1회 수정</div>
+      <div class="row"><span class="c">H2</span> 홀-볼트 공차 <span class="n">7.14/7.14</span> · B18.2.8</div>
+      <div class="row"><span class="c">H1</span> 볼트 머리 간섭 없음 <span class="n">0.00</span></div>
+      <div class="row"><span class="c">H4</span> 연단거리 <span class="n">13.0/9.52</span></div>
+      <div class="row"><span class="c">S2</span> 홀 간격 <span class="n">24.0/22.2</span></div>
+      <div style="color:var(--mut);font-size:11px;margin-top:4px">볼트: 1/4-20 UNC · 구멍 Ø7.14 · 2개</div>
+    </div>
+  </div>
+</div>
+<div class="cmd">
+  <div class="hist">명령: DESIGN "벽에 거는 브래킷 80x50, 25mm 벽, 1/4-20 볼트 2개" → 설계 완료, 검증 통과</div>
+  <div class="in"><span class="ps">명령 입력:</span> 자연어로 설계를 말하거나 명령을 입력하세요<span style="animation:none">▋</span>
+    <span class="mic">🎤 음성</span></div>
+</div>
+<div class="status">
+  <span class="on">모델</span><span>배치1</span>
+  <span style="margin-left:20px">1240.5, 318.0, 0.0</span>
+  <span style="margin-left:auto">격자</span><span>스냅</span><span>직교</span><span class="on">mm</span>
+</div>
+</body></html>
