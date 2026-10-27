@@ -64,6 +64,20 @@ Units: millimeters. First pick the "kind" that best fits the request:
    "socket_d":<mm bottom bulb-socket hole dia, 0=none>,"socket_h":<mm hole depth, optional>}}
    - Use for "moon lamp / ball / sphere / globe shade". Thin wall (~2mm) so slicers print a shell.
 
+8) "retrieve" — the request is an ORGANIC / FREEFORM / SCULPTED product that the
+   parametric primitives above CANNOT represent: ergonomic hand-held shapes, characters,
+   figurines, animals, bodies, vehicles, anatomical/anthropomorphic forms, sculptural art.
+   Examples: computer mouse, shoe/sneaker, action figure, animal, helmet, ergonomic grip/handle,
+   game controller, skull, bust, toy car, phone case molded to a logo.
+   Do NOT force these into plate/container (a box) or ball. Instead emit:
+{"kind":"retrieve","query":"<English search term, e.g. 'ergonomic computer mouse'>",
+ "note":"<one line: why no parametric primitive fits>"}
+   - "query" MUST be English (external libraries are indexed in English).
+   - ONLY use retrieve for clearly freeform/organic shapes. If ANY primitive above
+     (plate/container/gear/enclosure/profile/clamp/ball) can CONFIDENTLY represent the request,
+     use that primitive instead — never regress a box/cup/disc/sphere into retrieve.
+     When unsure, prefer the matching primitive over retrieve.
+
 Output JSON only for the single best kind."""
 
 

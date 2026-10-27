@@ -16,6 +16,7 @@ from ..agent.clarify import clarify, augment
 from ..agent.loop import run
 from ..contract.schema import DesignContract
 from ..printing.split import plan_split
+from ..retrieval.library import search_models, generate_3d, generation_status
 from ..fasteners.standards import get
 from ..geometry import builder as g
 from ..export import exporters as ex
@@ -82,6 +83,11 @@ def design(req: DesignReq):
 
 def _design(req: DesignReq):
     contract, _usage, _raw = plan(augment(req.prompt, req.answers))
+    if contract.kind == "retrieve":
+        # 파라메트릭 생성 불가 → 외부 라이브러리 리트리벌로 안내(박스로 억지 변환 금지).
+        r = contract.retrieve
+        return {"kind": "retrieve", "query": r.query, "note": r.note,
+                "hint": "파라메트릭 생성 불가 — 자유곡면은 /api/retrieve 로 외부 모델을 검색하세요."}
     return _respond(run(contract, max_iters=3))
 
 
@@ -132,6 +138,69 @@ def _respond(r):
             "OBJ": f"gen/{tok}.obj",
         },
     }
+
+
+class RetrieveReq(BaseModel):
+    prompt: str
+    source: str = "thingiverse"
+    limit: int = 5
+
+
+@app.post("/api/retrieve")
+def retrieve_ep(req: RetrieveReq):
+    """자유곡면(마우스·신발 등) → 플래너가 kind='retrieve'로 판정하면 외부 3D 라이브러리 검색.
+
+    파라메트릭 생성 가능(plate/container/...)하면 /api/design 을 쓰라는 힌트만 돌려준다.
+    TODO(후속): 후보 선택 → download_url에서 STL 내려받기 → watertight 검증 → 빌드볼륨 분할.
+    """
+    try:
+        contract, _usage, _raw = plan(req.prompt)
+        if contract.kind != "retrieve":
+            return {"kind": contract.kind,
+                    "hint": "파라메트릭 생성 가능 — /api/design 사용",
+                    "contract": contract.to_dict()}
+        r = contract.retrieve
+        candidates = search_models(r.query, source=req.source, limit=req.limit)
+        return {"kind": "retrieve", "query": r.query, "note": r.note,
+                "candidates": candidates}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class Generate3DReq(BaseModel):
+    prompt: str
+    art_style: str = "realistic"
+
+
+@app.post("/api/generate3d")
+def generate3d_ep(req: Generate3DReq):
+    """자유곡면 '생성'(텍스트→3D, Meshy). 플래너가 kind='retrieve'(자유곡면)로 보면 생성 작업 제출.
+
+    바로 메시가 나오지 않고 task_id를 돌려준다 → /api/generate3d/status 로 폴링.
+    파라메트릭 생성 가능하면 /api/design 힌트만 돌려준다.
+    """
+    try:
+        contract, _usage, _raw = plan(req.prompt)
+        query = contract.retrieve.query if contract.kind == "retrieve" else req.prompt
+        if contract.kind != "retrieve":
+            # 파라메트릭으로 되는 건 굳이 생성 안 하고 안내(원하면 그래도 생성 가능)
+            job = generate_3d(req.prompt, art_style=req.art_style)
+            return {"kind": contract.kind,
+                    "hint": "파라메트릭 생성 가능 — 더 정밀하려면 /api/design 사용",
+                    "generation": job}
+        return {"kind": "retrieve", "query": query, "note": contract.retrieve.note,
+                "generation": generate_3d(query, art_style=req.art_style)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/generate3d/status")
+def generate3d_status_ep(task_id: str):
+    """텍스트→3D 생성 작업 상태·결과(메시 URL) 조회."""
+    try:
+        return generation_status(task_id)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/api/design_photo")
@@ -230,7 +299,8 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
 @app.post("/api/split_upload")
 async def split_upload(model: UploadFile = File(...),
                        bx: float = Form(256.0), by: float = Form(256.0), bz: float = Form(256.0),
-                       target_max: float = Form(0.0), method: str = Form("smart")):
+                       target_max: float = Form(0.0), method: str = Form("smart"),
+                       dowels: bool = Form(True)):
     """임포트한 대형 메시(STL/OBJ/3MF/PLY)를 빌드볼륨에 맞춰 분할 + 정렬핀 + 검증.
 
     method="smart"(기본, 관절·돌출부 선분리 후 크기분할) / "chopper"(최소 조각) / "grid"(축격자).
@@ -250,11 +320,11 @@ async def split_upload(model: UploadFile = File(...),
         tm = (target_max or None)
         # smart=관절·돌출부 선분리(자연 솔기) / chopper=최소 조각 / grid=축정렬 격자
         if method == "grid":
-            r = grid_split(m, build=build, target_max=tm, dowels=True)
+            r = grid_split(m, build=build, target_max=tm, dowels=dowels)
         elif method == "chopper":
-            r = partition(m, build=build, target_max=tm, dowels=True)
+            r = partition(m, build=build, target_max=tm, dowels=dowels)
         else:
-            r = smart_partition(m, build=build, target_max=tm, dowels=True)
+            r = smart_partition(m, build=build, target_max=tm, dowels=dowels)
         v = verify(r, build=build)
 
         urls = []

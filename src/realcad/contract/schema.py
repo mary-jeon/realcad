@@ -3,7 +3,8 @@
 
 kind: plate(판/브래킷+볼트구멍) · container(통/컵/박스, 벽+바닥) · gear(스퍼 기어)
     · enclosure(보드 케이스) · profile(평면 커스텀 실루엣 돌출) · clamp(봉 무는 C클립)
-    · ball(속 빈 구 쉘, 달 조명).
+    · ball(속 빈 구 쉘, 달 조명)
+    · retrieve(파라메트릭 기본형으로 못 만드는 유기적 자유곡면 — 외부 3D 라이브러리 검색으로 넘김).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -99,6 +100,13 @@ class Ball:
 
 
 @dataclass
+class Retrieve:
+    """파라메트릭 기본형으로 표현 불가 → 외부 3D 모델 라이브러리에서 검색해 불러온다."""
+    query: str = ""               # 외부 라이브러리 검색어(영문)
+    note: str = ""                # 왜 파라메트릭 생성이 불가한지 한 줄
+
+
+@dataclass
 class DesignContract:
     kind: str = "plate"
     plate: Plate | None = None
@@ -112,10 +120,16 @@ class DesignContract:
     profile: Profile | None = None
     clamp: Clamp | None = None
     ball: Ball | None = None
+    retrieve: Retrieve | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "DesignContract":
         kind = d.get("kind", "plate")
+        if kind == "retrieve":
+            rd = d.get("retrieve", d)
+            return cls(kind="retrieve", retrieve=Retrieve(
+                query=str(rd.get("query", "")).strip(),
+                note=str(rd.get("note", "")).strip()))
         if kind == "enclosure":
             ed = d.get("enclosure", d)
             return cls(kind="enclosure", enclosure=Enclosure(
@@ -208,6 +222,10 @@ class DesignContract:
             return {"kind": "ball", "ball": {
                 "outer_d": b.outer_d, "wall": b.wall,
                 "socket_d": b.socket_d, "socket_h": b.socket_h}}
+        if self.kind == "retrieve":
+            r = self.retrieve
+            return {"kind": "retrieve", "retrieve": {
+                "query": r.query, "note": r.note}}
         return {
             "kind": "plate",
             "plate": {"length": self.plate.length, "width": self.plate.width,

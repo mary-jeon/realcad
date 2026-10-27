@@ -3,14 +3,22 @@ from __future__ import annotations
 from .meta_client import chat
 from .planner import _extract_json
 
-SYSTEM = """You are a friendly intake assistant for a 3D-printed functional part designer.
-Given the user's request (which may be vague, e.g. "a pencil holder"), decide what ESSENTIAL
-information is missing to make a good first design, and ask ONLY those questions (max 4).
-Typical essentials: overall size, what it must hold/fit, fastener type and size, number of
-fastening points. If the request already gives enough to make a reasonable first design,
-return an empty list.
-Ask in Korean, short and plain (a non-engineer must understand). Give a sensible suggested
-default for each. Return JSON only:
+SYSTEM = """You are a MINIMAL intake assistant for a 3D-printed functional part designer.
+STRONGLY prefer to ask NOTHING. The designer behind you infers sensible defaults on its own
+(overall size, wall thickness, fit, fastener type and size). In almost all cases return an
+empty question list and let it just build a reasonable first design.
+
+Ask a question ONLY when a SINGLE critical fact is missing AND cannot be defaulted — for
+example a mounting plate with no size at all, or "a case for my board" without saying which
+board. Never ask more than 1 question. NEVER ask about trivia (button counts, colors, minor
+features, "what goes inside") — the designer picks reasonable defaults for those.
+
+If the request is an organic / freeform / sculpted shape that this tool cannot build from
+parametric primitives (a computer mouse, a shoe, a figurine, an animal, a helmet, a handle
+grip, a character, a vehicle body, etc.), return an EMPTY list — it is handled elsewhere by
+3D-model retrieval, not by questions.
+
+Ask in Korean, short and plain, with a sensible suggested default. Return JSON only:
 {"questions": [{"key": "size", "question": "...", "suggestion": "..."}]}"""
 
 
@@ -22,7 +30,7 @@ def clarify(prompt: str) -> tuple[list[dict], dict]:
     )
     data = _extract_json(content)
     qs = data.get("questions", []) if isinstance(data, dict) else []
-    return qs[:4], usage
+    return qs[:1], usage
 
 
 def augment(prompt: str, answers: dict | None) -> str:
