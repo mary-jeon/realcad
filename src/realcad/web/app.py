@@ -3,6 +3,7 @@
 실행: PYTHONPATH=src .venv/bin/python -m uvicorn realcad.web.app:app --port 8750
 """
 from __future__ import annotations
+import re
 import uuid
 from pathlib import Path
 
@@ -14,10 +15,12 @@ from pydantic import BaseModel
 from ..agent.planner import plan, plan_photo
 from ..agent.clarify import clarify, augment
 from ..agent.loop import run
+from ..agent import codegen
+from ..agent import editor
 from ..contract.schema import DesignContract
 from ..printing.split import plan_split
 from ..retrieval.library import search_models, generate_3d, generation_status
-from ..fasteners.standards import get
+from ..fasteners.standards import resolve as _resolve_fastener
 from ..geometry import builder as g
 from ..export import exporters as ex
 
@@ -26,7 +29,57 @@ WEB = ROOT / "web"
 GEN = WEB / "gen"
 GEN.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="RealCAD")
+import os as _os
+# 공개 터널 등에 노출할 때: REALCAD_TOKEN 환경변수를 주면 모든 /api/* 요청에 X-RealCAD-Token 헤더(또는 ?token=)를 요구한다.
+_TOKEN = _os.environ.get("REALCAD_TOKEN", "").strip()
+app = FastAPI(title="RealCAD", docs_url=None, redoc_url=None, openapi_url=None)
+
+MAX_UPLOAD = 60 * 1024 * 1024          # 업로드 60MB 상한
+_MESH_EXT = {"stl", "obj", "3mf", "ply", "step", "stp"}
+_IMG_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _safe_err(e: Exception) -> str:
+    """예외 메시지에서 서버 절대경로를 지운다(클라이언트 노출 최소화)."""
+    return f"{type(e).__name__}: {e}".replace(str(ROOT), "<realcad>")
+
+
+def _ext(filename: str | None, allowed: set[str]) -> str:
+    name = (filename or "").lower()
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    if not re.fullmatch(r"[a-z0-9]{1,5}", ext) or ext not in allowed:
+        raise ValueError(f"지원하지 않는 파일 형식: .{ext or '?'} (허용: {', '.join(sorted(allowed))})")
+    return ext
+
+
+async def _read_limited(up: UploadFile, limit: int = MAX_UPLOAD) -> bytes:
+    data = await up.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"파일이 너무 큽니다(최대 {limit // 1024 // 1024}MB)")
+    return data
+
+
+@app.middleware("http")
+async def _auth_mw(request, call_next):
+    if _TOKEN and request.url.path.startswith("/api/"):
+        tok = request.headers.get("x-realcad-token") or request.query_params.get("token")
+        if tok != _TOKEN:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"error": "인증 필요(X-RealCAD-Token)"}, status_code=401)
+    return await call_next(request)
+
+# 대화형 편집용 세션 상태(프로세스 메모리). sid → {"mode":"code","code":str}
+#                                           또는 {"mode":"param","contract":dict}
+SESSIONS: dict[str, dict] = {}
+_SESS_MAX = 200
+
+
+def _new_sid() -> str:
+    sid = uuid.uuid4().hex[:12]
+    if len(SESSIONS) > _SESS_MAX:          # 오래된 것부터 버려 메모리 누수 방지
+        for k in list(SESSIONS)[: len(SESSIONS) - _SESS_MAX]:
+            SESSIONS.pop(k, None)
+    return sid
 
 
 class ClarifyReq(BaseModel):
@@ -64,7 +117,7 @@ def split_ep(req: SplitReq):
                 "dowel": res["dowel"], "size": [round(x, 1) for x in res["size"]],
                 "build": req.build, "pieces": urls}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 def _finding(f) -> dict:
@@ -78,29 +131,42 @@ def design(req: DesignReq):
     try:
         return _design(req)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 def _design(req: DesignReq):
     contract, _usage, _raw = plan(augment(req.prompt, req.answers))
     if contract.kind == "retrieve":
-        # 파라메트릭 생성 불가 → 외부 라이브러리 리트리벌로 안내(박스로 억지 변환 금지).
+        # 유기형(자유곡면) → 외부 API 없이 로컬 코드생성으로 곡면 제작(loft/타원체/스윕/필렛).
+        # 실패하면 그때만 리트리벌 안내. 박스로 억지 변환이 아니라 '유기형 기법'으로 생성.
         r = contract.retrieve
+        tok = uuid.uuid4().hex[:8]
+        stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
+        cr = codegen.design_code(req.prompt, stl_path, step_path, max_iters=3)
+        if cr["ok"]:
+            out = _emit_code(tok, stl_path, step_path, cr, _new_sid())
+            out["organic"] = True
+            return out
+        hint = ("자유곡면을 로컬로 못 만들었어요 — 외부 모델 검색(/api/retrieve)으로 받으세요." if not r.parts
+                else f"{len(r.parts)}개 부품으로 분해했어요. 각 부품을 /api/retrieve 또는 /api/generate3d 로.")
         return {"kind": "retrieve", "query": r.query, "note": r.note,
-                "hint": "파라메트릭 생성 불가 — 자유곡면은 /api/retrieve 로 외부 모델을 검색하세요."}
+                "parts": r.parts, "hint": hint}
     return _respond(run(contract, max_iters=3))
 
 
-def _respond(r):
+def _respond(r, sid: str | None = None):
     c, part = r["contract"], r["part"]
 
     bolts = None
     fastener_name = "-"
     hole_dia = None
     if c.kind == "plate":
-        f = get(c.fastener)
-        fastener_name = f.name
-        hole_dia = round(f.clearance(c.fit), 2)
+        f, _exact, _note = _resolve_fastener(c.fastener)
+        fastener_name = f.name if _exact else f"{f.name} (요청 {c.fastener!r} 미지원)"
+        if getattr(c, "hole_type", "through") == "tapped":
+            hole_dia = round(c.hole_dia or (f.nominal_dia_mm - 1.0825 * f.pitch_mm), 2)
+        else:
+            hole_dia = round(c.hole_dia or f.clearance(c.fit), 2)
         grip = c.plate.thickness + 5          # 판을 관통해 살짝만 나오게(렌더 깔끔)
         for h in c.holes:
             b = g.place(g.hex_bolt_solid(f, grip), h.x, h.y)
@@ -116,9 +182,19 @@ def _respond(r):
     (GEN / f"{tok}.obj").write_text(tm.export(file_type="obj"))
     (GEN / f"{tok}.3mf").write_bytes(tm.export(file_type="3mf"))
     bolts_url = None
+    bom = []
     if bolts is not None:
         ex.to_stl(bolts, GEN / f"{tok}_bolts.stl")
         bolts_url = f"gen/{tok}_bolts.stl"
+    if c.kind == "plate":
+        from ..export.bom import make_bom, write_bom_csv
+        _eng = next((x.actual for x in r["findings"] if x.code == "H3"), None)
+        bom = make_bom(c, f, r["hole_dia"] if r.get("hole_dia") else hole_dia or 0.0, _eng)
+        write_bom_csv(bom, GEN / f"{tok}_bom.csv")
+
+    # 대화형 편집 세션에 현재 계약 저장(후속 "더 크게/구멍 추가" 수정의 시드)
+    sid = sid or _new_sid()
+    SESSIONS[sid] = {"mode": "param", "contract": c.to_dict()}
 
     return {
         "passed": r["summary"]["passed"],
@@ -129,8 +205,54 @@ def _respond(r):
         "hole_dia": hole_dia,
         "findings": [_finding(x) for x in r["findings"]],
         "contract": c.to_dict(),
+        "session": sid,
         "part_url": f"gen/{tok}_part.stl",
         "bolts_url": bolts_url,
+        "bom": bom,
+        "downloads": {
+            "STL": f"gen/{tok}_part.stl",
+            "3MF": f"gen/{tok}.3mf",
+            "STEP": f"gen/{tok}.step",
+            "OBJ": f"gen/{tok}.obj",
+            **({"BOM": f"gen/{tok}_bom.csv"} if bom else {}),
+        },
+    }
+
+
+class DesignCodeReq(BaseModel):
+    prompt: str
+    answers: dict | None = None
+
+
+def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> dict:
+    """코드생성/편집 성공 결과(r) → 웹 응답. STL/STEP 은 sandbox 가 이미 썼고 OBJ/3MF 변환."""
+    ex._clean_degenerate(stl_path)              # 극점 퇴화면 정리(watertight)
+    import trimesh
+    tm = trimesh.load(str(stl_path))
+    (GEN / f"{tok}.obj").write_text(tm.export(file_type="obj"))
+    (GEN / f"{tok}.3mf").write_bytes(tm.export(file_type="3mf"))
+    # 후속 편집 시드로 코드 보관 + 되돌리기용 히스토리 적립(직전 성공본을 쌓음, 최근 20개)
+    _prev = SESSIONS.get(sid)
+    _hist = (_prev.get("hist") if _prev else None) or []
+    if _prev and _prev.get("mode") == "code" and _prev.get("code") and not r.get("_norecord"):
+        _hist = (_hist + [_prev["code"]])[-20:]
+    SESSIONS[sid] = {"mode": "code", "code": r["code"], "hist": _hist}
+    _hard = [f for f in (r.get("findings") or []) if f.get("severity") == "HARD"]
+    return {
+        "passed": all(f.get("ok") for f in _hard),
+        "iters": r["iters"],
+        "fixed": r["fixed"],
+        "kind": "code",
+        "mode": "code",
+        "fastener": "-",
+        "hole_dia": None,
+        "findings": r["findings"],
+        "code": r["code"],
+        "info": r["info"],
+        "measure": r.get("measure"),
+        "session": sid,
+        "part_url": f"gen/{tok}_part.stl",
+        "bolts_url": None,
         "downloads": {
             "STL": f"gen/{tok}_part.stl",
             "3MF": f"gen/{tok}.3mf",
@@ -138,6 +260,111 @@ def _respond(r):
             "OBJ": f"gen/{tok}.obj",
         },
     }
+
+
+@app.post("/api/design_code")
+def design_code_ep(req: DesignCodeReq):
+    """코드생성 CAD — AI가 build123d 코드를 직접 짜서 임의 기계부품 생성(격리 실행·자동수정).
+
+    기본형 메뉴로 못 하는 "뭐든 다" 경로. 유기적 조각 형상은 여전히 불가(retrieve/Meshy).
+    """
+    try:
+        prompt = augment(req.prompt, req.answers)
+        tok = uuid.uuid4().hex[:8]
+        stl_path = GEN / f"{tok}_part.stl"
+        step_path = GEN / f"{tok}.step"
+        r = codegen.design_code(prompt, stl_path, step_path, max_iters=3)
+        if not r["ok"]:
+            return {"error": r["error"], "code": r.get("code", ""),
+                    "iters": r.get("iters", 0), "mode": "code"}
+        return _emit_code(tok, stl_path, step_path, r, _new_sid())
+    except Exception as e:
+        return {"error": _safe_err(e), "mode": "code"}
+
+
+class EditReq(BaseModel):
+    session: str
+    instruction: str
+
+
+@app.post("/api/edit")
+def edit_ep(req: EditReq):
+    """대화형 편집 — 세션의 현재 설계(코드 또는 계약)를 후속 지시로 최소 수정(전체 재생성 아님).
+
+    예) 코드: "리모컨 만들어줘"(design_code) → "버튼 5개 추가해줘"(edit)
+        계약: "텀블러 만들어줘"(design) → "더 크게, 두께 3mm로"(edit)
+    """
+    inst = (req.instruction or "").strip()
+    if not inst:
+        return {"error": "수정 내용을 입력하세요."}
+    st = SESSIONS.get(req.session)
+    if not st:
+        return {"error": "세션이 만료됐어요. 먼저 설계를 새로 생성한 뒤 수정하세요.",
+                "expired": True}
+    try:
+        if st["mode"] == "code":
+            tok = uuid.uuid4().hex[:8]
+            stl_path = GEN / f"{tok}_part.stl"
+            step_path = GEN / f"{tok}.step"
+            r = editor.design_edit_code(st["code"], inst, stl_path, step_path, max_iters=3)
+            if not r["ok"]:
+                # 수정 실패 — 세션 코드는 직전 성공본 유지(되돌릴 수 있게)
+                return {"error": r["error"], "code": r.get("code", ""),
+                        "iters": r.get("iters", 0), "mode": "code",
+                        "session": req.session, "edited": True}
+            out = _emit_code(tok, stl_path, step_path, r, req.session)
+            out["edited"] = True
+            return out
+        # 파라메트릭 계약 편집
+        prior = st["contract"]
+        new_c, _u, _raw = editor.edit_contract(prior, inst)
+        if new_c.kind == "retrieve":
+            return {"kind": "retrieve", "query": new_c.retrieve.query,
+                    "note": new_c.retrieve.note, "session": req.session, "edited": True,
+                    "hint": "이 수정은 파라메트릭으로 표현 불가 — 자유곡면은 생성/리트리벌 경로예요."}
+        out = _respond(run(new_c, max_iters=3), sid=req.session)
+        out["edited"] = True
+        out["diff"] = editor.diff_contract(prior, new_c.to_dict())
+        return out
+    except Exception as e:
+        return {"error": _safe_err(e), "session": req.session}
+
+
+class UndoReq(BaseModel):
+    session: str
+
+
+@app.post("/api/undo")
+def undo_ep(req: UndoReq):
+    """되돌리기 — 세션의 직전 버전(코드)으로 복원. '안 맞으면 고쳐'의 되감기.
+
+    plain undo(브랜칭): 되돌린 뒤 다시 수정하면 이후 버전은 버려진다. 코드 모드 전용.
+    """
+    from ..agent import sandbox
+    st = SESSIONS.get(req.session)
+    if not st:
+        return {"error": "세션이 만료됐어요. 먼저 설계를 새로 생성하세요.", "expired": True}
+    if st.get("mode") != "code":
+        return {"no_history": True, "msg": "이 설계는 되돌리기를 지원하지 않아요(코드 생성/수정만 가능)."}
+    hist = list(st.get("hist") or [])
+    if not hist:
+        return {"no_history": True, "msg": "더 되돌릴 게 없어요 — 첫 버전이에요."}
+    prev_code = hist.pop()                       # 직전 버전을 현재로
+    try:
+        tok = uuid.uuid4().hex[:8]
+        stl_path = GEN / f"{tok}_part.stl"
+        step_path = GEN / f"{tok}.step"
+        info = sandbox.execute_to_files(prev_code, stl_path, step_path)
+        r = {"code": prev_code, "info": info, "findings": codegen._findings(info),
+             "iters": 0, "fixed": False, "_norecord": True}
+        out = _emit_code(tok, stl_path, step_path, r, req.session)
+        SESSIONS[req.session]["hist"] = hist     # 되돌린 버전은 히스토리에서 제거(한 칸 뒤로)
+        out["edited"] = True
+        out["undone"] = True
+        out["remaining"] = len(hist)
+        return out
+    except Exception as e:
+        return {"error": f"되돌리기 실패: {_safe_err(e)}", "session": req.session}
 
 
 class RetrieveReq(BaseModel):
@@ -164,7 +391,7 @@ def retrieve_ep(req: RetrieveReq):
         return {"kind": "retrieve", "query": r.query, "note": r.note,
                 "candidates": candidates}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 class Generate3DReq(BaseModel):
@@ -172,8 +399,18 @@ class Generate3DReq(BaseModel):
     art_style: str = "realistic"
 
 
+_EXTERNAL = _os.environ.get("REALCAD_ENABLE_EXTERNAL", "").strip() == "1"
+
+
 @app.post("/api/generate3d")
 def generate3d_ep(req: Generate3DReq):
+    if not _EXTERNAL:   # 해커톤 제출 빌드: 런타임 AI 모델은 Meta 만. 외부 텍스트→3D(Meshy)는 옵트인
+        return {"error": "외부 3D 생성 모델은 이 빌드에서 꺼져 있어요 (REALCAD_ENABLE_EXTERNAL=1 로 켤 수 있음). "
+                         "RealCAD 의 런타임 AI 는 Meta Muse Spark 만 사용합니다."}
+    return _generate3d(req)
+
+
+def _generate3d(req: Generate3DReq):
     """자유곡면 '생성'(텍스트→3D, Meshy). 플래너가 kind='retrieve'(자유곡면)로 보면 생성 작업 제출.
 
     바로 메시가 나오지 않고 task_id를 돌려준다 → /api/generate3d/status 로 폴링.
@@ -191,7 +428,7 @@ def generate3d_ep(req: Generate3DReq):
         return {"kind": "retrieve", "query": query, "note": contract.retrieve.note,
                 "generation": generate_3d(query, art_style=req.art_style)}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 @app.get("/api/generate3d/status")
@@ -200,19 +437,43 @@ def generate3d_status_ep(task_id: str):
     try:
         return generation_status(task_id)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 @app.post("/api/design_photo")
 async def design_photo(image: UploadFile = File(...), note: str = Form("")):
     try:
-        data = await image.read()
         mime = image.content_type or "image/jpeg"
+        if mime not in _IMG_MIME:
+            return {"error": "이미지는 JPEG/PNG/WebP만 받아요."}
+        data = await _read_limited(image, 20 * 1024 * 1024)
         url = f"data:{mime};base64," + base64.b64encode(data).decode()
         contract, _u, _r = plan_photo(url, note)
-        return _respond(run(contract, max_iters=3))
+        r = contract.retrieve if contract.kind == "retrieve" else None
+        blob = (f"{r.query} {r.note}" if r else note).lower()
+        # 단어 경계로만 — "mecha"가 "mechanical"에, "body"가 "nobody"에 걸리면 안 됨
+        organic = bool(re.search(
+            r"\b(figure|figurine|character|mech|mecha|gundam|robot|animal|person|people|human|"
+            r"humanoid|body|torso|bust|statue|sculpture|creature|doll|mascot|anatomical|skull|"
+            r"face|dragon|dog|cat|bird|fish|flower|tree)\b", blob))
+        # 유기형(피규어·동물·사람) → 리트리벌/부품분해. 나머지는 전부 사진 코드생성
+        # (고정 프리미티브 8종보다 코드생성이 훨씬 유능 — 키보드를 '통'으로 환원하는 오분류 방지).
+        if contract.kind == "retrieve" and organic:
+            hint = ("사진 속 물체가 자유곡면이라 파라메트릭/코드로 못 만들어 — 리트리벌/생성으로." if not r.parts
+                    else f"사진 속 물체를 {len(r.parts)}개 부품으로 분해했어요. 각 부품을 리트리벌/생성으로 받으세요.")
+            return {"kind": "retrieve", "query": r.query, "note": r.note, "parts": r.parts, "hint": hint}
+        tok = uuid.uuid4().hex[:8]
+        stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
+        cr = codegen.design_code_photo(url, note or (r.query if r else ""), stl_path, step_path, max_iters=3)
+        if cr["ok"]:
+            return _emit_code(tok, stl_path, step_path, cr, _new_sid())
+        # 코드생성 실패 시: 플래너가 기본형을 골랐으면 그걸로, 아니면 리트리벌 안내
+        if contract.kind != "retrieve":
+            return _respond(run(contract, max_iters=3))
+        return {"kind": "retrieve", "query": r.query, "note": r.note, "parts": r.parts,
+                "hint": "사진 속 물체를 코드로 못 만들었어요 — 리트리벌/생성으로 받으세요."}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 @app.post("/api/wrap")
@@ -222,9 +483,8 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
     try:
         import trimesh
         from ..verify import checks as v
-        data = await model.read()
-        name = (model.filename or "ref").lower()
-        ext = name.rsplit(".", 1)[-1] if "." in name else "stl"
+        ext = _ext(model.filename, _MESH_EXT)
+        data = await _read_limited(model)
         tok = uuid.uuid4().hex[:8]
         raw = GEN / f"{tok}_raw.{ext}"
         raw.write_bytes(data)
@@ -293,7 +553,7 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
                           "STEP": f"gen/{tok}_case.step", "OBJ": f"gen/{tok}_case.obj"},
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 @app.post("/api/split_upload")
@@ -309,9 +569,8 @@ async def split_upload(model: UploadFile = File(...),
         import trimesh
         from ..printing.mesh_split import grid_split, verify
         from ..printing.chopper import partition, smart_partition
-        data = await model.read()
-        name = (model.filename or "ref").lower()
-        ext = name.rsplit(".", 1)[-1] if "." in name else "stl"
+        ext = _ext(model.filename, _MESH_EXT)
+        data = await _read_limited(model)
         tok = uuid.uuid4().hex[:8]
         raw = GEN / f"{tok}_in.{ext}"
         raw.write_bytes(data)
@@ -345,7 +604,7 @@ async def split_upload(model: UploadFile = File(...),
             "pieces": v["pieces"], "piece_urls": urls, "pins_url": pin_url,
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_err(e)}
 
 
 # 정적 프론트(index.html 등)를 / 에 마운트 — API 라우트 뒤에 둬야 함

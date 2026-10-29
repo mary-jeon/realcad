@@ -12,11 +12,26 @@ def build_and_verify(c: DesignContract):
 
     if c.kind == "plate":
         L, W = c.plate.length, c.plate.width
-        findings.append(v.h2_hole_clearance(dia, f, c.fit))
+        if not getattr(c, "fastener_exact", True):
+            findings.append(v.f0_unknown_fastener(c.fastener, f, getattr(c, "fastener_note", "")))
+        from .geometry.analyze import measure_hole_dia
         wall_solid = (make_wall(c.wall.x, W, c.wall.height, c.wall.thickness)
                       if c.wall else None)
         bolts = []
+        tapped = getattr(c, "hole_type", "through") == "tapped"
+        if tapped:
+            from .verify.engagement import engagement_raycast
         for i, h in enumerate(c.holes, 1):
+            md = measure_hole_dia(part, h.x, h.y)                 # 커널에서 실제 구멍 지름 실측
+            if tapped:
+                # 탭 구멍: 볼트 축선을 판에 레이캐스트해 실제 물리는 길이(판 두께 − 벽 등) 실측
+                # 축선은 구멍(빈 공간)이라 0 이 나온다 → 나사산이 무는 반지름(0.47D, 탭드릴 밖·외경 안)에서 쏜다
+                rr = 0.47 * f.nominal_dia_mm
+                eng = max(engagement_raycast(part, (h.x + rr, h.y, 50.0), (0, 0, -1)),
+                          engagement_raycast(part, (h.x - rr, h.y, 50.0), (0, 0, -1)))
+                findings.append(v.h3_engagement(eng, f, getattr(c, "material", "pla")))
+            else:
+                findings.append(v.h2_hole_clearance(md if md is not None else 0.0, f, c.fit, measured=True))
             b = place(hex_bolt_solid(f, 20), h.x, h.y)
             bolts.append(b)
             if wall_solid is not None:
@@ -26,6 +41,8 @@ def build_and_verify(c: DesignContract):
         for i in range(len(bolts)):
             for j in range(i + 1, len(bolts)):
                 findings.append(v.h1_interference(bolts[i], bolts[j], f"hole{i+1}-hole{j+1}"))
+                hi, hj = c.holes[i], c.holes[j]
+                findings.append(v.s2_hole_spacing(((hi.x - hj.x) ** 2 + (hi.y - hj.y) ** 2) ** 0.5, f))
         findings.append(v.m_min_wall(c.plate.thickness, label="판 두께 / plate thickness"))
 
     elif c.kind == "container":
@@ -35,12 +52,14 @@ def build_and_verify(c: DesignContract):
 
     elif c.kind == "gear":
         findings.append(v.m_min_wall(c.gear.module, label="이뿌리 두께 / tooth (≈module)"))
+        findings.append(v.g1_mesh(part, max(int(c.gear.teeth), 6), c.gear.module, c.gear.thickness))
 
     elif c.kind == "enclosure":
         from .geometry.builder import board_spec
         e = c.enclosure
         b = board_spec(e.board)
-        findings.append(v.e_board(e.board, b["dx"], b["dy"], b["screw"]))
+        findings.append(v.e_board(part, e.board, b["holes"], b["pilot"], b["screw"]))
+        findings.append(v.e_floor(part, b["holes"]))
         findings.append(v.m_min_wall(e.wall, label="벽 두께 / wall"))
         findings.append(v.m_min_wall(e.base, label="바닥 두께 / base"))
 
@@ -54,4 +73,5 @@ def build_and_verify(c: DesignContract):
         findings.append(v.m_min_wall(c.ball.wall, label="쉘 두께 / shell wall"))
 
     findings.append(v.m_manifold(part))
+    findings.append(v.c1_unfused(part))
     return part, f, dia, findings, v.summarize(findings)

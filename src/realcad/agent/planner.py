@@ -14,16 +14,24 @@ Units: millimeters. First pick the "kind" that best fits the request:
  "plate":{"length":<mm>,"width":<mm>,"thickness":<mm>},
  "wall":{"x":<mm>,"height":<mm>,"thickness":<mm>} | null,
  "fastener":"1/4-20","fit":"close|normal|loose",
+ "hole_type":"through|tapped","material":"pla|petg|abs|aluminum|steel","mate_thickness":<mm or 0>,
+ "washer":false,"nut":true,
  "holes":[{"x":<mm>,"y":<mm>}, ...]}
+ - hole_type: "through" (default; bolt passes through, nut behind) or "tapped" (screw threads directly into this part —
+   use when the user says tapped/threaded/screw into the plate). material defaults to "pla" (3D-printed).
+   mate_thickness = thickness of the thing this plate bolts onto, if the user says it (else 0).
  - Plate centered at origin; x in [-length/2,length/2], y in [-width/2,width/2].
  - Hole centers >= 1.5x bolt dia from any edge; bolt heads clear of the wall (1/4-20 head ~12.8mm).
- - Choose fastener ONLY from: #4-40,#6-32,#8-32,#10-24,1/4-20,5/16-18,3/8-16,1/2-13 (inch), M3,M4,M5,M6,M8. Do NOT give hole diameter.
+ - Choose fastener ONLY from: #4-40,#6-32,#8-32,#10-24,1/4-20,5/16-18,3/8-16,1/2-13 (inch UNC; UNF variants #10-32,1/4-28,5/16-24,3/8-24,1/2-20 also OK), M2,M2.5,M3,M4,M5,M6,M8,M10,M12 (ISO). If the user asks for a size not in this list, pick the nearest listed one and say so in "note". Do NOT give hole diameter (the kernel uses the ASME B18.2.8 / ISO 273 clearance hole) unless the user explicitly specifies a hole diameter, then add "hole_dia":<mm>.
 
 2) "container" — pencil holders, cups, boxes, bins, vases, enclosures (open-top, walls+floor):
 {"kind":"container",
  "container":{"shape":"round|box","outer_d":<mm>,"length":<mm>,"width":<mm>,
    "height":<mm>,"wall":<mm>,"base":<mm>,"dividers":<int>}}
  - round uses outer_d; box uses length,width. wall/base >= 1.6mm. dividers=0 unless compartments requested.
+ - A container is an actual cup/box/bin the user wants PRINTED. "분류/정리/sort/organize <OBJECT>'s parts"
+   (e.g. "건담 파츠 분류", "sort the gundam parts") does NOT mean a sorting bin — it means
+   DECOMPOSE that object into its parts. If that object is organic/freeform, use "retrieve" with a parts list.
 
 3) "gear" — spur gears:
 {"kind":"gear","gear":{"teeth":<int>,"module":<mm>,"thickness":<mm>,"bore":<mm>}}
@@ -71,8 +79,16 @@ Units: millimeters. First pick the "kind" that best fits the request:
    game controller, skull, bust, toy car, phone case molded to a logo.
    Do NOT force these into plate/container (a box) or ball. Instead emit:
 {"kind":"retrieve","query":"<English search term, e.g. 'ergonomic computer mouse'>",
- "note":"<one line: why no parametric primitive fits>"}
+ "note":"<one line: why no parametric primitive fits>",
+ "parts":[]}
    - "query" MUST be English (external libraries are indexed in English).
+   - PARTS DECOMPOSITION: if the user asks to break the object into parts / classify its parts /
+     generate it part-by-part ("파츠 분류", "부품별로", "parts", "piece by piece", "분해"),
+     fill "parts" with its natural sub-components, each an English retrieval query. Otherwise leave "parts":[].
+     e.g. a gundam → [{"name":"머리 head","query":"gundam head"},{"name":"몸통 torso","query":"gundam torso chest"},
+       {"name":"왼팔 left arm","query":"gundam arm"},{"name":"오른팔 right arm","query":"gundam arm"},
+       {"name":"왼다리 left leg","query":"gundam leg"},{"name":"오른다리 right leg","query":"gundam leg"},
+       {"name":"백팩 backpack","query":"gundam backpack thruster"},{"name":"무기 weapon","query":"gundam rifle weapon"}].
    - ONLY use retrieve for clearly freeform/organic shapes. If ANY primitive above
      (plate/container/gear/enclosure/profile/clamp/ball) can CONFIDENTLY represent the request,
      use that primitive instead — never regress a box/cup/disc/sphere into retrieve.

@@ -11,7 +11,9 @@ measured on the CAD kernel. Return a CORRECTED contract JSON (same schema) that 
 every failure, keeping the design intent (same plate size and wall unless a change is required).
 Prefer moving hole centers and adjusting positions over resizing. Units mm; plate centered at origin.
 Rules: hole centers >= 1.5x bolt nominal dia from any plate edge; bolt heads clear of the wall
-(1/4-20 hex head ~12.8mm across corners). Output JSON only."""
+(1/4-20 hex head ~12.4mm across corners). H2 failure → remove "hole_dia" (use the standard clearance hole) or set it
+to the required value. H3 failure (tapped engagement) → increase plate thickness to the required value, or set
+"hole_type":"through". F0 (unsupported fastener) → change "fastener" to the suggested supported one. Output JSON only."""
 
 
 def fix(contract_dict: dict, failures: list) -> tuple[DesignContract, dict, str]:

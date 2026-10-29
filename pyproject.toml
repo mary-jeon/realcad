@@ -1,6 +1,6 @@
 [project]
 name = "realcad"
-version = "0.1.0"
+version = "0.2.0"
 description = "프롬프트 → 실제로 조립되는 CAD. 커널 검증(볼트 간섭·공차·연단거리)으로 STEP/STL 생성."
 requires-python = ">=3.12"
 dependencies = [
@@ -9,6 +9,11 @@ dependencies = [
   "shapely>=2.0", "rtree>=1.0", "manifold3d>=3.0",
   "networkx", "lxml",
 ]
+license = {text = "MIT"}
+readme = "README.md"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [build-system]
 requires = ["hatchling"]

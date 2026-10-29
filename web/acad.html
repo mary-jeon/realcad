@@ -47,6 +47,8 @@ body{height:100vh;display:flex;flex-direction:column;background:var(--canvas);co
 .log .sys{color:#aeb6bf}
 .log .ok{color:var(--ok)}.log .bad{color:var(--bad)}
 .log .n{color:#8bb8e8}
+.pbtn{font-size:11px;padding:1px 7px;margin:0 2px;border:1px solid var(--mut);border-radius:3px;background:transparent;color:var(--mut);cursor:pointer}
+.pbtn:hover{border-color:var(--ok);color:var(--ok)}
 .cmdin{display:flex;align-items:center;gap:8px;border-top:1px solid #2a2f36;padding:6px 10px}
 .cmdin .ps{color:#8bb8e8}
 .cmdin input{flex:1;background:transparent;border:0;color:#eef2f6;font:inherit;outline:none}
@@ -80,13 +82,97 @@ body{display:block;position:relative}
 .navbar b{cursor:pointer}
 .navbar b.on{background:rgba(90,165,110,.32)}
 .micbtn.on{color:#8fd6a0;background:rgba(90,165,110,.2)}
+.logo{cursor:pointer}
+/* ===== 개편: 헤더 버튼·모드 배지 / 상태줄 1줄 ===== */
+.hbtn{cursor:pointer;padding:2px 8px;border-radius:4px}
+.hbtn:hover{background:rgba(120,135,150,.22);color:#cfd6dd}
+.modebadge{cursor:pointer;padding:2px 9px;border-radius:11px;border:1px solid var(--line);color:#cfd6dd;font-size:10px;white-space:nowrap}
+.modebadge:hover{border-color:var(--accent);color:#fff}
+.status{white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.status::-webkit-scrollbar{display:none}
+/* ===== 다중 뷰 패널(어색한 뷰큐브 박스 대체) ===== */
+#viewcube{position:absolute;top:150px;right:16px;z-index:7;width:104px;height:104px;cursor:pointer}
+.viewpanel{display:none}  /* ViewCube(주사위)가 대체 — 면 클릭으로 뷰 전환. iso는 홈 버튼 */
+.viewpanel b{min-width:48px;text-align:center;padding:4px 6px;font-size:10px;letter-spacing:.5px;font-weight:600;
+  border:1px solid #7a8591;background:linear-gradient(135deg,rgba(90,102,114,.78),rgba(63,73,84,.78));
+  color:#d7dee6;cursor:pointer;border-radius:4px;backdrop-filter:blur(6px)}
+.viewpanel b:hover{border-color:var(--accent);color:#fff}
+.viewpanel b.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.sizepanel{position:absolute;left:14px;bottom:56px;z-index:9;width:184px;padding:9px 10px;border:1px solid #7a8591;
+  background:rgba(40,46,53,.82);backdrop-filter:blur(8px);border-radius:7px;color:#d7dee6;font-size:11px}
+.sizepanel .sphead{font-weight:700;font-size:11px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.sizepanel .sphead span{cursor:pointer;font-size:15px;line-height:1;color:#9aa7b2}
+.sizepanel .sphead span:hover{color:#fff}
+.sprow{display:flex;align-items:center;gap:5px;margin:3px 0}
+.sprow label{width:40px;color:#9aa7b2}
+.sprow input{width:66px;background:#1c2127;border:1px solid #495059;color:#e6ecf2;border-radius:3px;padding:2px 5px;font-size:11px}
+.sprow span{color:#78828d}
+.splock{display:flex;align-items:center;gap:5px;margin:6px 0 4px;color:#b7c0cc;cursor:pointer}
+.fitopt{display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:11px;color:#d7dee6;cursor:pointer;border-radius:3px}
+.fitopt:hover{background:rgba(90,102,114,.4)}
+.fitopt .n{color:#8b96a2;font-size:10px}
+.fitopt input{accent-color:var(--accent)}
+.prebtn{display:flex;align-items:center;gap:8px;width:100%;padding:6px 7px;margin:3px 0;border:1px solid #7a8591;border-radius:5px;
+  background:rgba(90,102,114,.4);color:#e2e8ef;cursor:pointer;text-align:left;font:inherit}
+.prebtn:hover{border-color:var(--accent);background:rgba(90,102,114,.7)}
+.prebtn svg{width:19px;height:19px;flex:0 0 19px;stroke:#cdd6df;fill:none;stroke-width:1.7}
+.prebtn .pt{font-size:11.5px;font-weight:600}
+.prebtn .ps{font-size:9.5px;color:#9aa7b2}
+.chiprow{display:flex;flex-wrap:wrap;gap:5px;margin:3px 0 2px}
+.chip{display:inline-block;padding:3px 9px;border:1px solid #6b7682;border-radius:12px;background:rgba(90,102,114,.35);
+  color:#dbe2e9;font-size:11px;cursor:pointer;user-select:none}
+.chip:hover{border-color:var(--accent);background:rgba(90,102,114,.7);color:#fff}
+.spbtns{display:flex;gap:5px;margin-top:5px}
+.spbtns b{flex:1;text-align:center;padding:4px 0;border:1px solid #7a8591;border-radius:4px;cursor:pointer;background:rgba(90,102,114,.5);color:#d7dee6}
+.spbtns b:hover{border-color:var(--accent);color:#fff}
+.spbtns b.spexp{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+/* ===== 모달 / 다이얼로그 / 토스트 / 도움말 ===== */
+.overlay{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+  background:rgba(8,10,13,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);padding:16px}
+.overlay.show{display:flex}
+.dlg{width:min(430px,94vw);background:rgba(40,46,54,.97);border:1px solid rgba(120,135,150,.35);
+  border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.6);padding:18px 18px 16px;color:var(--txt)}
+.dlg h3{font-size:15px;margin-bottom:4px}
+.dlg p.sub{color:var(--mut);font-size:11px;margin:0 0 14px;line-height:1.5}
+.modecards{display:flex;gap:10px;flex-wrap:wrap}
+.modecard{flex:1 1 150px;border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;background:rgba(30,34,40,.6)}
+.modecard:hover,.modecard.sel{border-color:var(--accent);background:rgba(58,142,221,.14)}
+.modecard b{display:block;font-size:13px;margin-bottom:4px}
+.modecard span{color:var(--mut);font-size:10.5px;line-height:1.4}
+.bv{display:flex;gap:8px;margin-top:8px}
+.bv label{flex:1;font-size:10px;color:var(--mut)}
+.bv input,.dlg select,.dlg input[type=number]{width:100%;background:#20242b;border:1px solid var(--line);
+  border-radius:5px;color:var(--txt);padding:5px 7px;font:inherit;margin-top:3px}
+.dlg .row{display:flex;align-items:center;gap:8px;margin:9px 0}
+.dlg .row input[type=number]{margin-top:0}
+.dlg .row select{margin-top:0}
+.dlgbtns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.btn{padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:#2a2f36;color:var(--txt);cursor:pointer;font:inherit}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn:hover{filter:brightness(1.12)}
+.toast{position:fixed;left:50%;bottom:210px;transform:translateX(-50%);z-index:60;
+  background:rgba(30,34,40,.97);border:1px solid rgba(120,135,150,.4);color:var(--txt);
+  padding:9px 16px;border-radius:8px;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.5);
+  opacity:0;transition:opacity .2s;pointer-events:none;max-width:86vw;text-align:center}
+.toast.show{opacity:1}
+.helppanel{position:fixed;right:14px;top:170px;z-index:40;width:min(300px,86vw);
+  background:rgba(40,46,54,.97);border:1px solid rgba(120,135,150,.35);border-radius:10px;
+  padding:12px 14px;font-size:11px;color:var(--txt);box-shadow:0 14px 40px rgba(0,0,0,.55);display:none;line-height:1.65}
+.helppanel.show{display:block}
+.helppanel h4{font-size:12px;margin-bottom:6px}
+.helppanel .k{color:#8bb8e8}
+.helppanel .close{float:right;cursor:pointer;color:var(--mut)}
+@media(max-width:620px){
+  .titlebar .doc{display:none}
+  .status{gap:9px;font-size:11px}
+  .viewpanel b{min-width:42px}
+}
 </style></head>
 <body>
 <div class="top">
 <div class="titlebar">
-  <div class="logo">R</div><span class="app">RealCAD 2026</span><span class="doc">새 문서 / untitled.rcd</span>
-  <input class="search" id="topsearch" placeholder="여기에 만들 것을 입력하고 Enter / describe a part" style="border:none;outline:none;background:transparent;color:inherit;font:inherit;width:100%"/>
-  <span class="right"><span>도움말 Help</span><span>로그인 Sign in</span></span>
+  <div class="logo" id="logo" title="기본 등각뷰로 리셋 / reset view">R</div><span class="app">RealCAD 2026</span><span class="doc">새 문서 / untitled.rcd</span>
+  <span class="right"><span class="modebadge" id="modeBadge" title="모드 다시 설정 / change mode">모드 CAD</span><span class="hbtn" id="btnHelp">도움말 Help</span><span class="hbtn" id="btnSignin">로그인 Sign in</span></span>
 </div>
 <div class="tabs">
   <div class="tab on">홈 Home</div><div class="tab">삽입 Insert</div>
@@ -97,7 +183,46 @@ body{display:block;position:relative}
 
 <div class="main">
   <canvas id="c"></canvas>
-  <div class="viewcube" id="viewcube" title="탑뷰 / Top view">TOP</div>
+  <canvas id="viewcube" width="104" height="104" title="네비게이션 큐브 / navigation cube — 면·모서리 클릭"></canvas>
+  <div class="viewpanel" id="viewpanel" title="뷰 전환 / switch view">
+    <b data-view="front">FRONT</b><b data-view="top">TOP</b><b data-view="right">RIGHT</b><b data-view="iso">ISO</b>
+  </div>
+  <div class="sizepanel" id="skdim" style="display:none;bottom:214px">
+    <div class="sphead">치수 생성 / By dimension <span id="skdimclose" title="닫기">×</span></div>
+    <div class="sprow"><label>모양</label><select id="skShape" style="width:72px;background:#1c2127;border:1px solid #495059;color:#e6ecf2;border-radius:3px;font-size:11px"><option value="rect">사각형</option><option value="circle">원</option></select></div>
+    <div class="sprow"><label id="skL1">폭 W</label><input id="skW" type="number" value="100" step="1"><span>mm</span></div>
+    <div class="sprow" id="skRowD"><label>깊이 D</label><input id="skD" type="number" value="60" step="1"><span>mm</span></div>
+    <div class="sprow"><label>돌출 H</label><input id="skH" type="number" value="20" step="1"><span>mm</span></div>
+    <div class="sprow"><label>모서리</label><select id="skEdge" style="width:72px;background:#1c2127;border:1px solid #495059;color:#e6ecf2;border-radius:3px;font-size:11px"><option value="none">각</option><option value="round">둥글게</option><option value="chamfer">모따기</option></select><input id="skEdgeR" type="number" value="2" step="0.5" style="width:40px"><span>mm</span></div>
+    <div class="sprow"><label>구멍 Ø</label><input id="skHole" type="number" value="0" step="1"><span>mm (0=없음)</span></div>
+    <div class="spbtns"><b id="skMake" class="spexp">치수로 생성</b></div>
+  </div>
+  <div class="sizepanel" id="sizepanel" style="display:none">
+    <div class="sphead">크기 조절 / Resize <span id="sizeclose" title="닫기">×</span></div>
+    <div class="sprow" style="gap:6px"><label>배율</label><input id="szSlider" type="range" min="25" max="300" value="100" step="1" style="flex:1"><span id="szPct" style="width:34px;text-align:right">100%</span></div>
+    <div class="sprow"><label>가로 X</label><input id="szX" type="number" step="1"><span>mm</span></div>
+    <div class="sprow"><label>세로 Y</label><input id="szY" type="number" step="1"><span>mm</span></div>
+    <div class="sprow"><label>높이 Z</label><input id="szZ" type="number" step="1"><span>mm</span></div>
+    <label class="splock"><input id="szLock" type="checkbox" checked> 비율 고정 / keep ratio</label>
+    <div class="spbtns"><b id="szHalf">½×</b><b id="szDbl">2×</b><b id="szReset">원래대로</b></div>
+    <div class="spbtns"><b id="szExport" class="spexp">이 크기로 STL 내보내기</b></div>
+    <div class="spbtns"><b id="szRebuild" title="구멍·두께 등 기능 치수는 유지한 채 전체 크기만 정확히 다시 생성">정확히 재생성 / Rebuild</b></div>
+    <div class="fitnote" style="font-size:10px;color:#8b96a2;margin-top:4px">배율=즉석 미리보기(비율대로). <b>정확히 재생성</b>=기능 치수(구멍·두께) 안 망가뜨리고 파라메트릭으로 다시 생성</div>
+  </div>
+  <div class="sizepanel" id="fitpanel" style="display:none;bottom:214px">
+    <div class="sphead">끼워맞춤 공차 / Fit <span id="fitclose" title="닫기">×</span></div>
+    <div class="fitnote" style="font-size:10px;color:#9aa7b2;margin:-2px 0 6px">끼우는 부품일 때 틈을 자동 적용 (FDM PLA/PETG 기준)</div>
+    <label class="fitopt"><input type="radio" name="fit" value="auto" checked> 자동 <span class="n">(끼움 감지→보통)</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="press"> 꽉맞음 <span class="n">0.075mm · 압입/영구</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="snug"> 딱맞음 <span class="n">0.15mm · 손으로 눌러 끼움</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="normal"> 보통 <span class="n">0.2mm · 미끄러지는/분해 가능</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="loose"> 헐렁 <span class="n">0.4mm · 돌아가는/힌지</span></label>
+  </div>
+  <div class="sizepanel" id="presetpanel" style="display:none;width:232px;bottom:56px">
+    <div class="sphead">기능 부품 프리셋 / Presets <span id="presetclose" title="닫기">×</span></div>
+    <div class="fitnote" style="font-size:10px;color:#9aa7b2;margin:-2px 0 6px">실제로 많이 뽑는 것들. 누르면 기본값으로 바로 생성 — 뒤에 크기조절·수정으로 다듬어</div>
+    <div id="presetlist"></div>
+  </div>
   <div class="navbar">
     <b title="맞춤 Fit" data-nav="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h14V10"/></svg></b>
     <b title="자동회전 Orbit" data-nav="orbit"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12a8 4 0 0 0 16 0"/></svg></b>
@@ -123,6 +248,7 @@ body{display:block;position:relative}
   </div>
   <div class="cmdin"><span class="ps">명령 입력 / Command:</span>
     <input id="cmd" placeholder="자연어로 설계를 입력하세요 · Describe a part in natural language"/>
+    <span class="micbtn" id="send" style="background:#2d6cdf;border-color:#2d6cdf;color:#fff"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>보내기 Go</span>
     <span class="micbtn" id="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>음성 Voice</span>
   </div>
 </div>
@@ -132,16 +258,98 @@ body{display:block;position:relative}
 </div>
 </div><!-- /bottom -->
 
+<!-- ===== 온보딩 모달 (최초 1회) ===== -->
+<div class="overlay" id="onboard">
+  <div class="dlg">
+    <h3>RealCAD — 시작 모드 / Choose a mode</h3>
+    <p class="sub">무엇을 만들까요? 나중에 상단 모드 배지로 다시 바꿀 수 있어요. / Pick how you want to work — switchable later from the mode badge.</p>
+    <div class="modecards">
+      <div class="modecard" data-mode="cad"><b>CAD 모드 / CAD</b><span>순수 모델링. 치수대로 부품을 만들고 검증·내보내기.</span></div>
+      <div class="modecard" data-mode="printer"><b>3D 프린터 모드 / 3D printer</b><span>빌드볼륨을 정해 분할·검증 기본값으로 사용.</span></div>
+    </div>
+    <div id="bvWrap" style="display:none">
+      <p class="sub" style="margin:14px 0 0">빌드볼륨 / Build volume (mm)</p>
+      <div class="bv">
+        <label>X<input type="number" id="bvX" value="256" min="10"></label>
+        <label>Y<input type="number" id="bvY" value="256" min="10"></label>
+        <label>Z<input type="number" id="bvZ" value="256" min="10"></label>
+      </div>
+    </div>
+    <div class="dlgbtns">
+      <button class="btn" id="obCancel" style="display:none">취소 / Cancel</button>
+      <button class="btn primary" id="obStart">시작 / Start</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 분할 전 확인 다이얼로그 ===== -->
+<div class="overlay" id="splitdlg">
+  <div class="dlg">
+    <h3>분할 / Split for printing</h3>
+    <p class="sub">베드보다 큰 모델을 조각으로 나눕니다. 설정을 확인하고 실행하세요. 자동 분할하지 않습니다.</p>
+    <div class="row"><label style="width:120px">방식 / Method</label>
+      <select id="spMethod" style="flex:1">
+        <option value="smart">smart — 자연 솔기 우선</option>
+        <option value="chopper">chopper — 최소 조각</option>
+        <option value="grid">grid — 축 격자</option>
+      </select></div>
+    <div class="row"><label style="width:120px">빌드볼륨 / Build (mm)</label>
+      <input type="number" id="spX" style="width:64px" min="10"> ×
+      <input type="number" id="spY" style="width:64px" min="10"> ×
+      <input type="number" id="spZ" style="width:64px" min="10"></div>
+    <div class="row"><label style="width:120px">다월핀 / Dowel pins</label>
+      <input type="checkbox" id="spDowel" checked style="width:auto"> <span style="color:var(--mut)">정렬용 핀 생성</span></div>
+    <div class="row" id="spSrc" style="color:var(--mut);font-size:11px"></div>
+    <div class="dlgbtns">
+      <button class="btn" id="spCancel">취소 / Cancel</button>
+      <button class="btn primary" id="spRun">분할 실행 / Split</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 도움말 패널 / 토스트 ===== -->
+<div class="helppanel" id="helppanel">
+  <span class="close" id="helpClose">✕</span>
+  <h4>빠른 도움말 / Quick help</h4>
+  <div><span class="k">설계 Design</span> — 아래 명령창에 자연어 치수 입력</div>
+  <div><span class="k">자동 Auto</span> — 예시 부품 바로 생성</div>
+  <div><span class="k">사진 Photo</span> — 사진에서 치수 읽어 생성</div>
+  <div><span class="k">참조 Import</span> — 외부 모델 감싸는 케이스</div>
+  <div><span class="k">분할 Split</span> — 큰 모델을 조각+정렬핀으로</div>
+  <div><span class="k">검증 Verify</span> — 제조성 규칙 검사</div>
+  <div><span class="k">FRONT/TOP/RIGHT/ISO</span> — 우상단 뷰 전환</div>
+  <div><span class="k">홈·오빗·줌</span> — 우측 내비게이션</div>
+  <div><span class="k">모드 배지</span> — CAD/프린터 모드 전환</div>
+</div>
+<div class="toast" id="toast"></div>
+
 <script>
 // tab: 0홈 1삽입 2주석 3출력 4검증 — 모든 버튼에 act 연결(죽은 버튼 없음)
 const GROUPS=[
  {tab:0, label:'생성 / Create', tools:[
    {ko:'설계',en:'Design',act:'design',svg:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20l3-4"/>'},
+   {ko:'만능',en:'AnyCAD',act:'anycad',svg:'<path d="M12 2l2.4 5.6L20 9l-4 4 1 6-5-2.8L7 19l1-6-4-4 5.6-1.4z"/>'},
    {ko:'자동',en:'Auto',act:'auto',svg:'<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>'},
    {ko:'음성',en:'Voice',act:'voice',svg:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/>'},
-   {ko:'사진',en:'Photo',act:'photo',svg:'<rect x="3" y="7" width="18" height="12" rx="2"/><circle cx="12" cy="13" r="3.4"/><path d="M8.5 7l1.2-2h4.6l1.2 2"/>'}]},
+   {ko:'사진',en:'Photo',act:'photo',svg:'<rect x="3" y="7" width="18" height="12" rx="2"/><circle cx="12" cy="13" r="3.4"/><path d="M8.5 7l1.2-2h4.6l1.2 2"/>'},
+   {ko:'프리셋',en:'Presets',act:'presets',svg:'<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>'}]},
  {tab:0, label:'편집 / Edit', tools:[
+   {ko:'수정',en:'Edit',act:'edit',svg:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>'},
+   {ko:'되돌리기',en:'Undo',act:'undo',svg:'<path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/>'},
+   {ko:'크기조절',en:'Resize',act:'resize',svg:'<path d="M3 3h8v8M21 21h-8v-8M21 3l-7 7M3 21l7-7"/>'},
+   {ko:'공차',en:'Fit',act:'fit',svg:'<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.6"/><path d="M12 4.5v2.3M12 17.2v2.3M4.5 12h2.3M17.2 12h2.3"/>'},
    {ko:'비우기',en:'Clear',act:'clear',svg:'<path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13M10 11v6M14 11v6"/>'}]},
+ {tab:0, label:'제도 2D / Sketch', tools:[
+   {ko:'선',en:'Line',act:'sk_line',svg:'<path d="M4 20L20 4"/><circle cx="4" cy="20" r="1.6"/><circle cx="20" cy="4" r="1.6"/>'},
+   {ko:'원',en:'Circle',act:'sk_circle',svg:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.4"/>'},
+   {ko:'사각형',en:'Rect',act:'sk_rect',svg:'<rect x="4" y="6" width="16" height="12"/>'},
+   {ko:'오프셋',en:'Offset',act:'sk_offset',svg:'<rect x="7" y="7" width="10" height="10"/><rect x="3" y="3" width="18" height="18" stroke-dasharray="2 2"/>'},
+   {ko:'돌출',en:'Extrude',act:'sk_extrude',svg:'<rect x="5" y="9" width="10" height="10"/><path d="M5 9l4-4h10v10l-4 4M15 9l4-4"/>'},
+   {ko:'제도지움',en:'ClearSk',act:'sk_clear',svg:'<path d="M4 20L20 4M7 5h12v12"/>'}]},
+ {tab:0, label:'배치 3D / Arrange', tools:[
+   {ko:'구멍',en:'Hole',act:'hole',svg:'<rect x="4" y="4" width="16" height="16"/><circle cx="12" cy="12" r="4"/>'},
+   {ko:'눕히기',en:'LayFlat',act:'layflat',svg:'<path d="M3 17h18M6 17V9l6-4 6 4v8"/>'},
+   {ko:'정렬',en:'Center',act:'center',svg:'<path d="M12 3v18M3 12h18"/><rect x="8" y="8" width="8" height="8"/>'}]},
  {tab:1, label:'부품 참조 / Part', tools:[
    {ko:'참조',en:'Import',act:'wrap',svg:'<path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6M9 14l3-3 3 3M12 11v6"/>'},
    {ko:'조립',en:'Assembly',act:'assembly',svg:'<rect x="3" y="7" width="11" height="11"/><rect x="10" y="3" width="11" height="11"/>'},
@@ -176,6 +384,7 @@ renderRibbon(0);
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
 <script>
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
@@ -201,7 +410,7 @@ window.loadModel=function(partUrl,boltsUrl){
   let pending=boltsUrl?2:1;
   const one=(u,c,m)=>loader.load(u+'?'+Date.now(),gg=>{gg.computeVertexNormals();
     grp.add(new THREE.Mesh(gg,regMat(new THREE.MeshStandardMaterial({color:c,metalness:m,roughness:0.5,opacity:1}))));
-    if(--pending===0) fit();});
+    if(--pending===0){ fit(); sizeReady(); }});
   window._opMats=[]; one(partUrl,0x9aa7b2,0.1); if(boltsUrl) one(boltsUrl,0xd1495b,0.4);
 };
 window.loadPieces=function(urls,axis){
@@ -223,12 +432,122 @@ window.loadAssembly=function(refUrl,caseUrl,lidUrl){
   if(lidUrl) add(lidUrl,regMat(new THREE.MeshStandardMaterial({color:0x6c7884,metalness:0.1,roughness:0.5,opacity:0.6})));
   if(window._opSlider) window._opSlider.value=45;
 };
+// ── 크기 조절 / resize — grp.scale 로 사진처럼 늘리고 줄임, STLExporter 로 그 크기 내보내기 ──
+let _origSize=null;
+function sizeReady(){
+  const sp=document.getElementById('sizepanel'); if(!sp) return;
+  grp.scale.set(1,1,1); grp.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(grp);
+  if(!isFinite(b.min.x)){ _origSize=null; sp.style.display='none'; return; }
+  _origSize=b.getSize(new THREE.Vector3());
+  if(_origSize.x<=0||_origSize.y<=0||_origSize.z<=0){ _origSize=null; sp.style.display='none'; return; }
+  setInputs(1,1,1);   // 치수만 채워두고, 패널은 "크기조절" 버튼 누를 때 뜬다(자동으로 안 띄움)
+}
+function toggleSizePanel(){
+  const sp=document.getElementById('sizepanel'); if(!sp) return;
+  if(!_origSize){ logline('sys','먼저 모델을 생성한 뒤 크기조절을 누르세요 / generate a model first'); return; }
+  const opening = sp.style.display!=='block';
+  sp.style.display = opening ? 'block' : 'none';
+  if(opening){ const sl=document.getElementById('szSlider'); if(sl){ const p=Math.round((grp.scale.x||1)*100); sl.value=Math.min(300,Math.max(25,p)); document.getElementById('szPct').textContent=sl.value+'%'; } }
+}
+// 끼워맞춤 공차 — 끼우는 부품일 때 백엔드에 틈을 적용하도록 [FIT …] 지시문을 프롬프트에 붙인다
+let currentFit='auto';
+const _FITINFO={press:['꽉맞음',0.075,'press/영구'],snug:['딱맞음',0.15,'snug'],
+  normal:['보통',0.2,'normal'],loose:['헐렁',0.4,'loose·moving']};
+function fitPrefix(){
+  if(currentFit==='auto'||!_FITINFO[currentFit]) return '';   // 자동=백엔드가 끼움 감지+보통 기본
+  const [ko,side,en]=_FITINFO[currentFit];
+  return `[FIT: ${en} — ${side}mm/side clearance on mating faces] `;
+}
+function toggleFitPanel(){
+  const fp=document.getElementById('fitpanel'); if(!fp) return;
+  fp.style.display = (fp.style.display==='block') ? 'none' : 'block';
+}
+// 기능 부품 프리셋 — 실제로 많이 뽑는 것들(리서치: 케이블클립·훅·정리함·홀더·브래킷·스풀·거치대).
+// 누르면 좋은 기본 치수로 바로 생성, 사용자는 크기조절·수정으로 다듬음.
+const PRESETS=[
+ {ko:'벽걸이 훅',sub:'나사 고정 · 열쇠/수건',svg:'<path d="M12 3v7a4 4 0 0 0 4 4"/><rect x="8" y="2" width="8" height="3" rx="1"/>',
+  prompt:'벽에 나사로 고정하는 벽걸이 훅. 바닥판 45x32mm 두께 5mm, 나사구멍 2개 Ø4.5(카운터싱크), 갈고리는 바깥으로 35mm 나와 위로 휘어 올라오고 굵기 8mm. 한 개의 단단한 솔리드.'},
+ {ko:'정리함(칸막이)',sub:'서랍/책상 · 칸 나눔',svg:'<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M9 6v12M15 6v12"/>',
+  prompt:'서랍 정리 트레이. 전체 150x100x45mm, 벽·칸막이 2mm, 안쪽을 세로 3칸으로 나눔, 바닥 2mm.'},
+ {ko:'펜/공구 홀더',sub:'원통 · 바닥 막힘',svg:'<path d="M7 3h10l-1 18H8z"/><path d="M7 7h10"/>',
+  prompt:'연필·펜·공구 꽂이. 바깥 지름 80mm, 높이 100mm, 벽 2.5mm, 바닥 3mm 막힘(물 안 새게), 윗면 열림.'},
+ {ko:'L 브래킷',sub:'코너 보강 · 나사',svg:'<path d="M6 3v15h15"/><path d="M6 18l0 0"/>',
+  prompt:'L자 코너 브래킷(앵글). 양 날개 길이 45mm, 폭 32mm, 두께 5mm, 안쪽에 삼각 보강 리브, 각 날개에 나사구멍 2개 Ø4.5. 한 개의 솔리드.'},
+ {ko:'케이블 클립',sub:'책상 가장자리 · 선정리',svg:'<path d="M5 4v11a4 4 0 0 0 8 0M9 10h8a2 2 0 0 1 0 4h-3"/>',
+  prompt:'책상 가장자리에 끼우는 케이블 홀더. 접착식 바닥 25x16mm 두께 4mm, 위로 선 3가닥(각 지름 5mm)이 들어가는 C자 걸이. 나사 없음.'},
+ {ko:'스풀 홀더',sub:'필라멘트 거치',svg:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
+  prompt:'필라멘트 스풀 거치대. 수평 봉(지름 50mm 길이 110mm)과 양쪽을 받치는 삼각 다리 2개, 봉에 스풀이 돌아가게 끼워짐. 바닥 폭 120mm.'},
+ {ko:'폰 거치대',sub:'책상 · 각도 고정',svg:'<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M4 19h16"/>',
+  prompt:'책상용 심플 폰 거치대. 폰이 기대는 등판 각도 65도, 폰 두께 12mm까지 들어가는 앞턱(충전 케이블 지나가는 홈 포함), 바닥 85x72mm. 한 개 솔리드.'},
+ {ko:'헤드폰 스탠드',sub:'책상 걸이',svg:'<path d="M6 20V11a6 6 0 0 1 12 0v9"/><path d="M4 20h16"/>',
+  prompt:'책상 위 헤드폰 걸이 스탠드. 높이 280mm 기둥, 맨 위에 헤드밴드가 걸리는 폭 120mm 곡면 가로대, 바닥은 지름 110mm 원형 받침. 쓰러지지 않게 바닥 무겁게.'},
+];
+function buildPresets(){
+  const el=document.getElementById('presetlist'); if(!el||el._built) return; el._built=true;
+  el.innerHTML=PRESETS.map((p,i)=>`<button class="prebtn" data-pi="${i}"><svg viewBox="0 0 24 24">${p.svg}</svg><span><span class="pt">${p.ko}</span><br><span class="ps">${p.sub}</span></span></button>`).join('');
+  el.querySelectorAll('.prebtn').forEach(b=>b.onclick=()=>{
+    const p=PRESETS[+b.dataset.pi]; document.getElementById('presetpanel').style.display='none';
+    cmdEl.value=p.prompt; logline('you',esc(p.ko)+' <span class="n">(프리셋 — 기본값으로 생성, 뒤에 크기조절·수정으로 다듬어)</span>');
+    designCode(p.prompt);
+  });
+}
+function togglePresetPanel(){
+  buildPresets(); const pp=document.getElementById('presetpanel'); if(!pp) return;
+  pp.style.display = (pp.style.display==='block') ? 'none' : 'block';
+}
+function applyScale(sx,sy,sz){
+  grp.scale.set(sx,sy,sz); grp.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(grp); if(isFinite(b.min.z)) grid.position.z=b.min.z;
+}
+function setInputs(sx,sy,sz){ if(!_origSize)return;
+  document.getElementById('szX').value=Math.round(_origSize.x*sx*10)/10;
+  document.getElementById('szY').value=Math.round(_origSize.y*sy*10)/10;
+  document.getElementById('szZ').value=Math.round(_origSize.z*sz*10)/10;
+}
+function curFactors(){ const g=(id,o)=>{const v=parseFloat(document.getElementById(id).value); return (v>0?v:o)/o;};
+  return [g('szX',_origSize.x),g('szY',_origSize.y),g('szZ',_origSize.z)]; }
+function onSizeInput(which){ if(!_origSize)return;
+  let [sx,sy,sz]=curFactors();
+  if(document.getElementById('szLock').checked){ const f=which==='X'?sx:which==='Y'?sy:sz; sx=sy=sz=f; setInputs(f,f,f); }
+  applyScale(sx,sy,sz);
+}
+function multScale(m){ if(!_origSize)return; const sx=grp.scale.x*m,sy=grp.scale.y*m,sz=grp.scale.z*m; applyScale(sx,sy,sz); setInputs(sx,sy,sz); }
+function bindSizeUI(){
+  ['szX','szY','szZ'].forEach(id=>document.getElementById(id).addEventListener('input',()=>onSizeInput(id.slice(2))));
+  document.getElementById('szHalf').onclick=()=>multScale(0.5);
+  document.getElementById('szDbl').onclick=()=>multScale(2);
+  document.getElementById('szReset').onclick=()=>{ applyScale(1,1,1); setInputs(1,1,1); const s=document.getElementById('szSlider'); s.value=100; document.getElementById('szPct').textContent='100%'; };
+  // 배율 슬라이더 — 사진 늘리듯 균일 스케일 즉석 미리보기
+  const sl=document.getElementById('szSlider');
+  sl.addEventListener('input',()=>{ if(!_origSize)return; const f=sl.value/100;
+    document.getElementById('szPct').textContent=sl.value+'%'; applyScale(f,f,f); setInputs(f,f,f); });
+  document.getElementById('szRebuild').onclick=()=>{
+    if(!_origSize) return;
+    if(!currentSession){ logline('sys','정확히 재생성은 생성 세션이 필요해요 — 방금 만든 모델이라야 돼요(내보낸 파일은 안 됨). 대신 배율로 조절하거나 다시 생성하세요.'); return; }
+    const w=Math.round(_origSize.x*grp.scale.x), dp=Math.round(_origSize.y*grp.scale.y), h=Math.round(_origSize.z*grp.scale.z);
+    document.getElementById('sizepanel').style.display='none';
+    logline('sys',`정확히 재생성 중 — 전체 ${w}×${dp}×${h}mm로, 구멍·두께 등 기능 치수는 유지 / parametric rebuild…`);
+    editDesign(`전체 바깥 크기를 정확히 ${w} x ${dp} x ${h} mm(X×Y×Z)로 다시 만들어줘. 단 구멍 지름·벽 두께·나사·피치 같은 기능 치수는 비율로 늘리거나 줄이지 말고 원래 값을 유지해. 전체 외형 치수만 이 값에 맞춰.`);
+  };
+  document.getElementById('szExport').onclick=()=>{
+    if(!(window.THREE&&THREE.STLExporter)){ showToast('STL exporter 로드 안 됨'); return; }
+    grp.updateMatrixWorld(true);
+    const data=new THREE.STLExporter().parse(grp,{binary:true});
+    const blob=new Blob([data.buffer||data],{type:'application/octet-stream'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`realcad_${Math.round(_origSize.x*grp.scale.x)}x${Math.round(_origSize.y*grp.scale.y)}x${Math.round(_origSize.z*grp.scale.z)}mm.stl`;
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    showToast('✓ 조절한 크기로 STL 내보냄');
+  };
+}
+bindSizeUI();
 // #7 기본 브래킷 자동 로드 안 함 — 빈 화면에서 시작
 function size(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);
   camera.aspect=w/h;camera.updateProjectionMatrix();
   if(activeCam!==camera){const d=activeCam.position.distanceTo(controls.target);const fov=camera.fov*Math.PI/180;const hy=Math.tan(fov/2)*d,hx=hy*w/h;activeCam.left=-hx;activeCam.right=hx;activeCam.top=hy;activeCam.bottom=-hy;activeCam.updateProjectionMatrix();}}
 addEventListener('resize',size); size();
-(function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,activeCam);})();
+(function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,activeCam);if(window._renderCube)window._renderCube();})();
 window._opSlider=document.getElementById('opSlider');
 window._opSlider.addEventListener('input',e=>window.setOpacity(e.target.value/100));
 
@@ -238,9 +557,161 @@ function topView(){const b=new THREE.Box3().setFromObject(grp);const empty=b.isE
   const ctr=empty?new THREE.Vector3(0,0,0):b.getCenter(new THREE.Vector3());
   const s=empty?200:Math.max(1,...b.getSize(new THREE.Vector3()).toArray());
   controls.target.copy(ctr);activeCam.position.set(ctr.x,ctr.y-0.0001,ctr.z+s*2.2);controls.update();}
-document.getElementById('viewcube').onclick=topView;
+// #3 다중 뷰: FRONT/TOP/RIGHT/ISO 정투영 시점 전환 (어색한 뷰큐브 박스 → 라벨드 버튼)
+function setView(name){
+  const b=new THREE.Box3().setFromObject(grp); const empty=b.isEmpty();
+  const ctr=empty?new THREE.Vector3(0,0,0):b.getCenter(new THREE.Vector3());
+  const s=empty?200:Math.max(1,...b.getSize(new THREE.Vector3()).toArray());
+  const d=s*2.2, cam=activeCam; cam.up.set(0,0,1); controls.target.copy(ctr);
+  if(name==='top')        cam.position.set(ctr.x, ctr.y-1e-4, ctr.z+d);   // 윗면
+  else if(name==='front') cam.position.set(ctr.x, ctr.y-d, ctr.z);        // 정면(-Y에서)
+  else if(name==='right') cam.position.set(ctr.x+d, ctr.y, ctr.z);        // 우측(+X에서)
+  else { name='iso'; cam.position.set(ctr.x+d*0.6, ctr.y-d, ctr.z+d*0.7); } // 등각
+  controls.update();
+  document.querySelectorAll('.viewpanel b').forEach(x=>x.classList.toggle('on', x.dataset.view===name));
+}
+window._setView=setView;
+document.querySelectorAll('.viewpanel b').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+setView('iso');
+// ── 네비게이션 큐브 / ViewCube (진짜 CAD처럼 — 면 클릭하면 그 방향으로) ──
+function orientView(n){
+  const b=new THREE.Box3().setFromObject(grp); const empty=b.isEmpty();
+  const ctr=empty?new THREE.Vector3(0,0,0):b.getCenter(new THREE.Vector3());
+  const s=empty?200:Math.max(1,...b.getSize(new THREE.Vector3()).toArray());
+  const d=s*2.2, cam=activeCam, dir=n.clone().normalize();
+  cam.up.set(0,0,1); if(Math.abs(dir.z)>0.9) cam.up.set(0,-1,0);   // 위/아래서 볼 땐 up 재설정
+  controls.target.copy(ctr); cam.position.copy(ctr.clone().add(dir.multiplyScalar(d))); controls.update();
+}
+(function(){
+  const cvs=document.getElementById('viewcube'); if(!cvs||!window.THREE) return;
+  const cr=new THREE.WebGLRenderer({canvas:cvs,alpha:true,antialias:true}); cr.setSize(104,104,false); cr.setPixelRatio(window.devicePixelRatio||1);
+  const cs=new THREE.Scene();
+  const cc=new THREE.OrthographicCamera(-1.5,1.5,1.5,-1.5,0.1,20); cc.up.set(0,0,1);
+  cs.add(new THREE.HemisphereLight(0xffffff,0x5a6068,1.25));
+  const dl=new THREE.DirectionalLight(0xffffff,0.45); dl.position.set(3,-4,6); cs.add(dl);
+  function faceTex(label){ const c=document.createElement('canvas'); c.width=c.height=128; const x=c.getContext('2d');
+    x.fillStyle='#ccd5de'; x.fillRect(0,0,128,128); x.strokeStyle='#8893a0'; x.lineWidth=7; x.strokeRect(4,4,120,120);
+    x.fillStyle='#2b3139'; x.font='bold 23px sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(label,64,66);
+    return new THREE.CanvasTexture(c); }
+  const labels=['RIGHT','LEFT','BACK','FRONT','TOP','BOT'];   // +X,-X,+Y,-Y,+Z,-Z
+  const mats=labels.map(l=>new THREE.MeshBasicMaterial({map:faceTex(l)}));   // 무조명 — 라벨 항상 선명
+  const cube=new THREE.Mesh(new THREE.BoxGeometry(1.55,1.55,1.55),mats); cs.add(cube);
+  cube.add(new THREE.LineSegments(new THREE.EdgesGeometry(cube.geometry),new THREE.LineBasicMaterial({color:0x5a6570})));
+  window._renderCube=function(){ const dir=new THREE.Vector3().subVectors(activeCam.position,controls.target).normalize();
+    cc.position.copy(dir.multiplyScalar(5)); cc.up.copy(activeCam.up); cc.lookAt(0,0,0); cr.render(cs,cc); };
+  const ray=new THREE.Raycaster(), m=new THREE.Vector2();
+  cvs.addEventListener('click',e=>{ const r=cvs.getBoundingClientRect();
+    m.x=((e.clientX-r.left)/r.width)*2-1; m.y=-((e.clientY-r.top)/r.height)*2+1;
+    ray.setFromCamera(m,cc); const hit=ray.intersectObject(cube,false)[0]; if(hit) orientView(hit.face.normal.clone()); });
+})();
+// ── 2D 제도 / Sketch (오토캐드식 선·원·사각형 → 돌출로 3D) ──
+let skMode=null, skPts=[], skObjs=[], skPreview=null;
+const SK_MAT=new THREE.LineBasicMaterial({color:0x37d07a}), SK_PREV=new THREE.LineBasicMaterial({color:0xffcf5a});
+const _skPlane=new THREE.Plane(new THREE.Vector3(0,0,1),0), _skRc=new THREE.Raycaster(), _skV=new THREE.Vector2();
+function skPoint(e){ const r=canvas.getBoundingClientRect(); _skV.x=((e.clientX-r.left)/r.width)*2-1; _skV.y=-((e.clientY-r.top)/r.height)*2+1;
+  _skRc.setFromCamera(_skV,activeCam); const p=new THREE.Vector3(); if(!_skRc.ray.intersectPlane(_skPlane,p)) return null;
+  p.x=Math.round(p.x); p.y=Math.round(p.y); p.z=0; return p; }   // 1mm 스냅
+function setSketch(t){ skMode=t; skPts=[]; clearSkPrev(); grid.position.z=0;
+  logline('sys','제도 '+({line:'선',circle:'원',rect:'사각형'}[t])+' — 평면(격자)에 점 클릭 ('+(t==='circle'?'중심→반지름':'두 점')+'), 또는 오른쪽 "치수 생성"에 숫자 입력. ESC로 취소.');
+  canvas.style.cursor='crosshair';
+  if(t==='rect'||t==='circle'){ const sel=document.getElementById('skShape'); if(sel){ sel.value=t; skToggleShape(); } document.getElementById('skdim').style.display='block'; }
+}
+function clearSkPrev(){ if(skPreview){ scene.remove(skPreview); skPreview=null; } }
+function skLine(pts,closed,mat){ const g=new THREE.BufferGeometry().setFromPoints(pts); return closed?new THREE.LineLoop(g,mat):new THREE.Line(g,mat); }
+function skCircle(c,r,n=72){ const a=[]; for(let i=0;i<=n;i++){const t=i/n*6.2831853; a.push(new THREE.Vector3(c.x+r*Math.cos(t),c.y+r*Math.sin(t),0));} return a; }
+function skRect(a,b){ return [new THREE.Vector3(a.x,a.y,0),new THREE.Vector3(b.x,a.y,0),new THREE.Vector3(b.x,b.y,0),new THREE.Vector3(a.x,b.y,0)]; }
+canvas.addEventListener('click',e=>{ if(!skMode) return; const p=skPoint(e); if(!p) return; skPts.push(p);
+  if((skMode==='line'||skMode==='rect') && skPts.length===2){
+    const pts=skMode==='line'?skPts.slice():skRect(skPts[0],skPts[1]); const o=skLine(pts,skMode==='rect',SK_MAT); scene.add(o);
+    skObjs.push({obj:o,type:skMode,data:skPts.slice()});
+    logline('sys','✓ '+(skMode==='line'?'선':('사각형 '+Math.abs(skPts[1].x-skPts[0].x)+'×'+Math.abs(skPts[1].y-skPts[0].y)+'mm'))); skPts=[]; clearSkPrev();
+  } else if(skMode==='circle' && skPts.length===2){
+    const c=skPts[0], r=c.distanceTo(skPts[1]); const o=skLine(skCircle(c,r),true,SK_MAT); scene.add(o);
+    skObjs.push({obj:o,type:'circle',data:{cx:c.x,cy:c.y,r}}); logline('sys','✓ 원 Ø'+(r*2).toFixed(0)+'mm'); skPts=[]; clearSkPrev();
+  }
+});
+canvas.addEventListener('mousemove',e=>{ if(!skMode||skPts.length!==1) return; const p=skPoint(e); if(!p) return; clearSkPrev();
+  let pts; if(skMode==='line') pts=[skPts[0],p]; else if(skMode==='rect'){ pts=skRect(skPts[0],p); pts.push(pts[0]); } else pts=skCircle(skPts[0],skPts[0].distanceTo(p));
+  skPreview=skLine(pts,false,SK_PREV); scene.add(skPreview); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&skMode){ skMode=null; skPts=[]; clearSkPrev(); canvas.style.cursor=''; logline('sys','제도 취소'); }});
+function clearSketch(){ skObjs.forEach(o=>scene.remove(o.obj)); skObjs=[]; skPts=[]; clearSkPrev(); skMode=null; canvas.style.cursor=''; logline('sys','제도 전부 지움'); }
+function extrudeSketch(){ const closed=skObjs.filter(o=>o.type==='rect'||o.type==='circle');
+  if(!closed.length){ logline('sys','먼저 사각형이나 원을 그린 뒤 돌출하세요 (선은 돌출 불가)'); return; }
+  const h=(window._skHeight&&window._skHeight>0)?window._skHeight:20;   // 기본 20mm, 높이는 크기조절로 변경
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp); window._opMats=[];
+  for(const s of closed){ const shape=new THREE.Shape();
+    if(s.type==='rect'){ const [a,b]=s.data; shape.moveTo(a.x,a.y); shape.lineTo(b.x,a.y); shape.lineTo(b.x,b.y); shape.lineTo(a.x,b.y); shape.closePath(); }
+    else { shape.absarc(s.data.cx,s.data.cy,s.data.r,0,6.2831853,false); }
+    const geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false}); geo.computeVertexNormals();
+    grp.add(new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x9aa7b2,metalness:0.1,roughness:0.5}))); }
+  skObjs.forEach(o=>scene.remove(o.obj)); skObjs=[]; skMode=null; canvas.style.cursor='';
+  fit(); sizeReady();
+  logline('sys','<span class="ok">✓ 돌출 '+h+'mm</span> — 2D 스케치가 3D 솔리드로. 크기조절·내보내기 가능.'); }
+window.setSketch=setSketch; window.extrudeSketch=extrudeSketch; window.clearSketch=clearSketch;
+// ── 치수로 정확히 생성 (AutoCAD식 수치 입력) ──
+function skToggleShape(){ const sh=document.getElementById('skShape').value;
+  document.getElementById('skL1').textContent = sh==='circle'?'지름 Ø':'폭 W';
+  document.getElementById('skRowD').style.display = sh==='circle'?'none':'flex'; }
+function skCreateByDim(){
+  const sh=document.getElementById('skShape').value;
+  const W=parseFloat(document.getElementById('skW').value)||100;
+  const D=parseFloat(document.getElementById('skD').value)||60;
+  const H=parseFloat(document.getElementById('skH').value)||20;
+  const edge=document.getElementById('skEdge').value, er=Math.max(0,parseFloat(document.getElementById('skEdgeR').value)||0);
+  const holeD=Math.max(0,parseFloat(document.getElementById('skHole').value)||0);
+  const shape=new THREE.Shape();
+  if(sh==='rect'){ shape.moveTo(-W/2,-D/2); shape.lineTo(W/2,-D/2); shape.lineTo(W/2,D/2); shape.lineTo(-W/2,D/2); shape.closePath(); }
+  else { shape.absarc(0,0,W/2,0,6.2831853,false); }
+  if(holeD>1){ const h=new THREE.Path(); h.absarc(0,0,holeD/2,0,6.2831853,true); shape.holes.push(h); }   // 중앙 구멍(불린 없이)
+  const opt={depth:H,curveSegments:64,bevelEnabled:false};
+  if(edge!=='none'&&er>0){ opt.bevelEnabled=true; opt.bevelThickness=er; opt.bevelSize=er; opt.bevelOffset=0; opt.bevelSegments=(edge==='round'?4:1); }
+  const geo=new THREE.ExtrudeGeometry(shape,opt); geo.computeVertexNormals();
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp); window._opMats=[];
+  grp.add(new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x9aa7b2,metalness:0.1,roughness:0.5})));
+  skObjs.forEach(o=>scene.remove(o.obj)); skObjs=[]; skMode=null; canvas.style.cursor='';
+  fit(); sizeReady();
+  const extra=(holeD>1?(' + 구멍 Ø'+holeD):'')+(edge!=='none'&&er>0?(' + '+(edge==='round'?'필렛':'모따기')+' '+er):'');
+  logline('sys','<span class="ok">✓ '+(sh==='circle'?('원통 Ø'+W+' × H'+H):('박스 '+W+'×'+D+'×'+H))+'mm'+extra+'</span> — 치수로 정확히 생성'); }
+// ── 배치 3D: 구멍·눕히기·정렬 ──
+function holeCut(){ const sel=document.getElementById('skShape'); if(sel){sel.value='rect'; skToggleShape();}
+  document.getElementById('skHole').value=10; document.getElementById('skdim').style.display='block';
+  logline('sys','구멍 — "치수 생성" 패널의 "구멍 Ø"에 지름을 넣고 생성하면 중앙에 구멍이 뚫린 박스/판/원통이 나와요 (불린 없이 바로). 임의 형상에 구멍은 명령창에 "100x60 판 Ø10 구멍 4개"처럼 쳐도 됩니다.'); }
+function layFlat(){ const b=new THREE.Box3().setFromObject(grp); if(b.isEmpty()){logline('sys','모델이 없어요');return;}
+  const s=b.getSize(new THREE.Vector3()); const mn=Math.min(s.x,s.y,s.z);
+  grp.rotation.set(0,0,0);
+  if(mn===s.x) grp.rotation.y=Math.PI/2;        // x가 제일 얇으면 x→z
+  else if(mn===s.y) grp.rotation.x=Math.PI/2;   // y가 제일 얇으면 y→z
+  grp.updateMatrixWorld(true);
+  const b2=new THREE.Box3().setFromObject(grp); grp.position.z-=b2.min.z; grp.updateMatrixWorld(true);
+  fit(); logline('sys','✓ 눕히기 — 제일 얇은 면을 바닥에 (출력 안정적)'); }
+function centerPart(){ const b=new THREE.Box3().setFromObject(grp); if(b.isEmpty()){logline('sys','모델이 없어요');return;}
+  const c=b.getCenter(new THREE.Vector3()); grp.position.x-=c.x; grp.position.y-=c.y; grp.position.z-=b.min.z; grp.updateMatrixWorld(true);
+  fit(); logline('sys','✓ 정렬 — 원점 중앙, 바닥(z=0)에 안착'); }
+function skOffset(){ if(!skObjs.length){logline('sys','먼저 사각형이나 원을 그린 뒤 오프셋하세요');return;}
+  const d=5; const last=skObjs[skObjs.length-1];   // 마지막 도형을 +5mm 평행 복사
+  let o;
+  if(last.type==='rect'){ const [a,b]=last.data; const x0=Math.min(a.x,b.x)-d,x1=Math.max(a.x,b.x)+d,y0=Math.min(a.y,b.y)-d,y1=Math.max(a.y,b.y)+d;
+    o=skLine([new THREE.Vector3(x0,y0,0),new THREE.Vector3(x1,y0,0),new THREE.Vector3(x1,y1,0),new THREE.Vector3(x0,y1,0)],true,SK_MAT); scene.add(o); skObjs.push({obj:o,type:'rect',data:[new THREE.Vector3(x0,y0,0),new THREE.Vector3(x1,y1,0)]}); }
+  else if(last.type==='circle'){ o=skLine(skCircle({x:last.data.cx,y:last.data.cy},last.data.r+d),true,SK_MAT); scene.add(o); skObjs.push({obj:o,type:'circle',data:{cx:last.data.cx,cy:last.data.cy,r:last.data.r+d}}); }
+  else { logline('sys','선은 오프셋 지원 안 함 (사각형·원만)'); return; }
+  logline('sys','✓ 오프셋 +'+d+'mm 평행 복사'); }
+window.layFlat=layFlat; window.centerPart=centerPart; window.holeCut=holeCut; window.skOffset=skOffset;
+document.getElementById('skShape').addEventListener('change',skToggleShape);
+document.getElementById('skMake').onclick=skCreateByDim;
+document.getElementById('skdimclose').onclick=()=>document.getElementById('skdim').style.display='none';
+document.getElementById('fitclose').onclick=()=>document.getElementById('fitpanel').style.display='none';
+document.getElementById('presetclose').onclick=()=>document.getElementById('presetpanel').style.display='none';
+document.querySelectorAll('input[name="fit"]').forEach(r=>r.addEventListener('change',()=>{
+  if(!r.checked) return; currentFit=r.value;
+  const info=_FITINFO[currentFit];
+  logline('sys', currentFit==='auto'
+    ? '끼워맞춤 공차 / fit = <b>자동</b> <span class="n">(끼우는 부품이면 알아서 보통 0.2mm 적용)</span>'
+    : `끼워맞춤 공차 / fit = <b>${info[0]}</b> <span class="n">(결합면 편측 ${info[1]}mm — 다음 생성/수정부터 적용)</span>`);
+}));
+// 돌출 높이: 치수 패널의 H를 draw-then-extrude 흐름에도 사용
+Object.defineProperty(window,'_skHeight',{get:()=>parseFloat((document.getElementById('skH')||{}).value)||20,configurable:true});
 document.querySelectorAll('.navbar b').forEach(b=>b.onclick=()=>{const n=b.dataset.nav;
-  if(n==='home')fit();
+  if(n==='home')setView('iso');   // #6 홈 = 기본 등각뷰로 리셋
   else if(n==='orbit'){controls.autoRotate=!controls.autoRotate;controls.autoRotateSpeed=2.2;b.classList.toggle('on',controls.autoRotate);}
   else if(n==='zoomin')activeCam.position.lerp(controls.target,0.2);
   else if(n==='zoomout')activeCam.position.lerp(controls.target,-0.25);
@@ -270,19 +741,57 @@ addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&(!doc
 /* ---- RealCAD 동작 연결 ---- */
 const logEl=document.getElementById('log'), cmdEl=document.getElementById('cmd');
 let lastDownloads=null, lastContract=null, lastResult=null, busy=false;
+let currentSession=null;   // 대화형 편집 세션(생성 응답의 session). 있으면 '수정'으로 이어 고침
+// #4 모드/빌드볼륨 상태 · #5 분할 소스 추적
+let MODE='cad', BUILD=[256,256,256], lastMeshUrl=null, splitFile=null;
+function esc(s){return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+let _toastT=null;
+function showToast(msg){const t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.classList.add('show');clearTimeout(_toastT);_toastT=setTimeout(()=>t.classList.remove('show'),2400);}
 function logline(cls,html){const d=document.createElement('div');d.className=cls;d.innerHTML=html;
   logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;return d;}
 function num(v){return (v==null)?'':(+v).toFixed(2);}
 
 function renderResult(d, wait){
-  if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+d.error+'</span>'; return; }
-  const c=d.contract; lastContract=c; lastResult=d; let sm;
-  if(d.kind==='container'){const k=c.container; sm=`컨테이너 Container: ${k.shape} ${k.shape==='round'?('Ø'+k.outer_d):(k.length+'×'+k.width)} × h${k.height}, 벽 ${k.wall}`+(k.dividers?`, 칸막이 ${k.dividers}`:'');}
-  else if(d.kind==='gear'){const k=c.gear; sm=`기어 Gear: ${k.teeth}T, 모듈 ${k.module}, 두께 ${k.thickness}, 보어 Ø${k.bore}`;}
-  else if(d.kind==='enclosure'){const k=c.enclosure; sm=`케이스 Enclosure: ${k.board}, 벽 ${k.wall}, 바닥 ${k.base}, 기둥 ${k.standoff_h}, 포트 ${k.open_ports?'열림/open':'닫힘'}`;}
-  else{sm=`plate ${c.plate.length}×${c.plate.width}×${c.plate.thickness}`+(c.wall?`, wall x=${c.wall.x}`:'')+`, ${d.fastener} × ${c.holes.length} · 구멍 Ø${d.hole_dia}`;}
+  d=d||{};
+  // #7 크래시 방지: error / retrieve(자유곡면) / generation(외부 생성) / 예기치 못한 응답 먼저 처리
+  if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(d.error)+'</span>'; return; }
+  if(d.kind==='retrieve'){
+    wait.innerHTML='<span style="color:#d6b25f">자유곡면 / free-form surface</span>';
+    logline('sys','이건 파라메트릭으로 못 만드는 자유곡면이라 외부 모델 검색/생성이 필요해요 / needs external model retrieval or generation.');
+    if(d.note)  logline('sys','메모 / note: '+esc(d.note));
+    if(d.query) logline('sys','검색어 / query: '+esc(d.query));
+    if(d.hint)  logline('sys','<span class="n">'+esc(d.hint)+'</span>');
+    if(d.parts&&d.parts.length){
+      logline('sys','<b>부품 분해 / parts ('+d.parts.length+'):</b>');
+      d.parts.forEach((p,i)=>{
+        const q=esc(p.query||p.name), nm=esc(p.name||p.query);
+        logline('sys','&nbsp;&nbsp;'+(i+1)+'. '+nm+' <span class="n">['+q+']</span> '+
+          '<button class="pbtn" data-q="'+q+'">검색 retrieve</button> '+
+          '<button class="pbtn" data-g="'+q+'">생성 3D</button>');
+      });
+      document.querySelectorAll('.pbtn[data-q]').forEach(b=>b.onclick=()=>retrievePart(b.dataset.q,'retrieve'));
+      document.querySelectorAll('.pbtn[data-g]').forEach(b=>b.onclick=()=>retrievePart(b.dataset.g,'generate3d'));
+    }
+    return;
+  }
+  if(d.generation){
+    wait.innerHTML='<span style="color:#d6b25f">외부 3D 생성 작업 제출됨 / generation job submitted</span>';
+    if(d.query) logline('sys','생성 요청 / query: '+esc(d.query));
+    if(d.note)  logline('sys','메모 / note: '+esc(d.note));
+    const g=d.generation, id=g&&(g.task_id||g.id);
+    logline('sys','<span class="n">'+esc(id?('작업 ID / task '+id):JSON.stringify(g)).slice(0,300)+'</span>');
+    return;
+  }
+  const c=d.contract;
+  if(!c){ wait.innerHTML='<span class="bad">알 수 없는 응답 / unexpected response</span>'; logline('sys','<span class="n">'+esc(JSON.stringify(d)).slice(0,400)+'</span>'); return; }
+  lastContract=c; lastResult=d; let sm;
+  if(d.kind==='container'&&c.container){const k=c.container; sm=`컨테이너 Container: ${k.shape} ${k.shape==='round'?('Ø'+k.outer_d):(k.length+'×'+k.width)} × h${k.height}, 벽 ${k.wall}`+(k.dividers?`, 칸막이 ${k.dividers}`:'');}
+  else if(d.kind==='gear'&&c.gear){const k=c.gear; sm=`기어 Gear: ${k.teeth}T, 모듈 ${k.module}, 두께 ${k.thickness}, 보어 Ø${k.bore}`;}
+  else if(d.kind==='enclosure'&&c.enclosure){const k=c.enclosure; sm=`케이스 Enclosure: ${k.board}, 벽 ${k.wall}, 바닥 ${k.base}, 기둥 ${k.standoff_h}, 포트 ${k.open_ports?'열림/open':'닫힘'}`;}
+  else if(c.plate){sm=`plate ${c.plate.length}×${c.plate.width}×${c.plate.thickness}`+(c.wall?`, wall x=${c.wall.x}`:'')+`, ${d.fastener} × ${(c.holes||[]).length} · 구멍 Ø${d.hole_dia}`;}
+  else{sm=`${esc(d.kind||'part')} 생성됨 / generated`;}
   wait.innerHTML='계약 Contract: '+sm;
-  for(const f of d.findings){
+  for(const f of (d.findings||[])){
     const mark=f.ok?'<span class="ok">통과 OK</span>':(f.severity==='HARD'?'<span class="bad">실패 FAIL</span>':'<span style="color:#d6b25f">경고 WARN</span>');
     logline('sys',`${mark} ${f.code} ${f.message}`+((f.actual!=null&&f.required!=null)?` <span class="n">${num(f.actual)} / ${num(f.required)}</span>`:'')+(f.standard?` · ${f.standard}`:''));
   }
@@ -290,24 +799,138 @@ function renderResult(d, wait){
     +(d.fixed?` · 메타 자동 수정 ${d.iters}회 / auto-fixed`:'')
     +(d.downloads?` · 내보내기 준비 / export ready: STL · 3MF · STEP · OBJ`:''));
   lastDownloads=d.downloads||null;
-  window.loadModel(d.part_url, d.bolts_url);
+  lastMeshUrl=d.part_url||null;   // #5 분할 소스
+  if(d.session) currentSession=d.session;
+  if(d.part_url){ window.loadModel(d.part_url, d.bolts_url); if(!d.edited) editHint(); }
+}
+// 빠른 수정 칩 — 초보가 뭐라 칠지 몰라도 한 번 탭으로 흔한 수정. 안 맞으면 되돌리기로 되감기.
+const QUICKEDITS=[
+  ['⬆ 더 크게','전체 크기를 10% 키워줘. 구멍 지름·나사·벽 두께 같은 기능 치수는 비율로 키우지 말고 유지해.'],
+  ['⬇ 더 작게','전체 크기를 10% 줄여줘. 구멍 지름·나사·벽 두께 같은 기능 치수는 비율로 줄이지 말고 유지해.'],
+  ['더 두껍게','벽과 바닥 두께를 1mm씩 더 두껍게 해줘.'],
+  ['더 튼튼하게','얇거나 약한 부분을 보강하고 모서리에 필렛을 줘서 더 튼튼하게 해줘.'],
+  ['모서리 둥글게','바깥 세로 모서리를 2mm 둥글게(필렛) 해줘.'],
+  ['출력 쉽게','바닥을 평평하게 깔고 급한 오버행을 줄여서 서포트 없이 잘 뽑히게 해줘.'],
+];
+function editHint(){
+  const chips=QUICKEDITS.map(([t,ins])=>`<span class="chip" data-edit="${esc(ins)}">${esc(t)}</span>`).join('');
+  logline('sys','<span class="n">✎ 이어서 고치기 — 아래를 탭하거나, 명령창에 직접 적고 \'수정\'. 맘에 안 들면 \'되돌리기\'</span>'
+    +`<div class="chiprow">${chips}</div>`);
+}
+// 되돌리기 — 세션의 직전 버전으로 복원
+async function undoDesign(){
+  if(busy) return;
+  if(!currentSession){ logline('sys','되돌릴 설계가 없어요 — 먼저 생성/수정하세요 / nothing to undo'); return; }
+  busy=true;
+  const wait=logline('sys','되돌리는 중 — 직전 버전 복원 / undoing…');
+  try{
+    const r=await fetch('api/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:currentSession})});
+    const d=await r.json();
+    if(d.no_history){ wait.innerHTML='<span style="color:#d6b25f">'+esc(d.msg||'더 되돌릴 게 없어요')+'</span>'; busy=false; return; }
+    if(d.expired){ wait.innerHTML='<span class="bad">세션 만료 / expired</span>'; currentSession=null; busy=false; return; }
+    if(d.error){ wait.innerHTML='<span class="bad">되돌리기 오류: '+esc(d.error)+'</span>'; busy=false; return; }
+    wait.innerHTML='↩ 되돌림 / undone'+(typeof d.remaining==='number'?` <span class="n">(더 되돌릴 수 있는 버전 ${d.remaining}개)</span>`:'');
+    renderCodeResult(d, logline('sys','…'));
+  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+  busy=false;
 }
 async function design(prompt){
   if(busy||!prompt) return; busy=true;
   const wait=logline('sys','Muse Spark 설계 중 / designing…');
-  try{ const r=await fetch('api/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
+  try{ const r=await fetch('api/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fitPrefix()+prompt})});
     renderResult(await r.json(), wait); }
-  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+e.message+'</span>'; }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
+}
+// 만능 CAD — AI가 build123d 코드를 직접 짜서 임의 기계부품 생성(격리 실행·자동수정, 조금 느림)
+async function designCode(prompt){
+  if(busy||!prompt) return; busy=true;
+  const wait=logline('sys','만능 CAD — 코드 짜서 깎는 중 / writing CAD code… <span class="n">(조금 걸려요, 최대 몇십 초)</span>');
+  try{ const r=await fetch('api/design_code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fitPrefix()+prompt})});
+    renderCodeResult(await r.json(), wait); }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+  busy=false;
+}
+function renderCodeResult(d, wait){
+  if(d && d.error){
+    wait.innerHTML='<span class="bad">만능 CAD 실패 / failed:</span> '+esc(d.error);
+    if(d.code) logline('sys','<span class="n">AI가 짠 코드(디버그):\n'+esc(d.code).slice(0,1200)+'</span>');
+    return;
+  }
+  if(!d || !d.part_url){ wait.innerHTML='<span class="bad">알 수 없는 응답 / unexpected response</span>'; logline('sys','<span class="n">'+esc(JSON.stringify(d)).slice(0,400)+'</span>'); return; }
+  lastResult=d; lastContract=null;
+  if(d.measure) renderMeasure(d.measure);
+  const bb=(d.info&&d.info.bbox)||[0,0,0];
+  wait.innerHTML='만능 CAD 생성됨 / AnyCAD — <span class="n">코드 직접 생성</span>, 크기 '+bb[0]+'×'+bb[1]+'×'+bb[2]+' mm';
+  for(const f of (d.findings||[])){
+    const mark=f.ok?'<span class="ok">통과 OK</span>':(f.severity==='HARD'?'<span class="bad">실패 FAIL</span>':'<span style="color:#d6b25f">경고 WARN</span>');
+    logline('sys',`${mark} ${f.code} ${f.message}`+(f.standard?` · ${f.standard}`:''));
+  }
+  logline('sys', (d.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패</span>')
+    +(d.fixed?` · 자동수정 ${d.iters}회 / auto-repaired`:` · 1발에 성공 / first try`)
+    +(d.downloads?` · 내보내기 준비: STL · 3MF · STEP · OBJ`:''));
+  lastDownloads=d.downloads||null;
+  lastMeshUrl=d.part_url||null;
+  if(d.session) currentSession=d.session;
+  if(d.part_url){ window.loadModel(d.part_url, null); if(!d.edited) editHint(); }
+}
+// 대화형 편집 — 세션의 현재 설계를 후속 지시로 최소 수정(전체 재생성 아님)
+async function editDesign(instruction){
+  if(busy||!instruction) return;
+  if(!currentSession){ logline('sys','먼저 무언가를 생성한 뒤 수정하세요 / generate something first'); return; }
+  busy=true;
+  logline('you','✎ 수정 / edit: '+esc(instruction));
+  const wait=logline('sys','수정 반영 중 — 바뀐 부분만 다시 깎는 중 / applying edit… <span class="n">(조금 걸려요)</span>');
+  try{
+    const r=await fetch('api/edit',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({session:currentSession,instruction:fitPrefix()+instruction})});
+    const d=await r.json();
+    if(d&&d.expired){ wait.innerHTML='<span class="bad">세션 만료 / session expired</span> — 다시 생성해 주세요'; currentSession=null; busy=false; return; }
+    if(d&&d.mode==='code') renderCodeResult(d,wait); else renderResult(d,wait);
+    if(d&&d.diff) logDiff(d.diff);
+    if(d&&d.edited&&!d.error) showToast('✎ 수정 반영됨 / edited');
+  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+  busy=false;
+}
+function logDiff(diff){
+  if(!diff||!diff.length){ logline('sys','<span class="n">· 바뀐 설계값 없음 / no field changed</span>'); return; }
+  logline('sys','<span class="ok">✎ 바뀐 설계값 / changed:</span>');
+  for(const c of diff) logline('sys','<span class="n">· '+esc(c.field)+': '+esc(c.from)+' → '+esc(c.to)+'</span>');
+}
+async function retrievePart(query, mode){
+  const ep = mode==='generate3d' ? 'api/generate3d' : 'api/retrieve';
+  const wait=logline('sys',(mode==='generate3d'?'3D 생성 요청 / generating':'라이브러리 검색 / searching')+': '+esc(query)+' …');
+  try{
+    const r=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:query})});
+    const d=await r.json();
+    if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(d.error)+'</span>'; return; }
+    if(d.generation){ const g=d.generation,id=g&&(g.task_id||g.id); wait.innerHTML='<span class="ok">3D 생성 작업 제출됨 / submitted</span> '+esc(id?('task '+id):''); return; }
+    const cands=d.candidates||[];
+    wait.innerHTML='<span class="ok">검색결과 '+cands.length+'개 / results</span>';
+    cands.slice(0,5).forEach(c=>{ const t=esc(c.title||c.name||'model'), u=c.url||c.page_url||c.thingiverse_url||'#';
+      logline('sys','&nbsp;&nbsp;· <a href="'+esc(u)+'" target="_blank" style="color:#8ab4f8">'+t+'</a>'); });
+  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
 }
 async function designPhoto(file, note){
   if(busy||!file) return; busy=true;
   logline('you','사진 / photo: '+file.name+(note?' — '+note:''));
   const wait=logline('sys','Muse Spark가 사진에서 치수 읽는 중 / reading photo…');
-  try{ const fd=new FormData(); fd.append('image',file); fd.append('note',note||'');
-    const r=await fetch('api/design_photo',{method:'POST',body:fd}); renderResult(await r.json(), wait); }
-  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+e.message+'</span>'; }
+  try{ const fd=new FormData(); fd.append('image',file); fd.append('note',fitPrefix()+(note||''));
+    const r=await fetch('api/design_photo',{method:'POST',body:fd}); const d=await r.json();
+    if(d&&d.mode==='code') renderCodeResult(d,wait); else renderResult(d,wait); }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
+}
+// 사진 치수 추정 리포트 — 어떤 기준물로 몇 mm로 쟀는지 투명하게 보여준다
+function renderMeasure(m){
+  if(!m||!m.overall_mm) return;
+  const o=m.overall_mm, conf={high:'높음',medium:'보통',low:'낮음'}[m.confidence]||m.confidence||'?';
+  let s='<b>📏 사진 치수 추정 / measured</b> — '+num(o.w)+'×'+num(o.d)+'×'+num(o.h)+' mm';
+  if(m.reference) s+=' <span class="n">(기준물 '+esc(m.reference)+', 신뢰도 '+conf+')</span>';
+  logline('sys',s);
+  for(const f of (m.features||[])){ if(f&&f.name!=null&&f.mm!=null) logline('sys','&nbsp;&nbsp;· '+esc(f.name)+' = '+num(f.mm)+' mm'); }
+  if(!m.found_reference) logline('sys','<span style="color:#d6b25f">⚠ 기준물이 안 보여 전형적 크기로 추정했어요 — 자·동전·카드를 물체 옆 같은 평면에 놓고 정면에서 다시 찍으면 정확해져요.</span>');
+  else if(m.notes) logline('sys','<span class="n">※ '+esc(m.notes)+'</span>');
 }
 function doExport(){
   if(!lastDownloads){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
@@ -326,27 +949,49 @@ async function designWrap(file){
   const wait=logline('sys','참조 치수 측정 + 케이스 생성 중 / measuring & wrapping…');
   try{ const fd=new FormData(); fd.append('model',file);
     const r=await fetch('api/wrap',{method:'POST',body:fd}); const d=await r.json();
-    if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+d.error+'</span>'; busy=false; return; }
+    if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(d.error)+'</span>'; busy=false; return; }
     wait.innerHTML=`참조 치수 / reference ${d.size.join('×')}mm → ${d.sealed?'밀폐 케이스(뚜껑+나사+가스켓+포트)':'케이스'} 생성 (틈 ${d.clearance}mm)`;
     for(const f of d.findings){ const mark=f.ok?'<span class="ok">통과 OK</span>':'<span class="bad">실패 FAIL</span>';
-      logline('sys',`${mark} ${f.code} ${f.message}`); }
+      logline('sys',`${mark} ${esc(f.code)} ${esc(f.message)}`); }
     logline('sys','<span class="ok">■ 케이스 생성 / wrapped</span> · 초록 참조 + 반투명 바디'+(d.lid_url?' + 뚜껑':'')+' 어셈블리 · 내보내기: STL · 3MF · STEP · OBJ');
-    lastDownloads=d.downloads||null; lastContract=null;
+    lastDownloads=d.downloads||null; lastContract=null; lastMeshUrl=d.case_url||null;
     window.loadAssembly(d.ref_url,d.case_url,d.lid_url);
-  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+e.message+'</span>'; }
+  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
 }
-async function doSplit(){
-  if(!lastContract){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
-  logline('sys','프린터 빌드볼륨 220×220×250 기준 분할 확인 / checking split…');
+// #5 분할 전 되묻기 — 바로 분할하지 않고 다이얼로그로 방식/빌드볼륨/다월 확인 후 /api/split_upload
+function doSplit(){ openSplitDialog(); }
+function openSplitDialog(){
+  const ov=document.getElementById('splitdlg'); if(!ov)return;
+  document.getElementById('spX').value=BUILD[0];
+  document.getElementById('spY').value=BUILD[1];
+  document.getElementById('spZ').value=BUILD[2];
+  splitFile=null; renderSplitSrc();
+  ov.classList.add('show');
+}
+function renderSplitSrc(){
+  const src=document.getElementById('spSrc'); if(!src)return;
+  if(splitFile){ src.innerHTML='대상 / source: <b>'+esc(splitFile.name)+'</b> · <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">다른 파일</span>'; }
+  else if(lastMeshUrl){ src.innerHTML='대상 / source: 현재 모델 · <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">다른 파일 선택</span>'; }
+  else { src.innerHTML='대상 / source: <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">메시 파일 선택</span> (STL/OBJ/3MF/PLY)'; }
+  const p=src.querySelector('.spPick'); if(p) p.onclick=()=>splitInput.click();
+}
+async function runSplitUpload(blob,name,method,build,dowel){
+  const wait=logline('sys',`분할 중 / splitting — ${method}, ${build.join('×')}mm${dowel?', 다월핀':''}…`);
   try{
-    const r=await fetch('api/split',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contract:lastContract,build:[220,220,250]})});
+    const fd=new FormData();
+    fd.append('model',blob,name||'model.stl');
+    fd.append('bx',build[0]);fd.append('by',build[1]);fd.append('bz',build[2]);
+    fd.append('method',method); fd.append('dowels',dowel?'1':'0');
+    const r=await fetch('api/split_upload',{method:'POST',body:fd});
     const d=await r.json();
-    if(d.error){ logline('sys','<span class="bad">오류 / error: '+d.error+'</span>'); return; }
-    if(d.fits){ logline('sys','<span class="ok">■ 프린터에 들어감 / fits</span> ('+d.size.join('×')+'mm ≤ 220×220×250) — 분할 불필요 / no split needed'); }
-    else{ logline('sys','<span style="color:#d6b25f">■ 베드보다 큼 / too big</span> ('+d.size.join('×')+') → '+d.axis+'축 '+d.n+'조각 분할 + 다월 Ø'+d.dowel.dia+' 정렬핀 / split into '+d.n+' + dowels');
-      window.loadPieces(d.pieces,d.axis); }
-  }catch(e){ logline('sys','<span class="bad">오류 / error: '+e.message+'</span>'); }
+    if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(d.error)+'</span>'; return; }
+    if(d.fits){ wait.innerHTML='<span class="ok">■ 프린터에 들어감 / fits</span> ('+d.size.join('×')+'mm ≤ '+build.join('×')+') — 분할 불필요 / no split needed'; return; }
+    const n=d.n_pieces||d.n||(d.piece_urls?d.piece_urls.length:0);
+    wait.innerHTML='<span style="color:#d6b25f">■ 베드보다 큼 / too big</span> ('+d.size.join('×')+') → '+n+'조각 / '+n+' pieces';
+    logline('sys','부피 / volume '+d.volume_orig_cm3+'cm³ → 조각 합 '+d.volume_pieces_cm3+'cm³ (오차 '+d.volume_err_pct+'%) · 정렬핀 '+d.pins+'개 · 모두 베드 안 '+(d.all_fit?'예/yes':'아니오/no'));
+    if(d.piece_urls&&d.piece_urls.length) window.loadPieces(d.piece_urls,'X');
+  }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
 }
 let _rec=null;
 function startVoice(){
@@ -375,13 +1020,13 @@ function doClear(){
   if(window._deleteSelected && window._deleteSelected()){ logline('sys','<span class="ok">■ 선택 부품만 삭제 / deleted selected</span> (부분 비우기)'); return; }
   scene.remove(grp); grp=new THREE.Group(); scene.add(grp); window._opMats=[]; grid.position.z=0;
   if(window._opSlider) window._opSlider.value=100;
-  lastDownloads=null; lastContract=null; lastResult=null; clarifyState=null;
+  lastDownloads=null; lastContract=null; lastResult=null; clarifyState=null; currentSession=null;
   logline('sys','<span class="ok">■ 전체 비움 / cleared all</span> (부품 클릭 후 비우기=부분 삭제)');
 }
 function doVerify(){
   if(!lastResult){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
   logline('sys', lastResult.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패 / FAILED</span>');
-  for(const f of (lastResult.findings||[])){ const mark=f.ok?'<span class="ok">OK</span>':(f.severity==='HARD'?'<span class="bad">FAIL</span>':'<span style="color:#d6b25f">WARN</span>'); logline('sys',`${mark} ${f.code} ${f.message}`); }
+  for(const f of (lastResult.findings||[])){ const mark=f.ok?'<span class="ok">OK</span>':(f.severity==='HARD'?'<span class="bad">FAIL</span>':'<span style="color:#d6b25f">WARN</span>'); logline('sys',`${mark} ${esc(f.code)} ${esc(f.message)}`); }
 }
 function doDim(){
   const b=new THREE.Box3().setFromObject(grp); if(!isFinite(b.min.x)){ logline('sys','모델 없음 / nothing to measure'); return; }
@@ -424,17 +1069,38 @@ cmdEl.addEventListener('keydown',e=>{
   handleCommand(v);
 });
 document.getElementById('mic').onclick=startVoice;
-// #11 상단 타이틀바 검색창 → Enter로 설계
-const topSearch=document.getElementById('topsearch');
-if(topSearch) topSearch.addEventListener('keydown',e=>{
-  if(e.key!=='Enter'||e.isComposing||e.keyCode===229) return; e.preventDefault();
-  const v=topSearch.value.trim(); topSearch.value='';
-  if(clarifyState) answerClarify(v); else handleCommand(v);
+// 모바일 한글 IME는 조합중 Enter가 isComposing으로 막혀 제출이 안 됨 → 탭으로 실행하는 보내기 버튼
+document.getElementById('send').onclick=()=>{
+  const v=cmdEl.value.trim(); if(!v){ cmdEl.focus(); return; }
+  cmdEl.value='';
+  if(clarifyState){ answerClarify(v); return; }
+  handleCommand(v);
+};
+// #1 상단 프롬프트창 제거 — 설계 입력은 하단 명령입력줄로 일원화(상단 검색창 삭제됨)
+// 빠른 수정 칩 탭 → 그 지시로 바로 수정
+document.addEventListener('click',e=>{const c=e.target.closest('.chip[data-edit]'); if(!c)return;
+  if(!currentSession){ logline('sys','먼저 생성한 뒤 수정할 수 있어요 / generate first'); return; }
+  if(busy) return; clarifyState=null; editDesign(c.dataset.edit);
 });
 document.addEventListener('click',e=>{const t=e.target.closest('[data-act]'); if(!t)return;
   const a=t.dataset.act, v=cmdEl.value.trim();
   if(a==='design'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 설계를 누르세요 / type what to make, then Design'); cmdEl.focus(); return; } cmdEl.value=''; handleCommand(v); }
+  else if(a==='anycad'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 만능을 누르세요 / type what to make, then AnyCAD'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; logline('you',esc(v)+' <span class="n">(만능/AnyCAD)</span>'); designCode(v); }
   else if(a==='auto'){ clarifyState=null; cmdEl.value=''; const p=v||'a round pencil holder about 80mm diameter, 100mm tall, 2mm wall'; logline('you',p.replace(/</g,'&lt;')+' <span class="n">(자동/auto)</span>'); design(p); }
+  else if(a==='edit'){ if(!currentSession){ logline('sys','먼저 설계·만능으로 무언가를 생성한 뒤, 명령창에 바꿀 내용을 적고 수정을 누르세요 / generate first, then type a change and hit Edit'); return; } if(!v){ logline('sys','명령창에 바꿀 내용을 입력하고 수정을 누르세요 (예: "버튼 5개 추가", "더 크게", "두께 3mm") / type a change, then Edit'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; editDesign(v); }
+  else if(a==='undo') undoDesign();
+  else if(a==='resize') toggleSizePanel();
+  else if(a==='fit') toggleFitPanel();
+  else if(a==='presets') togglePresetPanel();
+  else if(a==='sk_line') setSketch('line');
+  else if(a==='sk_circle') setSketch('circle');
+  else if(a==='sk_rect') setSketch('rect');
+  else if(a==='sk_extrude') extrudeSketch();
+  else if(a==='sk_offset') skOffset();
+  else if(a==='sk_clear') clearSketch();
+  else if(a==='layflat') layFlat();
+  else if(a==='center') centerPart();
+  else if(a==='hole') holeCut();
   else if(a==='export') doExport();
   else if(a==='voice') startVoice();
   else if(a==='split'||a==='printer') doSplit();
@@ -453,5 +1119,73 @@ const refInput=document.createElement('input');
 refInput.type='file'; refInput.accept='.step,.stp,.stl,.obj,.3mf,.ply'; refInput.id='refInput'; refInput.style.display='none';
 document.body.appendChild(refInput);
 refInput.addEventListener('change',()=>{ const f=refInput.files[0]; if(f) designWrap(f); refInput.value=''; });
+
+// ===== #5 분할용 메시 파일 입력 =====
+const splitInput=document.createElement('input');
+splitInput.type='file'; splitInput.accept='.stl,.obj,.3mf,.ply'; splitInput.id='splitInput'; splitInput.style.display='none';
+document.body.appendChild(splitInput);
+splitInput.addEventListener('change',()=>{ const f=splitInput.files[0]; if(f){ splitFile=f; renderSplitSrc(); } splitInput.value=''; });
+
+// ===== #4 모드 / 빌드볼륨 (localStorage 1회 온보딩) =====
+function applyModeBadge(){const el=document.getElementById('modeBadge');if(!el)return;
+  el.textContent = MODE==='printer' ? ('프린터 '+BUILD.join('×')+'mm') : '모드 CAD';}
+function saveMode(){try{localStorage.setItem('realcad_mode',JSON.stringify({mode:MODE,build:BUILD}));}catch(e){}}
+function openOnboarding(first){
+  const ov=document.getElementById('onboard'); if(!ov)return;
+  const sel=(MODE==='printer')?'printer':'cad';
+  ov.querySelectorAll('.modecard').forEach(c=>c.classList.toggle('sel',c.dataset.mode===sel));
+  document.getElementById('bvWrap').style.display = sel==='printer'?'block':'none';
+  document.getElementById('bvX').value=BUILD[0]; document.getElementById('bvY').value=BUILD[1]; document.getElementById('bvZ').value=BUILD[2];
+  ov._first=!!first; document.getElementById('obCancel').style.display = first?'none':'';
+  ov.classList.add('show');
+}
+(function wireOnboarding(){
+  const ov=document.getElementById('onboard'); if(!ov)return;
+  ov.querySelectorAll('.modecard').forEach(c=>c.onclick=()=>{
+    ov.querySelectorAll('.modecard').forEach(x=>x.classList.remove('sel')); c.classList.add('sel');
+    document.getElementById('bvWrap').style.display = c.dataset.mode==='printer'?'block':'none';});
+  document.getElementById('obStart').onclick=()=>{
+    const sel=ov.querySelector('.modecard.sel'); MODE=(sel&&sel.dataset.mode)||'cad';
+    if(MODE==='printer') BUILD=[+document.getElementById('bvX').value||256,+document.getElementById('bvY').value||256,+document.getElementById('bvZ').value||256];
+    saveMode(); applyModeBadge(); ov.classList.remove('show');
+    logline('sys','<span class="ok">모드 / mode: '+(MODE==='printer'?('3D 프린터 '+BUILD.join('×')+'mm'):'CAD')+'</span>');};
+  document.getElementById('obCancel').onclick=()=>ov.classList.remove('show');
+  ov.addEventListener('click',e=>{ if(e.target===ov && !ov._first) ov.classList.remove('show'); });
+})();
+
+// ===== #5 분할 다이얼로그 버튼 =====
+(function wireSplit(){
+  const ov=document.getElementById('splitdlg'); if(!ov)return;
+  document.getElementById('spCancel').onclick=()=>ov.classList.remove('show');
+  ov.addEventListener('click',e=>{ if(e.target===ov) ov.classList.remove('show'); });
+  document.getElementById('spRun').onclick=async()=>{
+    const method=document.getElementById('spMethod').value;
+    const build=[+document.getElementById('spX').value||256,+document.getElementById('spY').value||256,+document.getElementById('spZ').value||256];
+    const dowel=document.getElementById('spDowel').checked;
+    let src=null;
+    if(splitFile) src={blob:splitFile,name:splitFile.name};
+    else if(lastMeshUrl){ try{const r=await fetch(lastMeshUrl);src={blob:await r.blob(),name:'current.stl'};}catch(e){} }
+    if(!src){ showToast('먼저 설계하거나 메시 파일을 선택하세요'); return; }
+    ov.classList.remove('show');
+    runSplitUpload(src.blob,src.name,method,build,dowel);
+  };
+})();
+
+// ===== #6 헤더/네비 버튼 동작 =====
+function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classList.toggle('show');}
+(function wireHeader(){
+  const bh=document.getElementById('btnHelp'); if(bh) bh.onclick=toggleHelp;
+  const hc=document.getElementById('helpClose'); if(hc) hc.onclick=()=>document.getElementById('helppanel').classList.remove('show');
+  const bs=document.getElementById('btnSignin'); if(bs) bs.onclick=()=>showToast('로그인 준비 중 / sign-in coming soon');
+  const mb=document.getElementById('modeBadge'); if(mb) mb.onclick=()=>openOnboarding(false);
+  const lg=document.getElementById('logo'); if(lg) lg.onclick=()=>{ if(window._setView) window._setView('iso'); };
+})();
+
+// 최초 로드: 저장된 모드 있으면 적용, 없으면 온보딩
+(function initMode(){
+  let saved=null; try{saved=JSON.parse(localStorage.getItem('realcad_mode')||'null');}catch(e){}
+  if(saved&&saved.mode){ MODE=saved.mode; if(Array.isArray(saved.build)&&saved.build.length===3) BUILD=saved.build.map(Number); applyModeBadge(); }
+  else { applyModeBadge(); openOnboarding(true); }
+})();
 </script>
 </body></html>

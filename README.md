@@ -1,60 +1,110 @@
-# RealCAD
+# RealCAD — prompt → CAD that actually assembles
 
-**Prompt → CAD that actually assembles.** Describe a functional part in plain language and get a 3D model whose bolt holes match real fasteners, whose bolt heads don't collide, and that exports to **STEP / STL** — with every assembly rule checked on the geometry kernel, not eyeballed.
+**Describe a functional part (or show a photo) and get a 3D-printable model whose bolt holes match real fasteners, whose bolt heads don't collide, whose gears actually mesh — with every rule measured on the CAD kernel, not eyeballed.** Exports STEP · STL · 3MF · OBJ + a bolt BOM.
 
-Most text-to-CAD tools make shapes that *look* right but put bolt holes where real hardware won't fit and never check head clearance, tool access, or edge distance. RealCAD treats the generation model as a designer and the kernel as a referee: it verifies, and when something fails it tells the model exactly which parameter to change.
+Built for the **Meta Global AI Developer Hackathon** (Indie track · *Push the Frontier* / manufacturing). All code written after the Oct 26 kickoff. The only runtime AI is **Meta Muse Spark 1.3** via the Meta Model API; the CAD kernel ([build123d](https://github.com/gumyr/build123d) / OpenCascade), verification and export run locally and free.
 
-## How it works
+> Most text-to-CAD tools produce shapes that *look* right but put holes where real hardware won't fit. RealCAD treats the model as a designer and the kernel as a referee: it **measures** the result (hole diameters, interference volumes, thread engagement, gear meshing, floor thickness, watertightness) and, when something fails, tells Muse Spark exactly which parameter to change.
 
-```
-prompt (+ photo / PDF)
-  → planner   [Meta Muse Spark]   → design contract (JSON)
-  → builder   [build123d / OCC]   → part + standard fasteners
-  → verify    [kernel measurement] → interference · clearance · thread engagement · edge distance
-  → judge     [Meta Muse Spark]   → parameter fixes on failure (loop)
-  → export    STEP · STL · bolt BOM
-```
+## What you can do (web UI, `/acad.html`)
+| Action | Path | What Meta does | What the kernel does |
+|---|---|---|---|
+| **Design** a bracket / cup / gear / Pi case / coaster / clip / ball | contract path (no code exec) | planner → JSON design contract; judge fixes parameters on failure | builds parametric part, runs the checks below, exports |
+| **AnyCAD** "make me a phone stand / tumbler / keyboard / Gundam" | code path | writes build123d code; auto-repairs from kernel error messages | runs code in a sandbox, rejects unfused/floating/non-watertight results |
+| **Photo** → part that fits reality | code path + vision | reads a ruler / card / coin / A4 in the photo to recover real mm, then codes | same as above |
+| **Edit** "bigger, add 2 holes, thicker lid" · **Undo** (20 steps) | both | minimal contract diff / minimal code edit | re-verifies |
+| **Wrap**: upload a STEP/STL of a board → sealed case with lid, standoffs, port cut-outs | kernel only | — | detects mounting holes on the imported model |
+| **Split** a model bigger than your printer bed (grid / BSP / joint-aware) with dowel pins | kernel only | — | volume-conservation & fit checks |
+| 2D sketch → extrude, resize, fit-tolerance presets, 8 one-click functional parts, ViewCube | UI | — | — |
 
-The thinking steps run on the **Meta Model API** (`muse-spark-1.3`). The CAD kernel, verification and export run locally and free.
+## Verification (the differentiator) — all measured on the OCC kernel
+| Code | Check | How it is measured | Standard |
+|---|---|---|---|
+| F0 | Requested fastener exists | table lookup; unknown → **hard fail + nearest suggestion** (never silent substitution) | — |
+| H1 | Bolt head vs wall / neighbouring bolt | boolean intersection volume of the bolt solid | — |
+| H2 | Hole ≥ clearance hole | **actual cylindrical-face radius of the finished solid** vs table | ASME B18.2.8-1999 |
+| H3 | Thread engagement ≥ k·D (tapped holes) | ray-cast material length at the thread radius; k = 1.0 steel / 1.5 Al / 2.0 plastic | shop practice |
+| H4 | Edge distance ≥ 1.5·D | hole centre to plate edge | shop practice |
+| S2 | Wrench clearance between bolts | centre distance ≥ 2 × head width (warning) | — |
+| G1 | Gears mesh | mate gear at theoretical centre distance, rotated half a pitch: intersection = 0 | 20° involute, 0.05 m backlash |
+| E1 / E2 | Board standoffs match the real hole pattern / floor under standoff ≥ 1 mm | measured pilot-hole positions & diameters; ray-cast floor | Pi 3B/4/5/Zero, Arduino Uno |
+| M2 | Watertight | OCC validity **and** the exported mesh is watertight | printable |
+| C1 | No overlapping-but-unfused solids, no floating pieces | pairwise solid intersection; detached solids must rest on z = 0 | printable |
 
-## Verification (the differentiator)
+Fastener table: UNC/UNF #4–1/2 and ISO M2–M12 with B18.2.8 clearance holes, B18.2.1 / B18.6.3 / ISO 4017 head sizes, nut heights, washers, socket OD, standard lengths. The **BOM** picks a standard bolt length from grip + washer + nut + 2 pitches (or mate thickness + engagement for tapped holes).
 
-All measured on the OCC kernel:
+## Evaluation
+**Seeded-error detection** (`examples/eval_seeded.py`, kernel only, 3 s): 10 correct designs × 6 planted faults (hole smaller than the clearance hole, hole too close to the edge, wall through the bolt head, bolts touching, unsupported fastener, tapped plate thinner than the engagement) → **58 / 58 caught, 0 false alarms on the 10 correct designs**.
 
-| Code | Check | Standard |
-|------|-------|----------|
-| H1 | Bolt-head / neighbor interference (boolean volume > 0) | — |
-| H2 | Hole ≥ standard clearance hole | ASME B18.2.8 |
-| H3 | Thread engagement ≥ k·D | — |
-| H4 | Edge distance ≥ 1.5·D | — |
-| S2 | Hole spacing for wrench access | — |
-
-US inch fasteners (UNC/UNF) by default, ISO metric supported.
+**End-to-end with Muse Spark** (`examples/eval_smoke.py --set wide`, 20 prompts in Korean and English, Oct 29 2026): see the table at the bottom of this file (regenerated by the script). "Pass" means the result executed, is a valid watertight solid with no unfused/floating pieces and passed every HARD check — not that it is beautiful.
 
 ## Quickstart
-
 ```bash
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python build123d trimesh
-echo "META_API_KEY=..." > .env      # your Meta Model API key
+uv pip install --python .venv/bin/python -e ".[dev]"        # or: -r requirements.lock
+echo "META_API_KEY=..." > .env                               # Meta Model API key (dev.meta.ai)
 
-.venv/bin/python examples/poc_bracket.py   # kernel verification demo (no API)
-.venv/bin/python examples/meta_run.py "a wall-mount bracket with two 1/4-20 bolt holes"
+# kernel-only demo (no API): verification of a wall bracket, fixed by moving a hole
+PYTHONPATH=src .venv/bin/python examples/poc_bracket.py
+# seeded-error detection matrix (no API)
+PYTHONPATH=src .venv/bin/python examples/eval_seeded.py
+# web UI
+PYTHONPATH=src .venv/bin/python -m uvicorn realcad.web.app:app --host 127.0.0.1 --port 8750
+open http://127.0.0.1:8750/            # → acad.html
+# tests
+PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
+Optional env: `REALCAD_TOKEN` (require `X-RealCAD-Token` on `/api/*` when you expose the server), `THINGIVERSE_TOKEN` (library search), `REALCAD_ENABLE_EXTERNAL=1` (opt-in external text-to-3D; **off by default — runtime AI is Meta only**).
 
-## Layout
-
+## How a request flows
 ```
-src/realcad/
-  fasteners/  standard bolt library (UNC/UNF + ISO, clearance holes)
-  contract/   design-contract schema
-  geometry/   build123d part/assembly builder
-  verify/     kernel checks + thread engagement
-  agent/      Meta Model API client, planner, (judge/loop)
-  export/     STEP / STL
+prompt (+ photo)
+  → clarify   [Muse Spark]  ask at most one essential question
+  → planner   [Muse Spark]  design contract (JSON)        ─┐  contract path: no code execution
+  → builder   [build123d]   part + standard fasteners      │
+  → verify    [OCC kernel]  F0 H1 H2 H3 H4 S2 G1 E1 E2 M2 C1
+  → judge     [Muse Spark]  parameter fixes on failure (≤3 loops)
+  → export    STEP · STL · 3MF · OBJ · bolt BOM (CSV)
+  or
+  → codegen   [Muse Spark]  build123d code  → sandbox (AST allow-list, isolated process, CPU/RSS/time limits,
+                             unfused / floating / non-watertight rejected) → auto-repair from the error (≤3 loops)
 ```
+See [ARCHITECTURE.md](ARCHITECTURE.md) for modules, the sandbox design and what is *not* implemented yet.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+## Security notes
+Generated code runs in a separate `python -I` process with an allow-listed namespace (only build123d's own geometry API — no `os`, `sys`, `ctypes`, file or network functions, no `export_*`/`import_*`, no dunder access or `str.format`), CPU / wall-clock / memory limits, and result gates. The web app binds to localhost, disables `/docs`, validates upload types and sizes, clamps every numeric contract value, and can require a token. It is still a local developer tool — do not expose it unauthenticated.
+
+## Limitations / roadmap
+Tool-access (socket envelope) and overhang checks, counterbores, true edge distance against arbitrary outlines, multi-axis splitting, metric-first toggle, more board presets. Organic high-detail figures are out of scope (parametric CAD ≠ sculpting).
+
+## License
+MIT © 2026 Mary Jeon
 
 ---
-Built for the Meta Global AI Developer Hackathon.
+### Latest end-to-end run (auto-filled)
+<!-- EVAL_TABLE_START -->
+Set `wide` · 2026-10-29 · **20/20 passed** (16 on the first attempt, 4 after auto-repair) · mean 34 s per design
+
+| # | path | result | tries | s | prompt |
+|---|---|---|---|---|---|
+| 0 | code | ✅ | 1 | 15 | a coffee mug with a handle, 350 ml |
+| 1 | code | ✅ | 1 | 31 | 휴대폰 거치대, 폰 두께 9mm, 각도 60도 |
+| 2 | code | ✅ | 2 | 45 | M3 볼트 4개로 벽에 거는 라즈베리파이 4 케이스 (포트 구멍 포함) |
+| 3 | code | ✅ | 1 | 21 | a spur gear, 24 teeth, module 2, 8 mm bore, 10 mm thick |
+| 4 | code | ✅ | 1 | 29 | 에어팟 프로 케이스 홀더, 책상 모서리에 끼우는 클립형 (책상 두께 25mm) |
+| 5 | code | ✅ | 1 | 29 | a wall-mount bracket with two 1/4-20 bolt holes, 80x40x5 mm, with a 30 mm lip |
+| 6 | code | ✅ | 1 | 17 | 펜 6자루 꽂는 육각 연필통 |
+| 7 | code | ✅ | 2 | 67 | 건담 피규어 180mm |
+| 8 | param | ✅ | 1 | 5 | a wall-mount bracket with two 1/4-20 bolt holes |
+| 9 | param | ✅ | 1 | 16 | pencil holder, 80mm diameter, 100mm tall, 3 compartments |
+| 10 | param | ✅ | 1 | 2 | case for raspberry pi 5 |
+| 11 | param | ✅ | 1 | 4 | 24 tooth spur gear module 1.5 bore 6 |
+| 12 | code | ✅ | 1 | 27 | USB-C 케이블 정리 클립 5구 |
+| 13 | code | ✅ | 1 | 27 | a hex nut M8 and a matching bolt, separate pieces |
+| 14 | code | ✅ | 4 | 94 | 도어 스토퍼 쐐기, 고무패드 홈 포함 |
+| 15 | code | ✅ | 1 | 20 | a 100x100 VESA monitor arm adapter plate, M4 holes |
+| 16 | code | ✅ | 1 | 36 | a chibi cat figure |
+| 17 | code | ✅ | 1 | 24 | 벽걸이 열쇠 걸이, 고리 4개, 나사 2개 |
+| 18 | code | ✅ | 1 | 23 | a snap-fit box with lid, 60x40x30 inner |
+| 19 | code | ✅ | 4 | 145 | a watering can 1.5L |
+<!-- EVAL_TABLE_END -->

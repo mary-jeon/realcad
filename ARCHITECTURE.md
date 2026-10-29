@@ -1,102 +1,68 @@
-# RealCAD 아키텍처
+# RealCAD 아키텍처 (2026-10-29 기준, 실제 코드와 1:1)
 
-> 자연어 프롬프트 → **실제로 조립되는** CAD(STEP/STL). text-to-cad가 안 하는 "빡센 검증"(볼트 머리 간섭·공구 접근·체결 길이·연단거리·출력 가능성)을 커널(build123d/OCC)로 실측해서 잡는다. 메타 AI 해커톤(인디, Push the Frontier/제조) 제출작.
+> 자연어(+사진) → **실제로 조립되는** 3D 프린팅 부품(STEP/STL/3MF/OBJ). 생성은 Meta Muse Spark, 검증은 OCC 커널 실측.
+> Meta Global AI Developer Hackathon 제출작(인디, Push the Frontier/제조). 모든 코드는 2026-10-27 KST(킥오프 이후) 시작.
 
-## 메타 모델은 필수 (해커톤 통과 기준)
-심사 1차 관문 = "메타 Model API나 오픈웨이트를 해커톤 기간에 실제로 썼는가". 그래서 LLM 단계는 전부 **Meta Model API(Muse Spark)** 로 호출한다. $150 크레딧이 이걸 위한 거다. (Muse Code = 메타의 코딩 에이전트, 우리가 개발할 때 쓰는 건 선택. 제출물의 런타임이 메타 모델을 써야 함.)
+## 런타임에 부르는 AI = Meta Muse Spark 1.3 하나
+| 단계 | 모듈 | 모델 호출 | 역할 |
+|---|---|---|---|
+| 역질문 | `agent/clarify.py` | muse-spark-1.3 (JSON) | 꼭 필요한 1개만 되묻기(대부분 질문 없음) |
+| 기획자 | `agent/planner.py` | muse-spark-1.3 (JSON, 멀티모달) | 요구/사진 → 설계 계약(`DesignContract`) |
+| 코더 | `agent/codegen.py` | muse-spark-1.3 (코드, 멀티모달) | 기본형으로 안 되는 임의 부품 → build123d 코드. 사진이면 기준물(카드·A4·동전·자)로 mm 역산 |
+| 판정자 | `agent/judge.py` | muse-spark-1.3 (JSON) | 커널 실패 리포트 → 계약 파라미터 수정(그림 재생성 아님) |
+| 편집자 | `agent/editor.py` | muse-spark-1.3 | "더 크게/구멍 추가" 후속 지시를 계약 diff 또는 코드 최소 수정으로 |
+외부 생성 모델(Meshy)은 `REALCAD_ENABLE_EXTERNAL=1` 일 때만 켜지는 옵션이며 기본 빌드에선 꺼져 있다. Thingiverse 는 모델이 아니라 라이브러리 검색이다.
 
-## 데이터 흐름
+## 두 경로
 ```
-사용자 프롬프트 (+선택: 사진 / PDF / 기준물)
-  └─▶ [planner]  Muse Spark(멀티모달)         요구·이미지·PDF → 설계 계약(DesignContract, JSON)
-        └─▶ [coder]  Muse Spark / Spark Open    계약 → build123d 파이썬 코드
-              └─▶ [builder]  build123d 실행      코드 → Part/Assembly + 표준 볼트 배치
-                    └─▶ [verify]  커널 측정       간섭·공구접근·체결길이·연단거리·동축도 + 출력가능성(trimesh)
-                          └─▶ [report]           통과/실패 + 수치 + 규격 근거
-                                ├─ 실패 ─▶ [judge]  Muse Spark(렌더+리포트 보고) → 수정 지시 → coder 로 (반복 N회)
-                                └─ 통과 ─▶ [export]  STEP + STL + OBJ/glTF + 볼트 BOM
-                                              └─ [calibration]  프린터 공차 오프셋 적용
+A. 계약 경로(exec 없음)   프롬프트 → planner → DesignContract(JSON) → geometry/builder → verify → judge 루프(≤3회) → export
+B. 코드 경로(샌드박스)     프롬프트/사진 → codegen → build123d 코드 → agent/sandbox(격리 실행) → 실패 메시지로 auto-repair(≤3회) → export
 ```
-웹 UI: 업로드+프롬프트 → 3D 뷰어 + 검증 리포트 + 다운로드 (심사위원이 직접 실행).
+A 는 7종 기본형(plate/container/gear/enclosure/profile/clamp/ball), B 는 "뭐든 다"(텀블러·거치대·메카·치비…). 웹에서 "설계"=A, "만능"=B, 사진은 B 우선.
 
-## 역할 분리 (메타 도구 활용 25% 점수)
-- **Muse Spark = 기획자**(사진/PDF→계약)이자 **판정자**(렌더+리포트→수정). 생성자와 판정자를 분리(CADSmith/ProCAD 방식)해서 자기 승인 편향을 피함.
-- **오픈웨이트(Muse Spark Open / Glimmer)** = 빠른 컴파일오류 수정 루프 / 오프라인 모드.
-- 지표: 통과까지 반복 횟수, 계약 통과율, 심은 오류 검출율.
+## 검증 — 전부 커널 실측 (`verify/checks.py`, `pipeline.py`)
+| 코드 | 검사 | 방법 | 대상 |
+|---|---|---|---|
+| F0 | 요청 규격 보유 여부 | 표 조회(미보유 → HARD, 가까운 규격 제안) | plate |
+| H1 | 볼트 머리 ↔ 벽·옆 볼트 간섭 | 볼트 솔리드 ∩ 장애물 부피 > 0 | plate |
+| H2 | 구멍 ≥ 규격 공차구멍 | **완성 솔리드의 원통면 반지름 실측** vs ASME B18.2.8 | plate(through) |
+| H3 | 탭 체결 깊이 ≥ k·D | 나사산 반경(0.47D)에서 레이캐스트한 재료 길이, k=강1.0/Al1.5/플라스틱2.0 | plate(tapped) |
+| H4 | 연단거리 ≥ 1.5D | 구멍 중심 ↔ 판 외곽(바운딩 산식) | plate |
+| S2 | 렌치 간격 ≥ 2×머리폭 | 구멍 중심거리 | plate(SOFT) |
+| G1 | 기어 맞물림 | 같은 기어를 이론 중심거리에 반피치 돌려 교차 부피 = 0 | gear |
+| E1/E2 | 보드 구멍 일치 / 바닥 피막 | 파일럿 구멍 위치·지름 실측 / 레이캐스트 ≥ 1 mm | enclosure |
+| M1 | 최소 벽두께 | 파라미터 ≥ 노즐×2 | 전부(SOFT) |
+| M2 | watertight | OCC 유효 + 내보낸 메시 watertight(퇴화면 정리 후), 측정 실패는 실패 | 전부 |
+| C1 | 미융합 겹침 | ≤10개 솔리드 쌍별 교차 > 0.5 mm³ → HARD | 전부 |
+코드 경로(B)는 샌드박스 하네스가 같은 M2·C1 + **공중에 뜬 분리 솔리드**를 실패로 돌려 모델이 고치게 한다.
+아직 없는 것: 공구 접근(소켓 포락선), 오버행 각도, 카운터보어, 실제 외곽 기준 연단거리 — 로드맵.
 
-## 검증(핵심 차별점) — 전부 OCC 커널 측정, 렌더 눈대중 아님
-1. 볼트 현실성: 모든 구멍이 표준 볼트에 바인딩, 지름=규격 clearance hole
-2. 볼트 머리 간섭: 볼트 솔리드 ∩ 부품/옆 볼트 부피 > 0 → 충돌
-3. 공구 접근: 머리 주변 소켓/렌치 스윙, SHCS 직선 접근
-4. 체결 길이: 탭 깊이 ≥ 1~1.5×dia, 관통은 그립+와셔+너트로 볼트 길이 선택
-5. 연단거리: 구멍 중심 ≥ 약 2×dia from 모서리
-6. 동축도: 맞물리는 부품 구멍 정렬
-7. 출력 가능성: 최소 벽두께, 오버행>45°, watertight/manifold(trimesh)
+## 샌드박스 (`agent/sandbox.py`)
+1) AST 검사: import 는 `math`·`build123d` 만(하위모듈·별칭 금지), `os/sys/open/eval/getattr/…` 이름 금지, dunder 속성·`.format` 금지, `export_*/import_*/Mesher/BRepTools…` 파일·네트워크 계열 이름/메서드 금지.
+2) 격리 프로세스: `python -I`, 허용 전역은 build123d 가 **자체 정의한 비모듈 객체만**(os·sys·ctypes·requests 등 재수출 모듈 제외), `build123d` 이름으로는 허용 전역만 담은 프록시 모듈 반환, 안전 builtins 만.
+3) 자원: CPU 25 s(rlimit) + 벽시계 45 s + 부모가 RSS 3 GB 감시(macOS 는 RLIMIT 무효) + stdout 상한.
+4) 결과 게이트: 솔리드 0/부피 0/비3D/겹친 미융합/공중부양/non-watertight → 사람이 읽는 오류 → auto-repair 입력.
+신뢰 경계는 "로컬 개발 도구". 공개 터널에 열 땐 `REALCAD_TOKEN` 으로 /api/* 토큰 요구.
 
-## 패키지 구조
+## 패키지 구조 (실제)
 ```
-realcad/
-  src/realcad/
-    fasteners/standards.py   표준 볼트 라이브러리 (UNC/UNF 인치 + ISO 미터, clearance/counterbore)
-    contract/schema.py       DesignContract 스키마 (치수·볼트·조립관계)
-    contract/extract.py      Muse Spark: 텍스트/사진/PDF → 계약
-    geometry/builder.py      계약 → build123d Part/Assembly
-    geometry/primitives.py   구멍·카운터보어·보스 등
-    verify/checks.py         간섭·공구접근·체결길이·연단거리·동축도
-    verify/printability.py   벽두께·오버행·watertight (trimesh)
-    verify/report.py         검증 리포트
-    agent/meta_client.py     Meta Model API 클라이언트
-    agent/planner.py         요구 → 계약
-    agent/coder.py           계약 → build123d 코드
-    agent/judge.py           렌더+리포트 → 수정 지시
-    agent/loop.py            생성→검증→판정 반복
-    export/exporters.py      STEP/STL/OBJ + BOM
-    calibration/tolerance.py 프린터 공차 시험편·오프셋
-    web/app.py               업로드+프롬프트+3D뷰어+리포트
-  examples/                  데모용 입력(프롬프트·사진·PDF)
-  tests/
-  out/                       생성물(gitignore)
+src/realcad/
+  fasteners/standards.py   UNC/UNF 16 + ISO 9 (B18.2.8 공차구멍·B18.2.1/B18.6.3/ISO 4017 머리·너트·와셔·소켓OD·표준길이), get/resolve/normalize
+  contract/schema.py       DesignContract 7종 + plate 옵션(hole_dia/hole_type/material/mate_thickness/washer/nut), _sanitize 범위 가드
+  geometry/builder.py      판·벽·볼트·용기·인벌류트 기어·보드 케이스(실제 구멍 좌표)·프로파일·클램프·구 쉘·wrap 케이스·뚜껑
+  geometry/analyze.py      STEP 나사구멍 감지, 구멍 지름 실측
+  verify/checks.py         F0 H1 H2 H3 H4 S2 G1 E1 E2 M1 M2 C1, mesh_report
+  verify/engagement.py     레이캐스트 체결 길이
+  pipeline.py              계약 → 조립 + 검증
+  agent/                   meta_client · clarify · planner · codegen · judge · loop · editor · specs · sandbox
+  export/exporters.py      STEP/STL(퇴화면 정리)  export/bom.py  볼트 길이·너트·와셔 BOM + CSV
+  printing/                split(OCC 분할+다월) · mesh_split(격자) · chopper(BSP/목 선분리) 
+  retrieval/library.py     Thingiverse 검색(토큰 필요), Meshy(옵트인)
+  web/app.py               FastAPI: /api/clarify design design_code edit undo design_photo wrap split split_upload retrieve
+web/acad.html              데모 UI(리본·ViewCube·2D 스케치→돌출·배치·공차·프리셋·되돌리기·다운로드)
+examples/                  poc_bracket(검증 데모) · meta_run(CLI) · eval_seeded(심은 오류 검출율) · eval_smoke(실전 pass@1)
+tests/                     fasteners · verify · sandbox · gear/enclosure (pytest)
 ```
 
-## 기술 스택
-- 커널: build123d 0.13 (Apache-2.0), OCC. 메시: trimesh. 3D 뷰어: three.js. 웹: FastAPI(또는 Streamlit).
-- 파이썬 3.12 전용 venv(uv). 레포 공개.
-- 규격 기본 US(인치), "미터로" 하면 ISO.
-
-## 9일 계획 → `../[hackathon]/03_기획/제품설계_프롬프트투CAD_20261027.md`
-D1~2 볼트 라이브러리+첫 슬라이스 / D3~4 어셈블리+간섭 / D5 사진·PDF 계약 / D6 공차보정 / D7 메타 오케스트레이션 / D8 웹UI+내보내기 / D9 데모영상+제출(11/5 11:00).
-
-## UX/UI — 비전문가도 쓰는 "진짜 CAD" (레퍼런스 반영)
-레퍼런스 교훈: 전통 CAD는 복잡함·툴바 과다·학습곡선 때문에 초보가 이탈(engineering.com, Onshape UX). Tinkercad는 브라우저·즉시 시작·블록 조합이지만 필렛·정밀 없음. Shapr3D는 튜토리얼·빠른 온보딩. text-to-cad 비평: 출력이 "비주얼 브리프"일 뿐 편집 안 되는 미리보기 → **무엇이 진짜고 무엇이 미리보기인지 분명히** 해야 함.
-RealCAD의 답:
-- **대화로 시작** + **꼭 필요할 때만 질문**(ProCAD식): 용도·하중·맞물림·프린터만. 질문 폭주 금지.
-- **라이브 3D 뷰어 + 평이한 검증 리포트**: "볼트가 벽에 닿아요 → 구멍 5mm 옮길까요?" 처럼 사람 말로.
-- **수정은 파라미터 슬라이더/칩으로**(재프롬프트 아님) — "실패 시 파라미터 dict 반환" 패턴과 직결.
-- **인지부하 최소, 한 가지 길**(Onshape 원칙). 툴바 없음.
-- **차별점 = 신뢰**: text-to-cad는 "비주얼 브리프"지만 RealCAD는 **검증 완료 + 진짜 STEP/STL**. "이건 실제로 조립돼요"를 리포트로 증명.
-
-## 플랫폼 — 웹 + 앱 공용 구조
-무거운 CAD(build123d/OCC)는 브라우저·모바일에서 못 돎 → **서버에서 실행**. 그래서 한 백엔드 + 얇은 클라이언트 2개.
-```
-[Core 엔진 Python]  geometry·verify·export  ← 이미 있음
-      │ 감싸서
-[HTTP API  FastAPI]  POST /design(프롬프트+이미지) → {3d, report, step/stl url}
-      ├── 웹  React/Next + three.js(react-three-fiber) 뷰어
-      └── 앱  React Native/Expo (react-three-fiber + expo-gl, 또는 웹뷰 재사용)
-```
-한 API를 웹/앱이 공유. 해커톤은 **웹 먼저**(심사위원이 바로 실행), 앱은 같은 API 쓰는 RN 래퍼로 확장.
-
-## 비용 — Meta $150로 되나? 됨.
-- $150 = **Meta Model API 크레딧 = LLM 호출(기획자·코더·판정자) 토큰 비용만**. 설계 1건당 수천 토큰 수준이라 개발+데모에 충분. 이미지(Muse Spark 멀티모달)가 더 들지만 데모 규모면 OK.
-- **CAD 커널(build123d)·검증·내보내기 = 무료**(서버/내 맥에서 돎, 메타 과금 0).
-- **웹 호스팅은 별개**: 데모는 로컬 실행(무료) 또는 Modal 크레딧 $100(해커톤 제공)·무료 티어. 메타 $150과 무관.
-
-## 기능 — 비전문가 대응 (2026-10-27 사용자 요구)
-1. **역질문(핵심 UX)**: 모르는 정보는 시스템이 되물어 채운다(ProCAD식). 예 — "연필통" → "지름·높이 얼마로?"/"펜 몇 자루?"; "이 14mm에 물리는 기어" → "잇수 몇 개? 모듈? 보어 지름? 두께?". 꼭 필요한 것만, 기본값 제안과 함께.
-2. **프린터 빌드볼륨 인식 + 자동 분할**: "3D 프린팅용" 선택 시 프린터 프로파일(빌드 X·Y·Z, 노즐, 재료) 묻기. 모델이 베드보다 크면 → 최적 분할면 제시 + 정렬 조인트(도브테일·핀·나사보스) 자동 추가 + 재조립 가이드. "실제 출력 가능" 테마에 직결.
-3. **크기 조절**: 만든 뒤 전체/부분 스케일 업·다운(파라메트릭이라 즉시). 치수 재검증 동반.
-4. **기어 등 기능 부품**: 인벌류트 기어(잇수·모듈·압력각·보어), 브래킷·엔클로저·홀더·스냅핏 — 전부 파라메트릭, RealCAD 강점.
-
-## 스코프 경계 (피규어/고디테일)
-- 피규어·얼굴(눈코입) 같은 **유기형 고디테일**은 결이 다름: 파라메트릭 CAD(build123d)가 아니라 조각·메시 생성 영역(Meshy·Tripo·Muse Image→3D). 치수·공차 검증이 적용 안 되는 분야라 RealCAD의 차별점(검증·조립성)과 안 맞음. 이미 레드오션.
-- 권고: 9일 해커톤은 **기능 부품(조립·출력 가능)**에 집중 = 아무도 제대로 안 하는 승리 각도. 피규어는 "미래 모드"로 Muse Image→3D 붙이면 되지만 데모 핵심에서 빼는 게 낫다(안 그러면 메시지 흐려짐). 사용자 결정 대기.
+## 비용
+설계 1건 = planner 1회(+judge ≤3회) 또는 codegen 1회(+repair ≤3회). 12k max_tokens 라 코드 경로 1건 ≈ 수천~1.5만 토큰. 커널·검증·내보내기는 로컬·무료.

@@ -104,6 +104,7 @@ class Retrieve:
     """파라메트릭 기본형으로 표현 불가 → 외부 3D 모델 라이브러리에서 검색해 불러온다."""
     query: str = ""               # 외부 라이브러리 검색어(영문)
     note: str = ""                # 왜 파라메트릭 생성이 불가한지 한 줄
+    parts: list = field(default_factory=list)   # 복합물을 부품 분해 요청 시: [{name, query}]
 
 
 @dataclass
@@ -112,6 +113,12 @@ class DesignContract:
     plate: Plate | None = None
     fastener: str = "1/4-20"
     fit: str = "normal"
+    hole_dia: float | None = None      # 명시 구멍 지름(mm). None 이면 규격 공차구멍. 커널이 H2 로 실측 검증
+    hole_type: str = "through"         # through(관통+너트) | tapped(판에 직접 나사) — H3 체결깊이는 tapped 에만
+    material: str = "pla"              # 판 재질: pla/petg/abs/plastic(k=2.0) aluminum(1.5) brass(1.3) steel(1.0)
+    mate_thickness: float = 0.0        # 관통 체결 시 상대 부재 두께(mm). 볼트 길이 산정용(0=모름→판 두께만)
+    washer: bool = False               # 평와셔 포함(길이 산정)
+    nut: bool = True                   # 관통이면 너트 포함(길이 산정)
     wall: Wall | None = None
     holes: list[Hole] = field(default_factory=list)
     container: Container | None = None
@@ -121,15 +128,27 @@ class DesignContract:
     clamp: Clamp | None = None
     ball: Ball | None = None
     retrieve: Retrieve | None = None
+    fastener_exact: bool = True        # builder 가 채움: 요청 규격을 정확히 보유했는가
+    fastener_note: str = ""            # 미보유 시 치환 설명(F0 메시지)
 
     @classmethod
     def from_dict(cls, d: dict) -> "DesignContract":
+        """LLM/사용자 입력 dict → 계약. 수치는 _sanitize 로 안전 범위에 가둔다(DoS·OCC 폭주 방지)."""
+        return _sanitize(cls._from_dict_raw(d))
+
+    @classmethod
+    def _from_dict_raw(cls, d: dict) -> "DesignContract":
         kind = d.get("kind", "plate")
         if kind == "retrieve":
             rd = d.get("retrieve", d)
+            parts = []
+            for p in (rd.get("parts") or []):
+                if isinstance(p, dict) and (p.get("name") or p.get("query")):
+                    parts.append({"name": str(p.get("name", "")).strip(),
+                                  "query": str(p.get("query", "") or p.get("name", "")).strip()})
             return cls(kind="retrieve", retrieve=Retrieve(
                 query=str(rd.get("query", "")).strip(),
-                note=str(rd.get("note", "")).strip()))
+                note=str(rd.get("note", "")).strip(), parts=parts))
         if kind == "enclosure":
             ed = d.get("enclosure", d)
             return cls(kind="enclosure", enclosure=Enclosure(
@@ -182,6 +201,11 @@ class DesignContract:
             kind="plate",
             plate=Plate(float(p["length"]), float(p["width"]), float(p["thickness"])),
             fastener=d.get("fastener", "1/4-20"), fit=d.get("fit", "normal"),
+            hole_dia=(float(d["hole_dia"]) if d.get("hole_dia") not in (None, "", 0) else None),
+            hole_type=str(d.get("hole_type", "through") or "through").lower(),
+            material=str(d.get("material", "pla") or "pla").lower(),
+            mate_thickness=float(d.get("mate_thickness", 0) or 0),
+            washer=bool(d.get("washer", False)), nut=bool(d.get("nut", True)),
             wall=Wall(float(w["x"]), float(w["height"]), float(w["thickness"])) if w else None,
             holes=[Hole(float(h["x"]), float(h["y"])) for h in d.get("holes", [])],
         )
@@ -225,13 +249,68 @@ class DesignContract:
         if self.kind == "retrieve":
             r = self.retrieve
             return {"kind": "retrieve", "retrieve": {
-                "query": r.query, "note": r.note}}
+                "query": r.query, "note": r.note, "parts": r.parts}}
         return {
             "kind": "plate",
             "plate": {"length": self.plate.length, "width": self.plate.width,
                       "thickness": self.plate.thickness},
-            "fastener": self.fastener, "fit": self.fit,
+            "fastener": self.fastener, "fit": self.fit, "hole_dia": self.hole_dia, "hole_type": self.hole_type, "material": self.material, "mate_thickness": self.mate_thickness, "washer": self.washer, "nut": self.nut,
             "wall": ({"x": self.wall.x, "height": self.wall.height,
                       "thickness": self.wall.thickness} if self.wall else None),
             "holes": [{"x": h.x, "y": h.y} for h in self.holes],
         }
+
+
+# ── 입력 범위 가드 ──────────────────────────────────────────────
+MAX_DIM_MM = 1000.0        # 한 변 최대(일반 프린터 빌드볼륨의 수 배)
+MIN_DIM_MM = 0.2
+_INT_LIMITS = {"teeth": (4, 200), "dividers": (0, 50), "arms": (2, 64), "points": (3, 64)}
+_MAX_HOLES = 64
+
+
+def _clampf(v, lo=MIN_DIM_MM, hi=MAX_DIM_MM):
+    try:
+        v = float(v)
+    except Exception:
+        return lo
+    if v != v:            # NaN
+        return lo
+    return max(lo, min(hi, v))
+
+
+def _sanitize(c: "DesignContract") -> "DesignContract":
+    """음수·NaN·10^6 같은 값으로 커널이 멈추지 않게 모든 수치를 가둔다."""
+    for obj in (c.plate, c.wall, c.container, c.gear, c.enclosure, c.profile, c.clamp, c.ball):
+        if obj is None:
+            continue
+        for k, v in list(vars(obj).items()):
+            if isinstance(v, bool) or isinstance(v, str) or v is None:
+                continue
+            if k in _INT_LIMITS:
+                lo, hi = _INT_LIMITS[k]
+                try:
+                    iv = int(v)
+                except Exception:
+                    iv = lo
+                setattr(obj, k, max(lo, min(hi, iv)))
+            elif k == "gap_deg":
+                setattr(obj, k, _clampf(v, 10.0, 300.0))
+            elif k in ("clearance", "socket_h", "arm_width", "corner_radius", "socket_d"):
+                setattr(obj, k, _clampf(v, 0.0, MAX_DIM_MM))
+            elif obj is c.wall and k == "x":                 # 벽 위치는 음수 가능(판 중심 기준)
+                setattr(obj, k, _clampf(v, -MAX_DIM_MM, MAX_DIM_MM))
+            elif isinstance(v, (int, float)):
+                setattr(obj, k, _clampf(v))
+    if c.hole_dia is not None:
+        c.hole_dia = _clampf(c.hole_dia, 0.5, 100.0)
+    if c.fit not in ("close", "normal", "loose"):
+        c.fit = "normal"
+    if c.hole_type not in ("through", "tapped"):
+        c.hole_type = "through"
+    c.mate_thickness = _clampf(c.mate_thickness, 0.0, 500.0)
+    if len(c.holes) > _MAX_HOLES:
+        c.holes = c.holes[:_MAX_HOLES]
+    for h in c.holes:
+        h.x = _clampf(h.x, -MAX_DIM_MM, MAX_DIM_MM)
+        h.y = _clampf(h.y, -MAX_DIM_MM, MAX_DIM_MM)
+    return c

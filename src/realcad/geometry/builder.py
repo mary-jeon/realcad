@@ -60,35 +60,96 @@ def build_container(cc) -> Part:
     return part
 
 
-def build_gear(g) -> Part:
-    """스퍼 기어(근사) — 뿌리원 + 이 N개 + 축 구멍. 바닥 z=0."""
-    z = max(int(g.teeth), 4); m = g.module; th = g.thickness
-    pitch_r = m * z / 2
-    outer_r = pitch_r + m
-    root_r = max(pitch_r - 1.25 * m, m)
-    tooth_w = m * 1.6
-    body = Pos(0, 0, th / 2) * Cylinder(radius=root_r, height=th)
-    tlen = outer_r - root_r + 1.0
+def involute_gear_outline(z: int, m: float, pressure_deg: float = 20.0, backlash: float = 0.05,
+                          n_flank: int = 8) -> list[tuple[float, float]]:
+    """인벌류트 스퍼 기어 바깥 윤곽(한 바퀴, 단순 폴리곤) 점 목록.
+    표준 치형: 이끝 1.0m, 이뿌리 1.25m, 압력각 20°. backlash(×m)만큼 이두께를 줄여 이론 중심거리에서 맞물린다."""
+    a = math.radians(pressure_deg)
+    rp = m * z / 2.0                      # 피치원
+    rb = rp * math.cos(a)                 # 기초원
+    ra = rp + m                           # 이끝원
+    rf = max(rp - 1.25 * m, 0.3 * m)      # 이뿌리원
+    inv = lambda t: math.tan(t) - t
+    half_t = (math.pi * m / 2.0 - backlash * m) / 2.0 / rp     # 피치원 반 이두께 각
+    theta0 = half_t + inv(a)                                     # 기초원에서 이 중심선까지 반각
+    pitch = 2 * math.pi / z
+    r_lo = max(rb, rf)
+    t_lo = math.sqrt((r_lo / rb) ** 2 - 1.0) if r_lo > rb else 0.0
+    t_hi = math.sqrt((ra / rb) ** 2 - 1.0)
+    # 플랭크 (반지름, 중심선에서의 반각) — 기초/이뿌리 → 이끝
+    flank = []
+    for k in range(n_flank + 1):
+        t = t_lo + (t_hi - t_lo) * k / n_flank
+        r = rb * math.sqrt(1 + t * t)
+        half = theta0 - inv(t)
+        flank.append((r, max(half, 0.0)))
+    if flank[-1][1] <= 1e-4:              # 이끝이 뾰족해지면(작은 잇수) 이끝원을 살짝 낮춘다
+        flank = [(r, h) for r, h in flank if h > 1e-4]
+    pts = []
     for i in range(z):
-        tooth = Pos((root_r + outer_r) / 2 - 0.5, 0, th / 2) * Box(tlen, tooth_w, th)
-        body = body + Rot(0, 0, 360.0 * i / z) * tooth
+        c = i * pitch
+        seq = []
+        if rf < rb:                       # 이뿌리 → 기초원 반지름 방향(오른쪽 플랭크 아래)
+            seq.append((rf, c - theta0))
+        seq += [(r, c - h) for r, h in flank]                    # 오른쪽 플랭크 ↑
+        tip_h = flank[-1][1]
+        for k in (1, 2):                                          # 이끝 호
+            seq.append((ra, c - tip_h + 2 * tip_h * k / 3))
+        seq += [(r, c + h) for r, h in reversed(flank)]          # 왼쪽 플랭크 ↓
+        if rf < rb:
+            seq.append((rf, c + theta0))
+        # 이뿌리 호: 이 이의 왼쪽 끝 → 다음 이의 오른쪽 시작
+        a0, a1 = c + theta0, c + pitch - theta0
+        for k in ((1, 2, 3) if z <= 120 else (2,)):
+            seq.append((rf, a0 + (a1 - a0) * k / 4))
+        pts += [(r * math.cos(t_), r * math.sin(t_)) for r, t_ in seq]
+    return pts
+
+
+def build_gear(g) -> Part:
+    """인벌류트 스퍼 기어 — 윤곽 폴리곤 1개를 돌출(불리언 1회) + 축 구멍. 바닥 z=0.
+    이론 중심거리 m(z1+z2)/2 에서 상대 기어와 간섭 없이 맞물린다(백래시 0.05m)."""
+    z = max(int(g.teeth), 6); m = float(g.module); th = float(g.thickness)
+    pts = involute_gear_outline(z, m, n_flank=(8 if z <= 60 else 5 if z <= 120 else 3))
+    body = extrude(Polygon(*pts, align=None), amount=th)
     if g.bore and g.bore > 0:
-        body = body - Pos(0, 0, th / 2) * Cylinder(radius=g.bore / 2, height=th + 1)
+        rf = max(m * z / 2 - 1.25 * m, 0.3 * m)
+        bore = min(float(g.bore), 2 * rf - 2 * m)          # 보어가 이뿌리를 뚫지 않게
+        if bore > 0.2:
+            body = body - Pos(0, 0, th / 2) * Cylinder(radius=bore / 2, height=th + 1)
     return body
 
 
-# 보드 프리셋(공개 표준 치수): l×w, 나사구멍 사각 간격 dx×dy, 나사·파일럿
+# 보드 프리셋(공개 표준 치수). holes = 보드 중심 기준 나사구멍 좌표(mm). 파이는 왼쪽 가장자리 3.5mm·간격 58×49 로 비대칭.
+def _centered(l, w, holes):
+    return [(round(x - l / 2, 2), round(y - w / 2, 2)) for x, y in holes]
+
+
 BOARDS = {
-    "raspberry_pi_4":    {"l": 85.6, "w": 56.0, "dx": 58.0, "dy": 49.0, "screw": "M2.5", "pilot": 2.2},
-    "raspberry_pi_5":    {"l": 85.0, "w": 56.0, "dx": 58.0, "dy": 49.0, "screw": "M2.5", "pilot": 2.2},
-    "raspberry_pi_3b":   {"l": 85.6, "w": 56.0, "dx": 58.0, "dy": 49.0, "screw": "M2.5", "pilot": 2.2},
-    "raspberry_pi_zero": {"l": 65.0, "w": 30.0, "dx": 58.0, "dy": 23.0, "screw": "M2.5", "pilot": 2.2},
-    "arduino_uno":       {"l": 68.6, "w": 53.3, "dx": 50.8, "dy": 27.9, "screw": "M3",   "pilot": 2.6},
+    "raspberry_pi_4":    {"l": 85.0, "w": 56.0, "screw": "M2.5", "pilot": 2.2,
+                          "holes": _centered(85.0, 56.0, [(3.5, 3.5), (61.5, 3.5), (3.5, 52.5), (61.5, 52.5)])},
+    "raspberry_pi_5":    {"l": 85.0, "w": 56.0, "screw": "M2.5", "pilot": 2.2,
+                          "holes": _centered(85.0, 56.0, [(3.5, 3.5), (61.5, 3.5), (3.5, 52.5), (61.5, 52.5)])},
+    "raspberry_pi_3b":   {"l": 85.0, "w": 56.0, "screw": "M2.5", "pilot": 2.2,
+                          "holes": _centered(85.0, 56.0, [(3.5, 3.5), (61.5, 3.5), (3.5, 52.5), (61.5, 52.5)])},
+    "raspberry_pi_zero": {"l": 65.0, "w": 30.0, "screw": "M2.5", "pilot": 2.2,
+                          "holes": _centered(65.0, 30.0, [(3.5, 3.5), (61.5, 3.5), (3.5, 26.5), (61.5, 26.5)])},
+    "arduino_uno":       {"l": 68.6, "w": 53.3, "screw": "M3", "pilot": 2.6,
+                          "holes": _centered(68.6, 53.3, [(13.97, 2.54), (15.24, 50.8), (66.04, 7.62), (66.04, 35.56)])},
 }
+for _b in BOARDS.values():   # 하위호환: dx·dy = 구멍 패턴 외접 크기
+    _xs = [h[0] for h in _b["holes"]]; _ys = [h[1] for h in _b["holes"]]
+    _b["dx"] = round(max(_xs) - min(_xs), 2); _b["dy"] = round(max(_ys) - min(_ys), 2)
+
+
+class UnknownBoard(ValueError):
+    pass
 
 
 def board_spec(name: str) -> dict:
-    return BOARDS.get(name, BOARDS["raspberry_pi_4"])
+    if name not in BOARDS:
+        raise UnknownBoard(f"미지원 보드 {name!r}. 지원: {', '.join(BOARDS)}")
+    return BOARDS[name]
 
 
 def build_enclosure(e) -> Part:
@@ -105,11 +166,10 @@ def build_enclosure(e) -> Part:
     part = outer - inner
 
     so_top = e.base + e.standoff_h
-    hx, hy = b["dx"] / 2, b["dy"] / 2
-    for sx in (-hx, hx):
-        for sy in (-hy, hy):
-            part = part + Pos(sx, sy, so_top / 2) * Cylinder(radius=3.0, height=so_top)
-            part = part - Pos(sx, sy, so_top - 3 + 0.1) * Cylinder(radius=b["pilot"] / 2, height=6)
+    pilot_depth = max(min(6.0, so_top - 1.2), 1.0)      # 기둥 꼭대기에서 아래로, 바닥 피막 ≥ 1.2 mm 보장
+    for sx, sy in b["holes"]:
+        part = part + Pos(sx, sy, so_top / 2) * Cylinder(radius=3.0, height=so_top)
+        part = part - Pos(sx, sy, so_top - pilot_depth / 2 + 0.05) * Cylinder(radius=b["pilot"] / 2, height=pilot_depth + 0.1)
 
     if e.open_ports:                       # 긴 벽(±y) 포트 쪽 열기
         oh = total_h - (so_top + 2)
@@ -322,12 +382,17 @@ def build_from_contract(c):
         return build_clamp(c.clamp), None, None
     if c.kind == "ball":
         return build_ball(c.ball), None, None
-    from ..fasteners.standards import get
-    f = get(c.fastener)
+    from ..fasteners.standards import resolve
+    f, exact, note = resolve(c.fastener)
+    c.fastener_exact, c.fastener_note = exact, note      # 파이프라인이 F0 로 보고
     part = plate(c.plate.length, c.plate.width, c.plate.thickness)
     if c.wall is not None:
         part = part + wall(c.wall.x, c.plate.width, c.wall.height, c.wall.thickness)
-    dia = f.clearance(c.fit)
+    if getattr(c, "hole_type", "through") == "tapped":
+        # 탭 구멍: 탭 드릴 ≈ D − 1.0825·p (75% 체결). 나사산은 모델링하지 않고 H3 로 깊이만 검증
+        dia = float(c.hole_dia) if getattr(c, "hole_dia", None) else round(f.nominal_dia_mm - 1.0825 * f.pitch_mm, 2)
+    else:
+        dia = float(c.hole_dia) if getattr(c, "hole_dia", None) else f.clearance(c.fit)
     for h in c.holes:
         part = drill(part, h.x, h.y, dia, c.plate.thickness)
     return part, f, dia
