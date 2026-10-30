@@ -31,11 +31,17 @@ A 는 7종 기본형(plate/container/gear/enclosure/profile/clamp/ball), B 는 "
 | S2 | 렌치 간격 ≥ 2×머리폭 | 구멍 중심거리 | plate(SOFT) |
 | G1 | 기어 맞물림 | 같은 기어를 이론 중심거리에 반피치 돌려 교차 부피 = 0 | gear |
 | E1/E2 | 보드 구멍 일치 / 바닥 피막 | 파일럿 구멍 위치·지름 실측 / 레이캐스트 ≥ 1 mm | enclosure |
+| H5 | 공구 접근 | 머리 위 소켓 OD 포락선 ∩ 벽 = 0 | plate(벽) |
+| H6 | 카운터보어 머리 묻힘 | 묻힌 머리 솔리드 ∩ 판 = 0 | plate(counterbore) |
+| I1/I2 | 히트세트 인서트 구멍 | 깊이 ≥ 인서트 길이+1, 바닥 ≥ 1 (레이캐스트) / 둘레 살두께 ≥ 2 | plate(insert) |
+| P1 | FDM 구멍 보정 | 자동 사이징 구멍 지름 +hole_comp(기본 0.2, 탭 제외) 적용 사실 리포트 | plate |
+| D1 | 치수 충실도 | 코드 주석의 선언 전체 크기 vs 커널 bbox ±60% | 코드 경로 |
+| M3 | 오버행 | 45° 넘는 하향면 면적 비율 > 10% 경고 | 전부(SOFT) |
 | M1 | 최소 벽두께 | 파라미터 ≥ 노즐×2 | 전부(SOFT) |
 | M2 | watertight | OCC 유효 + 내보낸 메시 watertight(퇴화면 정리 후), 측정 실패는 실패 | 전부 |
 | C1 | 미융합 겹침 | ≤10개 솔리드 쌍별 교차 > 0.5 mm³ → HARD | 전부 |
 코드 경로(B)는 샌드박스 하네스가 같은 M2·C1 + **공중에 뜬 분리 솔리드**를 실패로 돌려 모델이 고치게 한다.
-아직 없는 것: 공구 접근(소켓 포락선), 오버행 각도, 카운터보어, 실제 외곽 기준 연단거리 — 로드맵.
+아직 없는 것: 실제 외곽 기준 연단거리, 렌치 스윙(오픈엔드), 티어드롭 구멍, 스냅핏 보 계산 — 로드맵. (치수 기입 DXF 도면은 export/drawing.py 로 추가됨)
 
 ## 샌드박스 (`agent/sandbox.py`)
 1) AST 검사: import 는 `math`·`build123d` 만(하위모듈·별칭 금지), `os/sys/open/eval/getattr/…` 이름 금지, dunder 속성·`.format` 금지, `export_*/import_*/Mesher/BRepTools…` 파일·네트워크 계열 이름/메서드 금지.
@@ -48,14 +54,14 @@ A 는 7종 기본형(plate/container/gear/enclosure/profile/clamp/ball), B 는 "
 ```
 src/realcad/
   fasteners/standards.py   UNC/UNF 16 + ISO 9 (B18.2.8 공차구멍·B18.2.1/B18.6.3/ISO 4017 머리·너트·와셔·소켓OD·표준길이), get/resolve/normalize
-  contract/schema.py       DesignContract 7종 + plate 옵션(hole_dia/hole_type/material/mate_thickness/washer/nut), _sanitize 범위 가드
+  contract/schema.py       DesignContract 7종 + plate 옵션(hole_dia/hole_type/hole_style/hole_comp/material/mate_thickness/washer/nut) + custom 보드, _sanitize 범위 가드
   geometry/builder.py      판·벽·볼트·용기·인벌류트 기어·보드 케이스(실제 구멍 좌표)·프로파일·클램프·구 쉘·wrap 케이스·뚜껑
   geometry/analyze.py      STEP 나사구멍 감지, 구멍 지름 실측
   verify/checks.py         F0 H1 H2 H3 H4 S2 G1 E1 E2 M1 M2 C1, mesh_report
   verify/engagement.py     레이캐스트 체결 길이
   pipeline.py              계약 → 조립 + 검증
   agent/                   meta_client · clarify · planner · codegen · judge · loop · editor · specs · sandbox
-  export/exporters.py      STEP/STL(퇴화면 정리)  export/bom.py  볼트 길이·너트·와셔 BOM + CSV
+  export/exporters.py      STEP/STL(퇴화면 정리)/DXF 평면도  export/bom.py  볼트 길이·너트·와셔 BOM + CSV
   printing/                split(OCC 분할+다월) · mesh_split(격자) · chopper(BSP/목 선분리) 
   retrieval/library.py     Thingiverse 검색(토큰 필요), Meshy(옵트인)
   web/app.py               FastAPI: /api/clarify design design_code edit undo design_photo wrap split split_upload retrieve

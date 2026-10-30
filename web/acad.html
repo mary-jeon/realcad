@@ -57,7 +57,7 @@ body{height:100vh;display:flex;flex-direction:column;background:var(--canvas);co
 .status{display:flex;align-items:center;gap:12px;background:var(--title);border-top:1px solid var(--edge);
   padding:4px 12px;color:var(--mut)}
 .status .m{color:#cfd6dd}.status .r{margin-left:auto;display:flex;gap:12px}
-/* iTerm 느낌: 투명 유리(글래스) 오버레이 — 3D가 뒤로 비친다 */
+/* iTerm 느낌: 투명 유리(글래스) 오버레이: 3D가 뒤로 비친다 */
 body{display:block;position:relative}
 .main{position:fixed;inset:0;z-index:0}
 .top{position:fixed;top:0;left:0;right:0;z-index:3;
@@ -83,7 +83,7 @@ body{display:block;position:relative}
 .navbar b.on{background:rgba(90,165,110,.32)}
 .micbtn.on{color:#8fd6a0;background:rgba(90,165,110,.2)}
 .logo{cursor:pointer}
-/* ===== 개편: 헤더 버튼·모드 배지 / 상태줄 1줄 ===== */
+/* ===== 개편: 헤더 버튼, 모드 배지 / 상태줄 1줄 ===== */
 .hbtn{cursor:pointer;padding:2px 8px;border-radius:4px}
 .hbtn:hover{background:rgba(120,135,150,.22);color:#cfd6dd}
 .modebadge{cursor:pointer;padding:2px 9px;border-radius:11px;border:1px solid var(--line);color:#cfd6dd;font-size:10px;white-space:nowrap}
@@ -92,7 +92,7 @@ body{display:block;position:relative}
 .status::-webkit-scrollbar{display:none}
 /* ===== 다중 뷰 패널(어색한 뷰큐브 박스 대체) ===== */
 #viewcube{position:absolute;top:150px;right:16px;z-index:7;width:104px;height:104px;cursor:pointer}
-.viewpanel{display:none}  /* ViewCube(주사위)가 대체 — 면 클릭으로 뷰 전환. iso는 홈 버튼 */
+.viewpanel{display:none}  /* ViewCube(주사위)가 대체: 면 클릭으로 뷰 전환. iso는 홈 버튼 */
 .viewpanel b{min-width:48px;text-align:center;padding:4px 6px;font-size:10px;letter-spacing:.5px;font-weight:600;
   border:1px solid #7a8591;background:linear-gradient(135deg,rgba(90,102,114,.78),rgba(63,73,84,.78));
   color:#d7dee6;cursor:pointer;border-radius:4px;backdrop-filter:blur(6px)}
@@ -167,6 +167,130 @@ body{display:block;position:relative}
   .status{gap:9px;font-size:11px}
   .viewpanel b{min-width:42px}
 }
+
+/* ===== UX 개편 1단계(AutoCAD 근거: 명령행 자동완성, 별칭, 이력, 상태바 토글, 뷰포트 컨트롤, 2단계 툴팁) ===== */
+:root{--canvas:#212830;--accent:#3a8edd}
+.status .tog.on{background:var(--accent);color:#fff}
+.status .tog{padding:2px 7px;border-radius:3px;user-select:none}
+.status .tog:hover{outline:1px solid var(--accent)}
+.status #coords{font-family:'Consolas','D2Coding',monospace;min-width:170px;color:#cfd6dd}
+.status .sb-menu{cursor:pointer;padding:2px 7px;border-radius:3px}
+.status .sb-menu:hover{background:rgba(120,135,150,.25)}
+#sbCustom{position:fixed;right:10px;bottom:30px;z-index:60;display:none;background:rgba(40,46,53,.96);border:1px solid #7a8591;border-radius:6px;padding:8px 10px;font-size:11px;color:#d7dee6}
+#sbCustom label{display:flex;gap:6px;align-items:center;padding:2px 0;cursor:pointer}
+.cmdin{position:relative}
+#cmdSuggest{position:absolute;left:120px;bottom:100%;min-width:360px;max-height:220px;overflow:auto;background:rgba(24,28,34,.97);border:1px solid #556070;border-radius:5px 5px 0 0;display:none;z-index:40;font-family:'Consolas','D2Coding',monospace;font-size:12px}
+#cmdSuggest div{padding:4px 10px;display:flex;gap:10px;cursor:pointer;color:#cfd6dd}
+#cmdSuggest div b{color:#8bb8e8;min-width:64px;font-weight:600}
+#cmdSuggest div span{color:#8b96a2}
+#cmdSuggest div.sel,#cmdSuggest div:hover{background:rgba(58,142,221,.25);color:#fff}
+.log .opt{color:#8bb8e8;text-decoration:underline;cursor:pointer}
+#vpctl{position:absolute;left:14px;top:150px;z-index:7;display:flex;gap:4px;font-size:11px;color:#cfd6dd}
+#vpctl span{padding:2px 7px;border:1px solid rgba(122,133,145,.5);border-radius:3px;background:rgba(40,46,53,.6);cursor:pointer;position:relative}
+#vpctl span:hover{border-color:var(--accent);color:#fff}
+#vpctl .dd{display:none;position:absolute;left:0;top:100%;margin-top:2px;background:rgba(30,35,41,.97);border:1px solid #556070;border-radius:4px;min-width:120px;padding:3px 0}
+#vpctl .dd div{padding:4px 10px;white-space:nowrap}
+#vpctl .dd div:hover{background:rgba(58,142,221,.25)}
+#vpctl span.open .dd{display:block}
+#viewcube{opacity:.55;transition:opacity .15s}
+#viewcube:hover{opacity:1}
+#tip2{position:fixed;z-index:80;display:none;max-width:260px;background:rgba(24,28,34,.97);border:1px solid #556070;border-radius:5px;padding:6px 9px;font-size:11px;color:#d7dee6;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+#tip2 b{display:block;font-size:12px;color:#fff}
+#tip2 b i{font-style:normal;color:#8bb8e8;margin-left:6px}
+#tip2 p{margin-top:4px;color:#aeb6bf;line-height:1.4}
+body.clean .tabs,body.clean .ribbon{display:none}
+.cmdwin.expanded{height:340px}
+
+
+/* ===== UX 개편 2단계(Bambu Studio/PrusaSlicer 근거: 왼쪽 Printer→Filament→Process, 오른쪽 결과 legend + 단일 녹색 1차 버튼, 경고 카드, 칩, 세로 툴바) ===== */
+:root{--primary:#00AE42;--primary-bg:rgba(0,174,66,.18);--modified:#ED6B21;--warn:#d6b25f;--side-w:300px;--res-w:330px}
+#side,#results{position:fixed;top:150px;bottom:206px;z-index:6;background:rgba(32,38,45,.82);backdrop-filter:blur(10px);border:1px solid rgba(122,133,145,.35);color:#d7dee6;font-size:11.5px;display:flex;flex-direction:column;overflow:hidden}
+#side{left:10px;width:var(--side-w);border-radius:8px}
+#results{right:10px;width:var(--res-w);border-radius:8px}
+body.clean #side,body.clean #results{top:46px}
+#side .sh,#results .sh{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid rgba(122,133,145,.3);font-weight:700;font-size:12px}
+#side .sh span.x,#results .sh span.x{cursor:pointer;color:#9aa7b2;font-weight:400}
+#side .body,#results .body{flex:1;overflow:auto;padding:8px 10px}
+#side .sec{margin-bottom:10px}
+#side .sec h4{font-size:11px;color:#9aa7b2;margin:6px 0 4px;letter-spacing:.3px;display:flex;align-items:center;gap:6px}
+#side .sec h4 em{font-style:normal;color:#6f7a86;font-weight:400}
+#side .row{display:flex;align-items:center;gap:6px;margin:3px 0}
+#side .row label{flex:0 0 66px;color:#aeb6bf;position:relative}
+#side .row select,#side .row input{flex:1;background:#1c2127;border:1px solid #495059;color:#e6ecf2;border-radius:3px;padding:3px 5px;font-size:11px;min-width:0}
+#side .row input[type=number]{width:50px;flex:0 0 50px;padding:3px 3px}
+#side .row .u{color:#6f7a86}
+#side .mod::after{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--modified);margin-left:5px;vertical-align:middle}
+#side .rst{display:none;cursor:pointer;color:var(--modified);margin-left:4px}
+#side .row:hover .rst.show{display:inline}
+#side .adv{display:none}#side.advanced .adv{display:flex}
+#side .lvl{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+#side .lvl.g{background:#5fd38d}#side .lvl.y{background:#d6b25f}#side .lvl.r{background:#ff6b6b}
+#side .ft{border-top:1px solid rgba(122,133,145,.3);padding:6px 10px;display:flex;justify-content:space-between;align-items:center;font-size:11px}
+#side .seg{display:inline-flex;border:1px solid #556070;border-radius:4px;overflow:hidden}
+#side .seg b{padding:2px 9px;cursor:pointer;font-weight:500;color:#aeb6bf}
+#side .seg b.on{background:var(--accent);color:#fff}
+#side #sideSearch{width:100%;background:#1c2127;border:1px solid #495059;color:#e6ecf2;border-radius:3px;padding:4px 7px;font-size:11px;margin-bottom:6px}
+#side .hit{outline:1px solid var(--accent);border-radius:3px}
+#objlist .o{display:flex;align-items:center;gap:6px;padding:3px 4px;border-radius:3px;cursor:default}
+#objlist .o:hover{background:rgba(90,102,114,.3)}
+#objlist .o .eye{cursor:pointer;width:16px;text-align:center;color:#8bb8e8}
+#objlist .o .eye.off{color:#55606c}
+#objlist .o .nm{flex:1}
+#objlist .o .bd{font-size:10px;padding:0 5px;border-radius:8px;background:rgba(255,107,107,.25);color:#ffb3b3}
+#objlist .o .sw{width:10px;height:10px;border-radius:2px;border:1px solid rgba(255,255,255,.2)}
+/* 오른쪽: 1차 버튼 + 칩 + 결과 카드 */
+#primary{display:flex;gap:4px;padding:10px 10px 6px}
+#primaryBtn{flex:1;background:var(--primary);color:#fff;border:0;border-radius:5px;padding:9px 10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+#primaryBtn:hover{filter:brightness(1.08)}
+#primaryBtn:disabled{background:#3b4a40;color:#9fb3a6;cursor:not-allowed}
+#primaryBtn.warn{background:#b7760f}
+#primaryMore{background:var(--primary);color:#fff;border:0;border-radius:5px;width:30px;cursor:pointer;font-size:12px;position:relative}
+#primaryMore .dd{display:none;position:absolute;right:0;top:100%;margin-top:3px;background:rgba(30,35,41,.98);border:1px solid #556070;border-radius:5px;min-width:200px;padding:4px 0;z-index:9;text-align:left}
+#primaryMore .dd div{padding:6px 12px;font-size:11.5px;color:#d7dee6;white-space:nowrap}
+#primaryMore .dd div:hover{background:var(--primary-bg)}
+#primaryMore.open .dd{display:block}
+#chips{display:flex;flex-wrap:wrap;gap:5px;padding:0 10px 8px}
+#chips span{border:1px solid rgba(122,133,145,.45);border-radius:11px;padding:2px 8px;font-size:11px;color:#cfd6dd;background:rgba(40,46,53,.6)}
+#chips.stale span{opacity:.45}
+#chips span b{color:#fff;font-weight:600}
+#cards{padding:0 10px 10px}
+.card{border-left:3px solid #5fd38d;background:rgba(40,46,53,.75);border-radius:4px;padding:6px 8px;margin:5px 0;font-size:11.5px}
+.card.bad{border-left-color:#ff6b6b}.card.warn{border-left-color:var(--warn)}
+.card .hd{display:flex;align-items:center;gap:6px;font-weight:600}
+.card .hd .cd{font-family:'Consolas','D2Coding',monospace;font-size:10.5px;color:#8bb8e8}
+.card .hd .st{margin-left:auto;font-size:10px;padding:0 6px;border-radius:8px}
+.card.bad .hd .st{background:rgba(255,107,107,.25);color:#ffb3b3}.card.warn .hd .st{background:rgba(214,178,95,.25);color:#ffe3a3}.card.ok .hd .st{background:rgba(95,211,141,.2);color:#b7f0cb}
+.card .why{color:#aeb6bf;margin-top:3px;line-height:1.4}
+.card .why b{color:#e6ecf2;font-weight:600}
+.card .fix{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
+.card .fix span{border:1px solid var(--primary);color:#b7f0cb;border-radius:10px;padding:1px 8px;cursor:pointer;font-size:11px}
+.card .fix span:hover{background:var(--primary-bg)}
+#okfold{font-size:11px;color:#9aa7b2;cursor:pointer;margin:6px 0 2px;user-select:none}
+#okwrap{display:none}#okwrap.show{display:block}
+#stepbar{display:flex;gap:2px;margin-left:16px;align-items:center}
+#stepbar b{font-weight:500;color:#8b96a2;padding:2px 10px;border-radius:12px;font-size:11px;border:1px solid transparent}
+#stepbar b.on{color:#fff;background:var(--primary-bg);border-color:var(--primary)}
+#stepbar b.done{color:#b7f0cb}
+#stepbar b.done::before{content:'✓ ';}
+/* 오른쪽 세로 객체 툴바(M R S F C 관례) */
+#objtools{position:fixed;right:calc(var(--res-w) + 18px);top:270px;z-index:7;display:flex;flex-direction:column;gap:2px;background:rgba(51,58,66,.6);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:8px;padding:3px}
+#objtools b{width:30px;height:30px;display:grid;place-items:center;border-radius:5px;cursor:pointer;position:relative;font-weight:600;font-size:10px;color:#cdd6df}
+#objtools b svg{width:16px;height:16px;stroke:#cdd6df;fill:none;stroke-width:1.6}
+#objtools b:hover{background:rgba(90,102,114,.7)}
+#objtools b i{position:absolute;right:2px;bottom:1px;font-style:normal;font-size:8px;color:#8bb8e8}
+#vpctl{left:calc(var(--side-w) + 20px)}
+#viewcube{right:calc(var(--res-w) + 22px)}
+.navbar{right:calc(var(--res-w) + 18px);top:auto;bottom:240px;transform:none}
+.ucs{left:calc(var(--side-w) + 24px)}
+#opBox{left:calc(var(--side-w) + 20px)!important}
+.sizepanel{left:calc(var(--side-w) + 20px)}
+#bedBox{pointer-events:none}
+.sidetoggle{position:fixed;z-index:7;top:154px;background:rgba(51,58,66,.8);border:1px solid var(--line);color:#cfd6dd;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;display:none}
+#sideOpen{left:10px}#resOpen{right:10px}
+body.noside #side{display:none}body.noside #sideOpen{display:block}body.noside #vpctl,body.noside .ucs,body.noside #opBox,body.noside .sizepanel{left:14px!important}
+body.nores #results{display:none}body.nores #resOpen{display:block}body.nores #viewcube,body.nores .navbar,body.nores #objtools{right:16px}
+@media (max-width:1100px){#side,#results{display:none}#sideOpen,#resOpen{display:block}}
+
 </style></head>
 <body>
 <div class="top">
@@ -183,7 +307,7 @@ body{display:block;position:relative}
 
 <div class="main">
   <canvas id="c"></canvas>
-  <canvas id="viewcube" width="104" height="104" title="네비게이션 큐브 / navigation cube — 면·모서리 클릭"></canvas>
+  <canvas id="viewcube" width="104" height="104" title="네비게이션 큐브 / navigation cube: 면, 모서리 클릭"></canvas>
   <div class="viewpanel" id="viewpanel" title="뷰 전환 / switch view">
     <b data-view="front">FRONT</b><b data-view="top">TOP</b><b data-view="right">RIGHT</b><b data-view="iso">ISO</b>
   </div>
@@ -206,21 +330,21 @@ body{display:block;position:relative}
     <label class="splock"><input id="szLock" type="checkbox" checked> 비율 고정 / keep ratio</label>
     <div class="spbtns"><b id="szHalf">½×</b><b id="szDbl">2×</b><b id="szReset">원래대로</b></div>
     <div class="spbtns"><b id="szExport" class="spexp">이 크기로 STL 내보내기</b></div>
-    <div class="spbtns"><b id="szRebuild" title="구멍·두께 등 기능 치수는 유지한 채 전체 크기만 정확히 다시 생성">정확히 재생성 / Rebuild</b></div>
-    <div class="fitnote" style="font-size:10px;color:#8b96a2;margin-top:4px">배율=즉석 미리보기(비율대로). <b>정확히 재생성</b>=기능 치수(구멍·두께) 안 망가뜨리고 파라메트릭으로 다시 생성</div>
+    <div class="spbtns"><b id="szRebuild" title="구멍, 두께 등 기능 치수는 유지한 채 전체 크기만 정확히 다시 생성">정확히 재생성 / Rebuild</b></div>
+    <div class="fitnote" style="font-size:10px;color:#8b96a2;margin-top:4px">배율=즉석 미리보기(비율대로). <b>정확히 재생성</b>=기능 치수(구멍, 두께) 안 망가뜨리고 파라메트릭으로 다시 생성</div>
   </div>
   <div class="sizepanel" id="fitpanel" style="display:none;bottom:214px">
     <div class="sphead">끼워맞춤 공차 / Fit <span id="fitclose" title="닫기">×</span></div>
     <div class="fitnote" style="font-size:10px;color:#9aa7b2;margin:-2px 0 6px">끼우는 부품일 때 틈을 자동 적용 (FDM PLA/PETG 기준)</div>
     <label class="fitopt"><input type="radio" name="fit" value="auto" checked> 자동 <span class="n">(끼움 감지→보통)</span></label>
-    <label class="fitopt"><input type="radio" name="fit" value="press"> 꽉맞음 <span class="n">0.075mm · 압입/영구</span></label>
-    <label class="fitopt"><input type="radio" name="fit" value="snug"> 딱맞음 <span class="n">0.15mm · 손으로 눌러 끼움</span></label>
-    <label class="fitopt"><input type="radio" name="fit" value="normal"> 보통 <span class="n">0.2mm · 미끄러지는/분해 가능</span></label>
-    <label class="fitopt"><input type="radio" name="fit" value="loose"> 헐렁 <span class="n">0.4mm · 돌아가는/힌지</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="press"> 꽉맞음 <span class="n">0.075mm, 압입/영구</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="snug"> 딱맞음 <span class="n">0.15mm, 손으로 눌러 끼움</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="normal"> 보통 <span class="n">0.2mm, 미끄러지는/분해 가능</span></label>
+    <label class="fitopt"><input type="radio" name="fit" value="loose"> 헐렁 <span class="n">0.4mm, 돌아가는/힌지</span></label>
   </div>
   <div class="sizepanel" id="presetpanel" style="display:none;width:232px;bottom:56px">
     <div class="sphead">기능 부품 프리셋 / Presets <span id="presetclose" title="닫기">×</span></div>
-    <div class="fitnote" style="font-size:10px;color:#9aa7b2;margin:-2px 0 6px">실제로 많이 뽑는 것들. 누르면 기본값으로 바로 생성 — 뒤에 크기조절·수정으로 다듬어</div>
+    <div class="fitnote" style="font-size:10px;color:#9aa7b2;margin:-2px 0 6px">실제로 많이 뽑는 것들. 누르면 기본값으로 바로 생성: 뒤에 크기조절, 수정으로 다듬어</div>
     <div id="presetlist"></div>
   </div>
   <div class="navbar">
@@ -244,10 +368,10 @@ body{display:block;position:relative}
 <div class="bottom">
 <div class="cmdwin">
   <div class="log" id="log">
-    <div class="sys">텍스트로 설계를 시작하세요 / Describe a part to start. 예: "연필꽂이 지름 80 높이 100" · "100x60 판 1/4-20 구멍 4개"</div>
+    <div class="sys">텍스트로 설계를 시작하세요 / Describe a part to start. 예: "연필꽂이 지름 80 높이 100", "100x60 판 1/4-20 구멍 4개"</div>
   </div>
   <div class="cmdin"><span class="ps">명령 입력 / Command:</span>
-    <input id="cmd" placeholder="자연어로 설계를 입력하세요 · Describe a part in natural language"/>
+    <input id="cmd" placeholder="자연어로 설계를 입력하세요, Describe a part in natural language"/>
     <span class="micbtn" id="send" style="background:#2d6cdf;border-color:#2d6cdf;color:#fff"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>보내기 Go</span>
     <span class="micbtn" id="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>음성 Voice</span>
   </div>
@@ -261,11 +385,11 @@ body{display:block;position:relative}
 <!-- ===== 온보딩 모달 (최초 1회) ===== -->
 <div class="overlay" id="onboard">
   <div class="dlg">
-    <h3>RealCAD — 시작 모드 / Choose a mode</h3>
-    <p class="sub">무엇을 만들까요? 나중에 상단 모드 배지로 다시 바꿀 수 있어요. / Pick how you want to work — switchable later from the mode badge.</p>
+    <h3>RealCAD: 시작 모드 / Choose a mode</h3>
+    <p class="sub">무엇을 만들까요? 나중에 상단 모드 배지로 다시 바꿀 수 있어요. / Pick how you want to work: switchable later from the mode badge.</p>
     <div class="modecards">
-      <div class="modecard" data-mode="cad"><b>CAD 모드 / CAD</b><span>순수 모델링. 치수대로 부품을 만들고 검증·내보내기.</span></div>
-      <div class="modecard" data-mode="printer"><b>3D 프린터 모드 / 3D printer</b><span>빌드볼륨을 정해 분할·검증 기본값으로 사용.</span></div>
+      <div class="modecard" data-mode="cad"><b>CAD 모드 / CAD</b><span>순수 모델링. 치수대로 부품을 만들고 검증, 내보내기.</span></div>
+      <div class="modecard" data-mode="printer"><b>3D 프린터 모드 / 3D printer</b><span>빌드볼륨을 정해 분할, 검증 기본값으로 사용.</span></div>
     </div>
     <div id="bvWrap" style="display:none">
       <p class="sub" style="margin:14px 0 0">빌드볼륨 / Build volume (mm)</p>
@@ -289,9 +413,9 @@ body{display:block;position:relative}
     <p class="sub">베드보다 큰 모델을 조각으로 나눕니다. 설정을 확인하고 실행하세요. 자동 분할하지 않습니다.</p>
     <div class="row"><label style="width:120px">방식 / Method</label>
       <select id="spMethod" style="flex:1">
-        <option value="smart">smart — 자연 솔기 우선</option>
-        <option value="chopper">chopper — 최소 조각</option>
-        <option value="grid">grid — 축 격자</option>
+        <option value="smart">smart: 자연 솔기 우선</option>
+        <option value="chopper">chopper: 최소 조각</option>
+        <option value="grid">grid: 축 격자</option>
       </select></div>
     <div class="row"><label style="width:120px">빌드볼륨 / Build (mm)</label>
       <input type="number" id="spX" style="width:64px" min="10"> ×
@@ -311,20 +435,20 @@ body{display:block;position:relative}
 <div class="helppanel" id="helppanel">
   <span class="close" id="helpClose">✕</span>
   <h4>빠른 도움말 / Quick help</h4>
-  <div><span class="k">설계 Design</span> — 아래 명령창에 자연어 치수 입력</div>
-  <div><span class="k">자동 Auto</span> — 예시 부품 바로 생성</div>
-  <div><span class="k">사진 Photo</span> — 사진에서 치수 읽어 생성</div>
-  <div><span class="k">참조 Import</span> — 외부 모델 감싸는 케이스</div>
-  <div><span class="k">분할 Split</span> — 큰 모델을 조각+정렬핀으로</div>
-  <div><span class="k">검증 Verify</span> — 제조성 규칙 검사</div>
-  <div><span class="k">FRONT/TOP/RIGHT/ISO</span> — 우상단 뷰 전환</div>
-  <div><span class="k">홈·오빗·줌</span> — 우측 내비게이션</div>
-  <div><span class="k">모드 배지</span> — CAD/프린터 모드 전환</div>
+  <div><span class="k">설계 Design</span>: 아래 명령창에 자연어 치수 입력</div>
+  <div><span class="k">자동 Auto</span>: 예시 부품 바로 생성</div>
+  <div><span class="k">사진 Photo</span>: 사진에서 치수 읽어 생성</div>
+  <div><span class="k">참조 Import</span>: 외부 모델 감싸는 케이스</div>
+  <div><span class="k">분할 Split</span>: 큰 모델을 조각+정렬핀으로</div>
+  <div><span class="k">검증 Verify</span>: 제조성 규칙 검사</div>
+  <div><span class="k">FRONT/TOP/RIGHT/ISO</span>: 우상단 뷰 전환</div>
+  <div><span class="k">홈, 오빗, 줌</span>: 우측 내비게이션</div>
+  <div><span class="k">모드 배지</span>: CAD/프린터 모드 전환</div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
-// tab: 0홈 1삽입 2주석 3출력 4검증 — 모든 버튼에 act 연결(죽은 버튼 없음)
+// tab: 0홈 1삽입 2주석 3출력 4검증: 모든 버튼에 act 연결(죽은 버튼 없음)
 const GROUPS=[
  {tab:0, label:'생성 / Create', tools:[
    {ko:'설계',en:'Design',act:'design',svg:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20l3-4"/>'},
@@ -432,7 +556,7 @@ window.loadAssembly=function(refUrl,caseUrl,lidUrl){
   if(lidUrl) add(lidUrl,regMat(new THREE.MeshStandardMaterial({color:0x6c7884,metalness:0.1,roughness:0.5,opacity:0.6})));
   if(window._opSlider) window._opSlider.value=45;
 };
-// ── 크기 조절 / resize — grp.scale 로 사진처럼 늘리고 줄임, STLExporter 로 그 크기 내보내기 ──
+// ── 크기 조절 / resize: grp.scale 로 사진처럼 늘리고 줄임, STLExporter 로 그 크기 내보내기 ──
 let _origSize=null;
 function sizeReady(){
   const sp=document.getElementById('sizepanel'); if(!sp) return;
@@ -450,36 +574,44 @@ function toggleSizePanel(){
   sp.style.display = opening ? 'block' : 'none';
   if(opening){ const sl=document.getElementById('szSlider'); if(sl){ const p=Math.round((grp.scale.x||1)*100); sl.value=Math.min(300,Math.max(25,p)); document.getElementById('szPct').textContent=sl.value+'%'; } }
 }
-// 끼워맞춤 공차 — 끼우는 부품일 때 백엔드에 틈을 적용하도록 [FIT …] 지시문을 프롬프트에 붙인다
+// 끼워맞춤 공차: 끼우는 부품일 때 백엔드에 틈을 적용하도록 [FIT …] 지시문을 프롬프트에 붙인다
 let currentFit='auto';
 const _FITINFO={press:['꽉맞음',0.075,'press/영구'],snug:['딱맞음',0.15,'snug'],
-  normal:['보통',0.2,'normal'],loose:['헐렁',0.4,'loose·moving']};
+  normal:['보통',0.2,'normal'],loose:['헐렁',0.4,'loose, moving']};
 function fitPrefix(){
   if(currentFit==='auto'||!_FITINFO[currentFit]) return '';   // 자동=백엔드가 끼움 감지+보통 기본
   const [ko,side,en]=_FITINFO[currentFit];
-  return `[FIT: ${en} — ${side}mm/side clearance on mating faces] `;
+  return `[FIT: ${en}: ${side}mm/side clearance on mating faces] `;
 }
 function toggleFitPanel(){
   const fp=document.getElementById('fitpanel'); if(!fp) return;
   fp.style.display = (fp.style.display==='block') ? 'none' : 'block';
 }
-// 기능 부품 프리셋 — 실제로 많이 뽑는 것들(리서치: 케이블클립·훅·정리함·홀더·브래킷·스풀·거치대).
-// 누르면 좋은 기본 치수로 바로 생성, 사용자는 크기조절·수정으로 다듬음.
+// 기능 부품 프리셋: 실제로 많이 뽑는 것들(리서치: 케이블클립, 훅, 정리함, 홀더, 브래킷, 스풀, 거치대).
+// 누르면 좋은 기본 치수로 바로 생성, 사용자는 크기조절, 수정으로 다듬음.
 const PRESETS=[
- {ko:'벽걸이 훅',sub:'나사 고정 · 열쇠/수건',svg:'<path d="M12 3v7a4 4 0 0 0 4 4"/><rect x="8" y="2" width="8" height="3" rx="1"/>',
+ {ko:'벽걸이 훅',sub:'나사 고정, 열쇠/수건',svg:'<path d="M12 3v7a4 4 0 0 0 4 4"/><rect x="8" y="2" width="8" height="3" rx="1"/>',
   prompt:'벽에 나사로 고정하는 벽걸이 훅. 바닥판 45x32mm 두께 5mm, 나사구멍 2개 Ø4.5(카운터싱크), 갈고리는 바깥으로 35mm 나와 위로 휘어 올라오고 굵기 8mm. 한 개의 단단한 솔리드.'},
- {ko:'정리함(칸막이)',sub:'서랍/책상 · 칸 나눔',svg:'<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M9 6v12M15 6v12"/>',
-  prompt:'서랍 정리 트레이. 전체 150x100x45mm, 벽·칸막이 2mm, 안쪽을 세로 3칸으로 나눔, 바닥 2mm.'},
- {ko:'펜/공구 홀더',sub:'원통 · 바닥 막힘',svg:'<path d="M7 3h10l-1 18H8z"/><path d="M7 7h10"/>',
-  prompt:'연필·펜·공구 꽂이. 바깥 지름 80mm, 높이 100mm, 벽 2.5mm, 바닥 3mm 막힘(물 안 새게), 윗면 열림.'},
- {ko:'L 브래킷',sub:'코너 보강 · 나사',svg:'<path d="M6 3v15h15"/><path d="M6 18l0 0"/>',
+ {ko:'정리함(칸막이)',sub:'서랍/책상, 칸 나눔',svg:'<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M9 6v12M15 6v12"/>',
+  prompt:'서랍 정리 트레이. 전체 150x100x45mm, 벽, 칸막이 2mm, 안쪽을 세로 3칸으로 나눔, 바닥 2mm.'},
+ {ko:'펜/공구 홀더',sub:'원통, 바닥 막힘',svg:'<path d="M7 3h10l-1 18H8z"/><path d="M7 7h10"/>',
+  prompt:'연필, 펜, 공구 꽂이. 바깥 지름 80mm, 높이 100mm, 벽 2.5mm, 바닥 3mm 막힘(물 안 새게), 윗면 열림.'},
+ {ko:'L 브래킷',sub:'코너 보강, 나사',svg:'<path d="M6 3v15h15"/><path d="M6 18l0 0"/>',
   prompt:'L자 코너 브래킷(앵글). 양 날개 길이 45mm, 폭 32mm, 두께 5mm, 안쪽에 삼각 보강 리브, 각 날개에 나사구멍 2개 Ø4.5. 한 개의 솔리드.'},
- {ko:'케이블 클립',sub:'책상 가장자리 · 선정리',svg:'<path d="M5 4v11a4 4 0 0 0 8 0M9 10h8a2 2 0 0 1 0 4h-3"/>',
+ {ko:'케이블 클립',sub:'책상 가장자리, 선정리',svg:'<path d="M5 4v11a4 4 0 0 0 8 0M9 10h8a2 2 0 0 1 0 4h-3"/>',
   prompt:'책상 가장자리에 끼우는 케이블 홀더. 접착식 바닥 25x16mm 두께 4mm, 위로 선 3가닥(각 지름 5mm)이 들어가는 C자 걸이. 나사 없음.'},
  {ko:'스풀 홀더',sub:'필라멘트 거치',svg:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
   prompt:'필라멘트 스풀 거치대. 수평 봉(지름 50mm 길이 110mm)과 양쪽을 받치는 삼각 다리 2개, 봉에 스풀이 돌아가게 끼워짐. 바닥 폭 120mm.'},
- {ko:'폰 거치대',sub:'책상 · 각도 고정',svg:'<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M4 19h16"/>',
+ {ko:'폰 거치대',sub:'책상, 각도 고정',svg:'<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M4 19h16"/>',
   prompt:'책상용 심플 폰 거치대. 폰이 기대는 등판 각도 65도, 폰 두께 12mm까지 들어가는 앞턱(충전 케이블 지나가는 홈 포함), 바닥 85x72mm. 한 개 솔리드.'},
+ {ko:'핏 테스트 쿠폰',sub:'내 프린터 공차 측정',svg:'<rect x="3" y="8" width="18" height="8" rx="1"/><circle cx="7" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="17" cy="12" r="1.5"/>',
+  prompt:'프린터 공차 측정용 테스트 쿠폰 한 장. 60x25x4mm 판에 지름 3, 4, 5, 6, 8mm 관통 구멍 5개를 간격 두고 뚫고, 각 구멍 옆에 지름을 새긴 숫자 대신 홈 표시. 같은 판 옆에 지름 5mm 핀 4개를 0.1/0.2/0.3/0.4mm 씩 줄여 세움(길이 10mm). 한 개 솔리드.'},
+ {ko:'ESP32 케이스',sub:'내 보드 치수로, custom',svg:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v-2M12 5v-2M16 5v-2"/>',
+  prompt:'ESP32 DevKit 보드(51.5x28mm, 나사구멍 모서리에서 3mm 안쪽 4개, M2.5)를 넣는 케이스. 벽 2mm, 바닥 2mm, 기둥 4mm, 보드 위 공간 18mm, USB 쪽 긴 벽 열기.'},
+ {ko:'인서트 보스 블록',sub:'히트세트 인서트 M3, 검증',svg:'<rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="12" cy="12" r="3"/>',
+  prompt:'M3 히트세트 인서트 4개로 뚜껑을 고정하는 받침판. 60x40mm, 두께 9mm, 모서리에서 6mm 안쪽에 인서트 구멍 4개(hole_type=insert).'},
+ {ko:'카운터보어 브래킷',sub:'머리 묻힘, M5',svg:'<rect x="3" y="10" width="18" height="6" rx="1"/><circle cx="8" cy="13" r="2"/><circle cx="16" cy="13" r="2"/>',
+  prompt:'벽에 M5 볼트 2개로 고정하는 브래킷, 볼트 머리가 판면 아래로 묻히게 카운터보어. 판 100x50mm 두께 10mm, 구멍 간격 70mm.'},
  {ko:'헤드폰 스탠드',sub:'책상 걸이',svg:'<path d="M6 20V11a6 6 0 0 1 12 0v9"/><path d="M4 20h16"/>',
   prompt:'책상 위 헤드폰 걸이 스탠드. 높이 280mm 기둥, 맨 위에 헤드밴드가 걸리는 폭 120mm 곡면 가로대, 바닥은 지름 110mm 원형 받침. 쓰러지지 않게 바닥 무겁게.'},
 ];
@@ -488,7 +620,7 @@ function buildPresets(){
   el.innerHTML=PRESETS.map((p,i)=>`<button class="prebtn" data-pi="${i}"><svg viewBox="0 0 24 24">${p.svg}</svg><span><span class="pt">${p.ko}</span><br><span class="ps">${p.sub}</span></span></button>`).join('');
   el.querySelectorAll('.prebtn').forEach(b=>b.onclick=()=>{
     const p=PRESETS[+b.dataset.pi]; document.getElementById('presetpanel').style.display='none';
-    cmdEl.value=p.prompt; logline('you',esc(p.ko)+' <span class="n">(프리셋 — 기본값으로 생성, 뒤에 크기조절·수정으로 다듬어)</span>');
+    cmdEl.value=p.prompt; logline('you',esc(p.ko)+' <span class="n">(프리셋: 기본값으로 생성, 뒤에 크기조절, 수정으로 다듬어)</span>');
     designCode(p.prompt);
   });
 }
@@ -518,17 +650,17 @@ function bindSizeUI(){
   document.getElementById('szHalf').onclick=()=>multScale(0.5);
   document.getElementById('szDbl').onclick=()=>multScale(2);
   document.getElementById('szReset').onclick=()=>{ applyScale(1,1,1); setInputs(1,1,1); const s=document.getElementById('szSlider'); s.value=100; document.getElementById('szPct').textContent='100%'; };
-  // 배율 슬라이더 — 사진 늘리듯 균일 스케일 즉석 미리보기
+  // 배율 슬라이더: 사진 늘리듯 균일 스케일 즉석 미리보기
   const sl=document.getElementById('szSlider');
   sl.addEventListener('input',()=>{ if(!_origSize)return; const f=sl.value/100;
     document.getElementById('szPct').textContent=sl.value+'%'; applyScale(f,f,f); setInputs(f,f,f); });
   document.getElementById('szRebuild').onclick=()=>{
     if(!_origSize) return;
-    if(!currentSession){ logline('sys','정확히 재생성은 생성 세션이 필요해요 — 방금 만든 모델이라야 돼요(내보낸 파일은 안 됨). 대신 배율로 조절하거나 다시 생성하세요.'); return; }
+    if(!currentSession){ logline('sys','정확히 재생성은 생성 세션이 필요해요: 방금 만든 모델이라야 돼요(내보낸 파일은 안 됨). 대신 배율로 조절하거나 다시 생성하세요.'); return; }
     const w=Math.round(_origSize.x*grp.scale.x), dp=Math.round(_origSize.y*grp.scale.y), h=Math.round(_origSize.z*grp.scale.z);
     document.getElementById('sizepanel').style.display='none';
-    logline('sys',`정확히 재생성 중 — 전체 ${w}×${dp}×${h}mm로, 구멍·두께 등 기능 치수는 유지 / parametric rebuild…`);
-    editDesign(`전체 바깥 크기를 정확히 ${w} x ${dp} x ${h} mm(X×Y×Z)로 다시 만들어줘. 단 구멍 지름·벽 두께·나사·피치 같은 기능 치수는 비율로 늘리거나 줄이지 말고 원래 값을 유지해. 전체 외형 치수만 이 값에 맞춰.`);
+    logline('sys',`정확히 재생성 중: 전체 ${w}×${dp}×${h}mm로, 구멍, 두께 등 기능 치수는 유지 / parametric rebuild…`);
+    editDesign(`전체 바깥 크기를 정확히 ${w} x ${dp} x ${h} mm(X×Y×Z)로 다시 만들어줘. 단 구멍 지름, 벽 두께, 나사, 피치 같은 기능 치수는 비율로 늘리거나 줄이지 말고 원래 값을 유지해. 전체 외형 치수만 이 값에 맞춰.`);
   };
   document.getElementById('szExport').onclick=()=>{
     if(!(window.THREE&&THREE.STLExporter)){ showToast('STL exporter 로드 안 됨'); return; }
@@ -542,7 +674,7 @@ function bindSizeUI(){
   };
 }
 bindSizeUI();
-// #7 기본 브래킷 자동 로드 안 함 — 빈 화면에서 시작
+// #7 기본 브래킷 자동 로드 안 함: 빈 화면에서 시작
 function size(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);
   camera.aspect=w/h;camera.updateProjectionMatrix();
   if(activeCam!==camera){const d=activeCam.position.distanceTo(controls.target);const fov=camera.fov*Math.PI/180;const hy=Math.tan(fov/2)*d,hx=hy*w/h;activeCam.left=-hx;activeCam.right=hx;activeCam.top=hy;activeCam.bottom=-hy;activeCam.updateProjectionMatrix();}}
@@ -551,7 +683,7 @@ addEventListener('resize',size); size();
 window._opSlider=document.getElementById('opSlider');
 window._opSlider.addEventListener('input',e=>window.setOpacity(e.target.value/100));
 
-// ===== #6 뷰큐브 탑뷰 / #5 nav 버튼 / #2 상태바 토글 / #9 클릭 선택·부분삭제 =====
+// ===== #6 뷰큐브 탑뷰 / #5 nav 버튼 / #2 상태바 토글 / #9 클릭 선택, 부분삭제 =====
 window._fit=fit;
 function topView(){const b=new THREE.Box3().setFromObject(grp);const empty=b.isEmpty();
   const ctr=empty?new THREE.Vector3(0,0,0):b.getCenter(new THREE.Vector3());
@@ -573,7 +705,7 @@ function setView(name){
 window._setView=setView;
 document.querySelectorAll('.viewpanel b').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 setView('iso');
-// ── 네비게이션 큐브 / ViewCube (진짜 CAD처럼 — 면 클릭하면 그 방향으로) ──
+// ── 네비게이션 큐브 / ViewCube (진짜 CAD처럼: 면 클릭하면 그 방향으로) ──
 function orientView(n){
   const b=new THREE.Box3().setFromObject(grp); const empty=b.isEmpty();
   const ctr=empty?new THREE.Vector3(0,0,0):b.getCenter(new THREE.Vector3());
@@ -594,7 +726,7 @@ function orientView(n){
     x.fillStyle='#2b3139'; x.font='bold 23px sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(label,64,66);
     return new THREE.CanvasTexture(c); }
   const labels=['RIGHT','LEFT','BACK','FRONT','TOP','BOT'];   // +X,-X,+Y,-Y,+Z,-Z
-  const mats=labels.map(l=>new THREE.MeshBasicMaterial({map:faceTex(l)}));   // 무조명 — 라벨 항상 선명
+  const mats=labels.map(l=>new THREE.MeshBasicMaterial({map:faceTex(l)}));   // 무조명: 라벨 항상 선명
   const cube=new THREE.Mesh(new THREE.BoxGeometry(1.55,1.55,1.55),mats); cs.add(cube);
   cube.add(new THREE.LineSegments(new THREE.EdgesGeometry(cube.geometry),new THREE.LineBasicMaterial({color:0x5a6570})));
   window._renderCube=function(){ const dir=new THREE.Vector3().subVectors(activeCam.position,controls.target).normalize();
@@ -604,7 +736,7 @@ function orientView(n){
     m.x=((e.clientX-r.left)/r.width)*2-1; m.y=-((e.clientY-r.top)/r.height)*2+1;
     ray.setFromCamera(m,cc); const hit=ray.intersectObject(cube,false)[0]; if(hit) orientView(hit.face.normal.clone()); });
 })();
-// ── 2D 제도 / Sketch (오토캐드식 선·원·사각형 → 돌출로 3D) ──
+// ── 2D 제도 / Sketch (오토캐드식 선, 원, 사각형 → 돌출로 3D) ──
 let skMode=null, skPts=[], skObjs=[], skPreview=null;
 const SK_MAT=new THREE.LineBasicMaterial({color:0x37d07a}), SK_PREV=new THREE.LineBasicMaterial({color:0xffcf5a});
 const _skPlane=new THREE.Plane(new THREE.Vector3(0,0,1),0), _skRc=new THREE.Raycaster(), _skV=new THREE.Vector2();
@@ -612,7 +744,7 @@ function skPoint(e){ const r=canvas.getBoundingClientRect(); _skV.x=((e.clientX-
   _skRc.setFromCamera(_skV,activeCam); const p=new THREE.Vector3(); if(!_skRc.ray.intersectPlane(_skPlane,p)) return null;
   p.x=Math.round(p.x); p.y=Math.round(p.y); p.z=0; return p; }   // 1mm 스냅
 function setSketch(t){ skMode=t; skPts=[]; clearSkPrev(); grid.position.z=0;
-  logline('sys','제도 '+({line:'선',circle:'원',rect:'사각형'}[t])+' — 평면(격자)에 점 클릭 ('+(t==='circle'?'중심→반지름':'두 점')+'), 또는 오른쪽 "치수 생성"에 숫자 입력. ESC로 취소.');
+  logline('sys','제도 '+({line:'선',circle:'원',rect:'사각형'}[t])+': 평면(격자)에 점 클릭 ('+(t==='circle'?'중심→반지름':'두 점')+'), 또는 오른쪽 "치수 생성"에 숫자 입력. ESC로 취소.');
   canvas.style.cursor='crosshair';
   if(t==='rect'||t==='circle'){ const sel=document.getElementById('skShape'); if(sel){ sel.value=t; skToggleShape(); } document.getElementById('skdim').style.display='block'; }
 }
@@ -646,7 +778,7 @@ function extrudeSketch(){ const closed=skObjs.filter(o=>o.type==='rect'||o.type=
     grp.add(new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x9aa7b2,metalness:0.1,roughness:0.5}))); }
   skObjs.forEach(o=>scene.remove(o.obj)); skObjs=[]; skMode=null; canvas.style.cursor='';
   fit(); sizeReady();
-  logline('sys','<span class="ok">✓ 돌출 '+h+'mm</span> — 2D 스케치가 3D 솔리드로. 크기조절·내보내기 가능.'); }
+  logline('sys','<span class="ok">✓ 돌출 '+h+'mm</span>: 2D 스케치가 3D 솔리드로. 크기조절, 내보내기 가능.'); }
 window.setSketch=setSketch; window.extrudeSketch=extrudeSketch; window.clearSketch=clearSketch;
 // ── 치수로 정확히 생성 (AutoCAD식 수치 입력) ──
 function skToggleShape(){ const sh=document.getElementById('skShape').value;
@@ -671,11 +803,11 @@ function skCreateByDim(){
   skObjs.forEach(o=>scene.remove(o.obj)); skObjs=[]; skMode=null; canvas.style.cursor='';
   fit(); sizeReady();
   const extra=(holeD>1?(' + 구멍 Ø'+holeD):'')+(edge!=='none'&&er>0?(' + '+(edge==='round'?'필렛':'모따기')+' '+er):'');
-  logline('sys','<span class="ok">✓ '+(sh==='circle'?('원통 Ø'+W+' × H'+H):('박스 '+W+'×'+D+'×'+H))+'mm'+extra+'</span> — 치수로 정확히 생성'); }
-// ── 배치 3D: 구멍·눕히기·정렬 ──
+  logline('sys','<span class="ok">✓ '+(sh==='circle'?('원통 Ø'+W+' × H'+H):('박스 '+W+'×'+D+'×'+H))+'mm'+extra+'</span>: 치수로 정확히 생성'); }
+// ── 배치 3D: 구멍, 눕히기, 정렬 ──
 function holeCut(){ const sel=document.getElementById('skShape'); if(sel){sel.value='rect'; skToggleShape();}
   document.getElementById('skHole').value=10; document.getElementById('skdim').style.display='block';
-  logline('sys','구멍 — "치수 생성" 패널의 "구멍 Ø"에 지름을 넣고 생성하면 중앙에 구멍이 뚫린 박스/판/원통이 나와요 (불린 없이 바로). 임의 형상에 구멍은 명령창에 "100x60 판 Ø10 구멍 4개"처럼 쳐도 됩니다.'); }
+  logline('sys','구멍: "치수 생성" 패널의 "구멍 Ø"에 지름을 넣고 생성하면 중앙에 구멍이 뚫린 박스/판/원통이 나와요 (불린 없이 바로). 임의 형상에 구멍은 명령창에 "100x60 판 Ø10 구멍 4개"처럼 쳐도 됩니다.'); }
 function layFlat(){ const b=new THREE.Box3().setFromObject(grp); if(b.isEmpty()){logline('sys','모델이 없어요');return;}
   const s=b.getSize(new THREE.Vector3()); const mn=Math.min(s.x,s.y,s.z);
   grp.rotation.set(0,0,0);
@@ -683,17 +815,17 @@ function layFlat(){ const b=new THREE.Box3().setFromObject(grp); if(b.isEmpty())
   else if(mn===s.y) grp.rotation.x=Math.PI/2;   // y가 제일 얇으면 y→z
   grp.updateMatrixWorld(true);
   const b2=new THREE.Box3().setFromObject(grp); grp.position.z-=b2.min.z; grp.updateMatrixWorld(true);
-  fit(); logline('sys','✓ 눕히기 — 제일 얇은 면을 바닥에 (출력 안정적)'); }
+  fit(); logline('sys','✓ 눕히기: 제일 얇은 면을 바닥에 (출력 안정적)'); }
 function centerPart(){ const b=new THREE.Box3().setFromObject(grp); if(b.isEmpty()){logline('sys','모델이 없어요');return;}
   const c=b.getCenter(new THREE.Vector3()); grp.position.x-=c.x; grp.position.y-=c.y; grp.position.z-=b.min.z; grp.updateMatrixWorld(true);
-  fit(); logline('sys','✓ 정렬 — 원점 중앙, 바닥(z=0)에 안착'); }
+  fit(); logline('sys','✓ 정렬: 원점 중앙, 바닥(z=0)에 안착'); }
 function skOffset(){ if(!skObjs.length){logline('sys','먼저 사각형이나 원을 그린 뒤 오프셋하세요');return;}
   const d=5; const last=skObjs[skObjs.length-1];   // 마지막 도형을 +5mm 평행 복사
   let o;
   if(last.type==='rect'){ const [a,b]=last.data; const x0=Math.min(a.x,b.x)-d,x1=Math.max(a.x,b.x)+d,y0=Math.min(a.y,b.y)-d,y1=Math.max(a.y,b.y)+d;
     o=skLine([new THREE.Vector3(x0,y0,0),new THREE.Vector3(x1,y0,0),new THREE.Vector3(x1,y1,0),new THREE.Vector3(x0,y1,0)],true,SK_MAT); scene.add(o); skObjs.push({obj:o,type:'rect',data:[new THREE.Vector3(x0,y0,0),new THREE.Vector3(x1,y1,0)]}); }
   else if(last.type==='circle'){ o=skLine(skCircle({x:last.data.cx,y:last.data.cy},last.data.r+d),true,SK_MAT); scene.add(o); skObjs.push({obj:o,type:'circle',data:{cx:last.data.cx,cy:last.data.cy,r:last.data.r+d}}); }
-  else { logline('sys','선은 오프셋 지원 안 함 (사각형·원만)'); return; }
+  else { logline('sys','선은 오프셋 지원 안 함 (사각형, 원만)'); return; }
   logline('sys','✓ 오프셋 +'+d+'mm 평행 복사'); }
 window.layFlat=layFlat; window.centerPart=centerPart; window.holeCut=holeCut; window.skOffset=skOffset;
 document.getElementById('skShape').addEventListener('change',skToggleShape);
@@ -706,7 +838,7 @@ document.querySelectorAll('input[name="fit"]').forEach(r=>r.addEventListener('ch
   const info=_FITINFO[currentFit];
   logline('sys', currentFit==='auto'
     ? '끼워맞춤 공차 / fit = <b>자동</b> <span class="n">(끼우는 부품이면 알아서 보통 0.2mm 적용)</span>'
-    : `끼워맞춤 공차 / fit = <b>${info[0]}</b> <span class="n">(결합면 편측 ${info[1]}mm — 다음 생성/수정부터 적용)</span>`);
+    : `끼워맞춤 공차 / fit = <b>${info[0]}</b> <span class="n">(결합면 편측 ${info[1]}mm: 다음 생성/수정부터 적용)</span>`);
 }));
 // 돌출 높이: 치수 패널의 H를 draw-then-extrude 흐름에도 사용
 Object.defineProperty(window,'_skHeight',{get:()=>parseFloat((document.getElementById('skH')||{}).value)||20,configurable:true});
@@ -732,7 +864,7 @@ canvas.addEventListener('pointerup',e=>{if(!_down)return;const mv=Math.hypot(e.c
   const r=canvas.getBoundingClientRect();_ndc.x=((e.clientX-r.left)/r.width)*2-1;_ndc.y=-((e.clientY-r.top)/r.height)*2+1;
   _ray.setFromCamera(_ndc,activeCam);const hits=_ray.intersectObjects(grp.children,true);
   if(selected&&selected.material&&selected.material.emissive)selected.material.emissive.setHex(selected._em||0);
-  if(hits.length){selected=hits[0].object;if(selected.material&&selected.material.emissive){selected._em=selected.material.emissive.getHex();selected.material.emissive.setHex(0x2b4a6b);}logline('sys','부품 선택됨 / selected — Delete 키 또는 "비우기"로 이 부품만 삭제');}
+  if(hits.length){selected=hits[0].object;if(selected.material&&selected.material.emissive){selected._em=selected.material.emissive.getHex();selected.material.emissive.setHex(0x2b4a6b);}logline('sys','부품 선택됨 / selected: Delete 키 또는 "비우기"로 이 부품만 삭제');}
   else selected=null;});
 window._deleteSelected=function(){if(selected){grp.remove(selected);selected=null;return true;}return false;};
 addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&(!document.activeElement||document.activeElement.tagName!=='INPUT')){if(window._deleteSelected())logline('sys','<span class="ok">선택 부품 삭제 / deleted</span>');}});
@@ -742,7 +874,7 @@ addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&(!doc
 const logEl=document.getElementById('log'), cmdEl=document.getElementById('cmd');
 let lastDownloads=null, lastContract=null, lastResult=null, busy=false;
 let currentSession=null;   // 대화형 편집 세션(생성 응답의 session). 있으면 '수정'으로 이어 고침
-// #4 모드/빌드볼륨 상태 · #5 분할 소스 추적
+// #4 모드/빌드볼륨 상태, #5 분할 소스 추적
 let MODE='cad', BUILD=[256,256,256], lastMeshUrl=null, splitFile=null;
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 let _toastT=null;
@@ -788,25 +920,25 @@ function renderResult(d, wait){
   if(d.kind==='container'&&c.container){const k=c.container; sm=`컨테이너 Container: ${k.shape} ${k.shape==='round'?('Ø'+k.outer_d):(k.length+'×'+k.width)} × h${k.height}, 벽 ${k.wall}`+(k.dividers?`, 칸막이 ${k.dividers}`:'');}
   else if(d.kind==='gear'&&c.gear){const k=c.gear; sm=`기어 Gear: ${k.teeth}T, 모듈 ${k.module}, 두께 ${k.thickness}, 보어 Ø${k.bore}`;}
   else if(d.kind==='enclosure'&&c.enclosure){const k=c.enclosure; sm=`케이스 Enclosure: ${k.board}, 벽 ${k.wall}, 바닥 ${k.base}, 기둥 ${k.standoff_h}, 포트 ${k.open_ports?'열림/open':'닫힘'}`;}
-  else if(c.plate){sm=`plate ${c.plate.length}×${c.plate.width}×${c.plate.thickness}`+(c.wall?`, wall x=${c.wall.x}`:'')+`, ${d.fastener} × ${(c.holes||[]).length} · 구멍 Ø${d.hole_dia}`;}
+  else if(c.plate){sm=`plate ${c.plate.length}×${c.plate.width}×${c.plate.thickness}`+(c.wall?`, wall x=${c.wall.x}`:'')+`, ${d.fastener} × ${(c.holes||[]).length}, 구멍 Ø${d.hole_dia}`;}
   else{sm=`${esc(d.kind||'part')} 생성됨 / generated`;}
   wait.innerHTML='계약 Contract: '+sm;
   for(const f of (d.findings||[])){
     const mark=f.ok?'<span class="ok">통과 OK</span>':(f.severity==='HARD'?'<span class="bad">실패 FAIL</span>':'<span style="color:#d6b25f">경고 WARN</span>');
-    logline('sys',`${mark} ${f.code} ${f.message}`+((f.actual!=null&&f.required!=null)?` <span class="n">${num(f.actual)} / ${num(f.required)}</span>`:'')+(f.standard?` · ${f.standard}`:''));
+    logline('sys',`${mark} ${f.code} ${f.message}`+((f.actual!=null&&f.required!=null)?` <span class="n">${num(f.actual)} / ${num(f.required)}</span>`:'')+(f.standard?`, ${f.standard}`:''));
   }
   logline('sys', (d.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패 / FAILED</span>')
-    +(d.fixed?` · 메타 자동 수정 ${d.iters}회 / auto-fixed`:'')
-    +(d.downloads?` · 내보내기 준비 / export ready: STL · 3MF · STEP · OBJ`:''));
+    +(d.fixed?`, 메타 자동 수정 ${d.iters}회 / auto-fixed`:'')
+    +(d.downloads?`, 내보내기 준비 / export ready: ${Object.keys(d.downloads).join(', ')}`:''));
   lastDownloads=d.downloads||null;
   lastMeshUrl=d.part_url||null;   // #5 분할 소스
   if(d.session) currentSession=d.session;
   if(d.part_url){ window.loadModel(d.part_url, d.bolts_url); if(!d.edited) editHint(); }
 }
-// 빠른 수정 칩 — 초보가 뭐라 칠지 몰라도 한 번 탭으로 흔한 수정. 안 맞으면 되돌리기로 되감기.
+// 빠른 수정 칩: 초보가 뭐라 칠지 몰라도 한 번 탭으로 흔한 수정. 안 맞으면 되돌리기로 되감기.
 const QUICKEDITS=[
-  ['⬆ 더 크게','전체 크기를 10% 키워줘. 구멍 지름·나사·벽 두께 같은 기능 치수는 비율로 키우지 말고 유지해.'],
-  ['⬇ 더 작게','전체 크기를 10% 줄여줘. 구멍 지름·나사·벽 두께 같은 기능 치수는 비율로 줄이지 말고 유지해.'],
+  ['⬆ 더 크게','전체 크기를 10% 키워줘. 구멍 지름, 나사, 벽 두께 같은 기능 치수는 비율로 키우지 말고 유지해.'],
+  ['⬇ 더 작게','전체 크기를 10% 줄여줘. 구멍 지름, 나사, 벽 두께 같은 기능 치수는 비율로 줄이지 말고 유지해.'],
   ['더 두껍게','벽과 바닥 두께를 1mm씩 더 두껍게 해줘.'],
   ['더 튼튼하게','얇거나 약한 부분을 보강하고 모서리에 필렛을 줘서 더 튼튼하게 해줘.'],
   ['모서리 둥글게','바깥 세로 모서리를 2mm 둥글게(필렛) 해줘.'],
@@ -814,15 +946,15 @@ const QUICKEDITS=[
 ];
 function editHint(){
   const chips=QUICKEDITS.map(([t,ins])=>`<span class="chip" data-edit="${esc(ins)}">${esc(t)}</span>`).join('');
-  logline('sys','<span class="n">✎ 이어서 고치기 — 아래를 탭하거나, 명령창에 직접 적고 \'수정\'. 맘에 안 들면 \'되돌리기\'</span>'
+  logline('sys','<span class="n">✎ 이어서 고치기: 아래를 탭하거나, 명령창에 직접 적고 \'수정\'. 맘에 안 들면 \'되돌리기\'</span>'
     +`<div class="chiprow">${chips}</div>`);
 }
-// 되돌리기 — 세션의 직전 버전으로 복원
+// 되돌리기: 세션의 직전 버전으로 복원
 async function undoDesign(){
   if(busy) return;
-  if(!currentSession){ logline('sys','되돌릴 설계가 없어요 — 먼저 생성/수정하세요 / nothing to undo'); return; }
+  if(!currentSession){ logline('sys','되돌릴 설계가 없어요: 먼저 생성/수정하세요 / nothing to undo'); return; }
   busy=true;
-  const wait=logline('sys','되돌리는 중 — 직전 버전 복원 / undoing…');
+  const wait=logline('sys','되돌리는 중: 직전 버전 복원 / undoing…');
   try{
     const r=await fetch('api/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:currentSession})});
     const d=await r.json();
@@ -842,10 +974,10 @@ async function design(prompt){
   catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
 }
-// 만능 CAD — AI가 build123d 코드를 직접 짜서 임의 기계부품 생성(격리 실행·자동수정, 조금 느림)
+// 만능 CAD: AI가 build123d 코드를 직접 짜서 임의 기계부품 생성(격리 실행, 자동수정, 조금 느림)
 async function designCode(prompt){
   if(busy||!prompt) return; busy=true;
-  const wait=logline('sys','만능 CAD — 코드 짜서 깎는 중 / writing CAD code… <span class="n">(조금 걸려요, 최대 몇십 초)</span>');
+  const wait=logline('sys','만능 CAD: 코드 짜서 깎는 중 / writing CAD code… <span class="n">(조금 걸려요, 최대 몇십 초)</span>');
   try{ const r=await fetch('api/design_code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fitPrefix()+prompt})});
     renderCodeResult(await r.json(), wait); }
   catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
@@ -861,31 +993,31 @@ function renderCodeResult(d, wait){
   lastResult=d; lastContract=null;
   if(d.measure) renderMeasure(d.measure);
   const bb=(d.info&&d.info.bbox)||[0,0,0];
-  wait.innerHTML='만능 CAD 생성됨 / AnyCAD — <span class="n">코드 직접 생성</span>, 크기 '+bb[0]+'×'+bb[1]+'×'+bb[2]+' mm';
+  wait.innerHTML='만능 CAD 생성됨 / AnyCAD: <span class="n">코드 직접 생성</span>, 크기 '+bb[0]+'×'+bb[1]+'×'+bb[2]+' mm';
   for(const f of (d.findings||[])){
     const mark=f.ok?'<span class="ok">통과 OK</span>':(f.severity==='HARD'?'<span class="bad">실패 FAIL</span>':'<span style="color:#d6b25f">경고 WARN</span>');
-    logline('sys',`${mark} ${f.code} ${f.message}`+(f.standard?` · ${f.standard}`:''));
+    logline('sys',`${mark} ${f.code} ${f.message}`+(f.standard?`, ${f.standard}`:''));
   }
   logline('sys', (d.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패</span>')
-    +(d.fixed?` · 자동수정 ${d.iters}회 / auto-repaired`:` · 1발에 성공 / first try`)
-    +(d.downloads?` · 내보내기 준비: STL · 3MF · STEP · OBJ`:''));
+    +(d.fixed?`, 자동수정 ${d.iters}회 / auto-repaired`:`, 1발에 성공 / first try`)
+    +(d.downloads?`, 내보내기 준비: ${Object.keys(d.downloads).join(', ')}`:''));
   lastDownloads=d.downloads||null;
   lastMeshUrl=d.part_url||null;
   if(d.session) currentSession=d.session;
   if(d.part_url){ window.loadModel(d.part_url, null); if(!d.edited) editHint(); }
 }
-// 대화형 편집 — 세션의 현재 설계를 후속 지시로 최소 수정(전체 재생성 아님)
+// 대화형 편집: 세션의 현재 설계를 후속 지시로 최소 수정(전체 재생성 아님)
 async function editDesign(instruction){
   if(busy||!instruction) return;
   if(!currentSession){ logline('sys','먼저 무언가를 생성한 뒤 수정하세요 / generate something first'); return; }
   busy=true;
   logline('you','✎ 수정 / edit: '+esc(instruction));
-  const wait=logline('sys','수정 반영 중 — 바뀐 부분만 다시 깎는 중 / applying edit… <span class="n">(조금 걸려요)</span>');
+  const wait=logline('sys','수정 반영 중: 바뀐 부분만 다시 깎는 중 / applying edit… <span class="n">(조금 걸려요)</span>');
   try{
     const r=await fetch('api/edit',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({session:currentSession,instruction:fitPrefix()+instruction})});
     const d=await r.json();
-    if(d&&d.expired){ wait.innerHTML='<span class="bad">세션 만료 / session expired</span> — 다시 생성해 주세요'; currentSession=null; busy=false; return; }
+    if(d&&d.expired){ wait.innerHTML='<span class="bad">세션 만료 / session expired</span>: 다시 생성해 주세요'; currentSession=null; busy=false; return; }
     if(d&&d.mode==='code') renderCodeResult(d,wait); else renderResult(d,wait);
     if(d&&d.diff) logDiff(d.diff);
     if(d&&d.edited&&!d.error) showToast('✎ 수정 반영됨 / edited');
@@ -893,9 +1025,9 @@ async function editDesign(instruction){
   busy=false;
 }
 function logDiff(diff){
-  if(!diff||!diff.length){ logline('sys','<span class="n">· 바뀐 설계값 없음 / no field changed</span>'); return; }
+  if(!diff||!diff.length){ logline('sys','<span class="n">,  바뀐 설계값 없음 / no field changed</span>'); return; }
   logline('sys','<span class="ok">✎ 바뀐 설계값 / changed:</span>');
-  for(const c of diff) logline('sys','<span class="n">· '+esc(c.field)+': '+esc(c.from)+' → '+esc(c.to)+'</span>');
+  for(const c of diff) logline('sys','<span class="n">,  '+esc(c.field)+': '+esc(c.from)+' → '+esc(c.to)+'</span>');
 }
 async function retrievePart(query, mode){
   const ep = mode==='generate3d' ? 'api/generate3d' : 'api/retrieve';
@@ -908,12 +1040,12 @@ async function retrievePart(query, mode){
     const cands=d.candidates||[];
     wait.innerHTML='<span class="ok">검색결과 '+cands.length+'개 / results</span>';
     cands.slice(0,5).forEach(c=>{ const t=esc(c.title||c.name||'model'), u=c.url||c.page_url||c.thingiverse_url||'#';
-      logline('sys','&nbsp;&nbsp;· <a href="'+esc(u)+'" target="_blank" style="color:#8ab4f8">'+t+'</a>'); });
+      logline('sys','&nbsp;&nbsp;,  <a href="'+esc(u)+'" target="_blank" style="color:#8ab4f8">'+t+'</a>'); });
   }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
 }
 async function designPhoto(file, note){
   if(busy||!file) return; busy=true;
-  logline('you','사진 / photo: '+file.name+(note?' — '+note:''));
+  logline('you','사진 / photo: '+file.name+(note?': '+note:''));
   const wait=logline('sys','Muse Spark가 사진에서 치수 읽는 중 / reading photo…');
   try{ const fd=new FormData(); fd.append('image',file); fd.append('note',fitPrefix()+(note||''));
     const r=await fetch('api/design_photo',{method:'POST',body:fd}); const d=await r.json();
@@ -921,20 +1053,20 @@ async function designPhoto(file, note){
   catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
 }
-// 사진 치수 추정 리포트 — 어떤 기준물로 몇 mm로 쟀는지 투명하게 보여준다
+// 사진 치수 추정 리포트: 어떤 기준물로 몇 mm로 쟀는지 투명하게 보여준다
 function renderMeasure(m){
   if(!m||!m.overall_mm) return;
   const o=m.overall_mm, conf={high:'높음',medium:'보통',low:'낮음'}[m.confidence]||m.confidence||'?';
-  let s='<b>📏 사진 치수 추정 / measured</b> — '+num(o.w)+'×'+num(o.d)+'×'+num(o.h)+' mm';
+  let s='<b>📏 사진 치수 추정 / measured</b>: '+num(o.w)+'×'+num(o.d)+'×'+num(o.h)+' mm';
   if(m.reference) s+=' <span class="n">(기준물 '+esc(m.reference)+', 신뢰도 '+conf+')</span>';
   logline('sys',s);
-  for(const f of (m.features||[])){ if(f&&f.name!=null&&f.mm!=null) logline('sys','&nbsp;&nbsp;· '+esc(f.name)+' = '+num(f.mm)+' mm'); }
-  if(!m.found_reference) logline('sys','<span style="color:#d6b25f">⚠ 기준물이 안 보여 전형적 크기로 추정했어요 — 자·동전·카드를 물체 옆 같은 평면에 놓고 정면에서 다시 찍으면 정확해져요.</span>');
+  for(const f of (m.features||[])){ if(f&&f.name!=null&&f.mm!=null) logline('sys','&nbsp;&nbsp;,  '+esc(f.name)+' = '+num(f.mm)+' mm'); }
+  if(!m.found_reference) logline('sys','<span style="color:#d6b25f">⚠ 기준물이 안 보여 전형적 크기로 추정했어요: 자, 동전, 카드를 물체 옆 같은 평면에 놓고 정면에서 다시 찍으면 정확해져요.</span>');
   else if(m.notes) logline('sys','<span class="n">※ '+esc(m.notes)+'</span>');
 }
 function doExport(){
   if(!lastDownloads){ logline('sys','먼저 설계를 하세요 / design something first'); return; }
-  const line=logline('sys','내보내기 포맷 선택 / pick format — ');
+  const line=logline('sys','내보내기 포맷 선택 / pick format: ');
   for(const [fmt,url] of Object.entries(lastDownloads)){
     const a=document.createElement('a'); a.href=url; a.download=''; a.textContent=fmt;
     a.style.cssText='color:#7fb0e0;cursor:pointer;margin-right:12px;text-decoration:underline'; line.appendChild(a);
@@ -953,13 +1085,13 @@ async function designWrap(file){
     wait.innerHTML=`참조 치수 / reference ${d.size.join('×')}mm → ${d.sealed?'밀폐 케이스(뚜껑+나사+가스켓+포트)':'케이스'} 생성 (틈 ${d.clearance}mm)`;
     for(const f of d.findings){ const mark=f.ok?'<span class="ok">통과 OK</span>':'<span class="bad">실패 FAIL</span>';
       logline('sys',`${mark} ${esc(f.code)} ${esc(f.message)}`); }
-    logline('sys','<span class="ok">■ 케이스 생성 / wrapped</span> · 초록 참조 + 반투명 바디'+(d.lid_url?' + 뚜껑':'')+' 어셈블리 · 내보내기: STL · 3MF · STEP · OBJ');
+    logline('sys','<span class="ok">■ 케이스 생성 / wrapped</span>, 초록 참조 + 반투명 바디'+(d.lid_url?' + 뚜껑':'')+' 어셈블리, 내보내기: STL, 3MF, STEP, OBJ');
     lastDownloads=d.downloads||null; lastContract=null; lastMeshUrl=d.case_url||null;
     window.loadAssembly(d.ref_url,d.case_url,d.lid_url);
   }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
 }
-// #5 분할 전 되묻기 — 바로 분할하지 않고 다이얼로그로 방식/빌드볼륨/다월 확인 후 /api/split_upload
+// #5 분할 전 되묻기: 바로 분할하지 않고 다이얼로그로 방식/빌드볼륨/다월 확인 후 /api/split_upload
 function doSplit(){ openSplitDialog(); }
 function openSplitDialog(){
   const ov=document.getElementById('splitdlg'); if(!ov)return;
@@ -971,13 +1103,13 @@ function openSplitDialog(){
 }
 function renderSplitSrc(){
   const src=document.getElementById('spSrc'); if(!src)return;
-  if(splitFile){ src.innerHTML='대상 / source: <b>'+esc(splitFile.name)+'</b> · <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">다른 파일</span>'; }
-  else if(lastMeshUrl){ src.innerHTML='대상 / source: 현재 모델 · <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">다른 파일 선택</span>'; }
+  if(splitFile){ src.innerHTML='대상 / source: <b>'+esc(splitFile.name)+'</b>, <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">다른 파일</span>'; }
+  else if(lastMeshUrl){ src.innerHTML='대상 / source: 현재 모델, <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">다른 파일 선택</span>'; }
   else { src.innerHTML='대상 / source: <span class="spPick" style="color:#7fb0e0;cursor:pointer;text-decoration:underline">메시 파일 선택</span> (STL/OBJ/3MF/PLY)'; }
   const p=src.querySelector('.spPick'); if(p) p.onclick=()=>splitInput.click();
 }
 async function runSplitUpload(blob,name,method,build,dowel){
-  const wait=logline('sys',`분할 중 / splitting — ${method}, ${build.join('×')}mm${dowel?', 다월핀':''}…`);
+  const wait=logline('sys',`분할 중 / splitting: ${method}, ${build.join('×')}mm${dowel?', 다월핀':''}…`);
   try{
     const fd=new FormData();
     fd.append('model',blob,name||'model.stl');
@@ -986,10 +1118,10 @@ async function runSplitUpload(blob,name,method,build,dowel){
     const r=await fetch('api/split_upload',{method:'POST',body:fd});
     const d=await r.json();
     if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(d.error)+'</span>'; return; }
-    if(d.fits){ wait.innerHTML='<span class="ok">■ 프린터에 들어감 / fits</span> ('+d.size.join('×')+'mm ≤ '+build.join('×')+') — 분할 불필요 / no split needed'; return; }
+    if(d.fits){ wait.innerHTML='<span class="ok">■ 프린터에 들어감 / fits</span> ('+d.size.join('×')+'mm ≤ '+build.join('×')+'): 분할 불필요 / no split needed'; return; }
     const n=d.n_pieces||d.n||(d.piece_urls?d.piece_urls.length:0);
     wait.innerHTML='<span style="color:#d6b25f">■ 베드보다 큼 / too big</span> ('+d.size.join('×')+') → '+n+'조각 / '+n+' pieces';
-    logline('sys','부피 / volume '+d.volume_orig_cm3+'cm³ → 조각 합 '+d.volume_pieces_cm3+'cm³ (오차 '+d.volume_err_pct+'%) · 정렬핀 '+d.pins+'개 · 모두 베드 안 '+(d.all_fit?'예/yes':'아니오/no'));
+    logline('sys','부피 / volume '+d.volume_orig_cm3+'cm³ → 조각 합 '+d.volume_pieces_cm3+'cm³ (오차 '+d.volume_err_pct+'%), 정렬핀 '+d.pins+'개, 모두 베드 안 '+(d.all_fit?'예/yes':'아니오/no'));
     if(d.piece_urls&&d.piece_urls.length) window.loadPieces(d.piece_urls,'X');
   }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
 }
@@ -1001,7 +1133,7 @@ function startVoice(){
   if(!SR){ logline('sys','이 브라우저는 음성 인식을 지원하지 않아요 / voice not supported'); return; }
   _rec=new SR(); _rec.lang='ko-KR'; _rec.interimResults=false; _rec.continuous=true;
   mic.classList.add('on');
-  logline('sys','🎙 듣는 중 — 다시 누르면 종료 / listening (click mic again to stop)');
+  logline('sys','🎙 듣는 중: 다시 누르면 종료 / listening (click mic again to stop)');
   _rec.onresult=e=>{ const t=e.results[e.results.length-1][0].transcript.trim(); if(!t) return; logline('sys','들림 / heard: '+t); if(clarifyState) answerClarify(t); else handleCommand(t); };
   _rec.onerror=ev=>{ if(ev.error!=='no-speech'&&ev.error!=='aborted') logline('sys','음성 오류 / voice error: '+ev.error); };
   _rec.onend=()=>{ if(_rec){ try{_rec.start();}catch(e){} } };   // 끊겨도 자동 재시작(끌 때까지 계속)
@@ -1011,7 +1143,7 @@ async function clarify(prompt){
   try{const r=await fetch('api/clarify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
     const d=await r.json(); return d.questions||[];}catch(e){return [];}
 }
-function looksSpecific(t){  // 치수·단위·숫자2개↑ 있으면 역질문 없이 바로 설계
+function looksSpecific(t){  // 치수, 단위, 숫자2개↑ 있으면 역질문 없이 바로 설계
   if(!/\d/.test(t)) return false;
   if(/\d\s*(mm|cm|파이|π|ø|Ø|φ|지름|반지름|높이|두께|길이|폭|가로|세로|개|홀|구멍|칸|T\b|M\d|x|×|\*)/i.test(t)) return true;
   return (t.match(/\d+/g)||[]).length>=2;
@@ -1038,10 +1170,10 @@ function doBolt(){
   else logline('sys','볼트 있는 설계를 먼저 하세요 / design a bolted part first (예: "100x60 판 1/4-20 구멍 4개")');
 }
 const CLEAR_RE=/^(다\s*)?(삭제|지워|지우기|비워|비우기|초기화|클리어|clear|reset|delete)(\s*(해|해줘|all|everything))?\s*$/i;
-let clarifyState=null;   // {orig, questions, idx, answers} — 역질문을 하나씩
+let clarifyState=null;   // {orig, questions, idx, answers}: 역질문을 하나씩
 function askClarify(){
   const qq=clarifyState.questions[clarifyState.idx];
-  logline('sys',`확인 ${clarifyState.idx+1}/${clarifyState.questions.length} — ${qq.question} <span class="n">(추천 ${(qq.suggestion||'').replace(/</g,'&lt;')} · 그냥 Enter=추천값)</span>`);
+  logline('sys',`확인 ${clarifyState.idx+1}/${clarifyState.questions.length}: ${qq.question} <span class="n">(추천 ${(qq.suggestion||'').replace(/</g,'&lt;')}, 그냥 Enter=추천값)</span>`);
 }
 function answerClarify(v){
   const qq=clarifyState.questions[clarifyState.idx];
@@ -1076,7 +1208,7 @@ document.getElementById('send').onclick=()=>{
   if(clarifyState){ answerClarify(v); return; }
   handleCommand(v);
 };
-// #1 상단 프롬프트창 제거 — 설계 입력은 하단 명령입력줄로 일원화(상단 검색창 삭제됨)
+// #1 상단 프롬프트창 제거: 설계 입력은 하단 명령입력줄로 일원화(상단 검색창 삭제됨)
 // 빠른 수정 칩 탭 → 그 지시로 바로 수정
 document.addEventListener('click',e=>{const c=e.target.closest('.chip[data-edit]'); if(!c)return;
   if(!currentSession){ logline('sys','먼저 생성한 뒤 수정할 수 있어요 / generate first'); return; }
@@ -1087,7 +1219,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-act]'); if
   if(a==='design'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 설계를 누르세요 / type what to make, then Design'); cmdEl.focus(); return; } cmdEl.value=''; handleCommand(v); }
   else if(a==='anycad'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 만능을 누르세요 / type what to make, then AnyCAD'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; logline('you',esc(v)+' <span class="n">(만능/AnyCAD)</span>'); designCode(v); }
   else if(a==='auto'){ clarifyState=null; cmdEl.value=''; const p=v||'a round pencil holder about 80mm diameter, 100mm tall, 2mm wall'; logline('you',p.replace(/</g,'&lt;')+' <span class="n">(자동/auto)</span>'); design(p); }
-  else if(a==='edit'){ if(!currentSession){ logline('sys','먼저 설계·만능으로 무언가를 생성한 뒤, 명령창에 바꿀 내용을 적고 수정을 누르세요 / generate first, then type a change and hit Edit'); return; } if(!v){ logline('sys','명령창에 바꿀 내용을 입력하고 수정을 누르세요 (예: "버튼 5개 추가", "더 크게", "두께 3mm") / type a change, then Edit'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; editDesign(v); }
+  else if(a==='edit'){ if(!currentSession){ logline('sys','먼저 설계, 만능으로 무언가를 생성한 뒤, 명령창에 바꿀 내용을 적고 수정을 누르세요 / generate first, then type a change and hit Edit'); return; } if(!v){ logline('sys','명령창에 바꿀 내용을 입력하고 수정을 누르세요 (예: "버튼 5개 추가", "더 크게", "두께 3mm") / type a change, then Edit'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; editDesign(v); }
   else if(a==='undo') undoDesign();
   else if(a==='resize') toggleSizePanel();
   else if(a==='fit') toggleFitPanel();
@@ -1185,7 +1317,391 @@ function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classL
 (function initMode(){
   let saved=null; try{saved=JSON.parse(localStorage.getItem('realcad_mode')||'null');}catch(e){}
   if(saved&&saved.mode){ MODE=saved.mode; if(Array.isArray(saved.build)&&saved.build.length===3) BUILD=saved.build.map(Number); applyModeBadge(); }
-  else { applyModeBadge(); openOnboarding(true); }
+  else { applyModeBadge(); } // 3단계: 모드 모달 없음, 사이드바 프린터 선택이 곧 모드
+})();
+</script>
+
+<div id="sbCustom"></div><div id="tip2"></div>
+<script>
+// ===== UX 개편 1단계: AutoCAD 명령행 관례 =====
+// 근거: Autodesk 도움말 "The Command Line"(AutoComplete, 중간 문자열, 이력, Esc), "Status Bar Quick Reference"(F7/F8/F9, ON 파란 배경, ≡ 커스터마이즈),
+//       Viewport Controls "[-][Top][2D Wireframe]", 도면 배경 RGB 33,40,48, 2단계 툴팁. 정리본: 01_리서치/UX_AutoCAD_해부_20261030.md
+(function(){
+  // --- 별칭 표(acad.pgp 관례를 RealCAD 기능에 매핑) ---
+  const ALIASES=[
+    ['L','LINE','sk_line','2D 선 그리기'],['C','CIRCLE','sk_circle','2D 원 그리기'],['REC','RECTANG','sk_rect','2D 사각형'],
+    ['O','OFFSET','sk_offset','스케치 오프셋'],['EXT','EXTRUDE','sk_extrude','스케치를 돌출해 3D로'],
+    ['E','ERASE','clear','모델 비우기'],['U','UNDO','undo','직전 생성으로 되돌리기'],['Z','ZOOM','_fit','전체 보기(Zoom Extents)'],
+    ['H','HOLE','hole','구멍 뚫기'],['SC','SCALE','resize','크기 조절 패널'],['FIT','FIT','fit','끼워맞춤 공차 패널'],
+    ['DIM','DIMLINEAR','dim','치수 표시'],['V','VERIFY','verify','검사 다시 실행'],['EXP','EXPORT','export','내보내기(STEP/STL/3MF/OBJ/DXF/BOM)'],
+    ['SPLIT','SPLIT','split','프린터 베드에 맞게 분할'],['PRE','PRESETS','presets','기능 부품 프리셋'],['PHOTO','PHOTO','photo','사진에서 치수 읽어 생성'],
+    ['IMP','IMPORT','wrap','STEP/STL 올려 케이스 감싸기'],['AUTO','AUTO','auto','예시 부품 바로 생성'],['ANY','ANYCAD','anycad','만능 생성(코드 경로)'],
+    ['TOP','TOP','_view:top','윗면 보기'],['FRONT','FRONT','_view:front','정면 보기'],['RIGHT','RIGHT','_view:right','우측면 보기'],['ISO','ISO','_view:iso','등각 보기'],
+    ['GRID','GRID','_tog:t-grid','격자 켜기/끄기(F7)'],['ORTHO','ORTHO','_tog:t-ortho','직교 투영(F8)'],['SNAP','SNAP','_tog:t-snap','스냅(F9)'],
+    ['CLS','CLEAR','clear','화면 비우기'],['HELP','HELP','_help','빠른 도움말(F1)'],['BOM','BOM','_bom','볼트 BOM 보기'],
+  ];
+  const TIPS={design:'명령창의 자연어를 설계 계약(치수, 볼트, 보드)으로 바꿔 커널 검사까지 돌립니다.',anycad:'기본형에 없는 부품을 코드로 생성합니다. 실패하면 커널 오류로 자동 수정.',auto:'입력이 없으면 예시 부품을 바로 만듭니다.',voice:'마이크로 말한 문장을 명령창에 넣습니다.',photo:'사진 속 자, 카드, 동전으로 실제 mm를 역산해 생성합니다.',presets:'자주 뽑는 기능 부품 12종을 한 번에.',edit:'명령창에 적은 변경("구멍 0.3 크게")을 최소 수정으로 반영합니다.',undo:'직전 성공본으로 되돌립니다(최대 20단계).',resize:'치수 입력, 비율 고정, ½×/2×로 크기를 바꿉니다.',fit:'끼우는 부품에 FDM 공차를 자동 적용합니다.',clear:'모델과 로그를 비웁니다.',sk_line:'두 점을 찍어 선. Esc로 취소.',sk_circle:'중심과 반지름 점.',sk_rect:'대각 두 점.',sk_offset:'스케치를 바깥/안쪽으로 평행 이동.',sk_extrude:'닫힌 스케치를 높이만큼 돌출.',sk_clear:'스케치 지우기.',hole:'클릭한 위치에 구멍을 뚫습니다.',layflat:'가장 넓은 면이 바닥에 오도록 눕힙니다.',center:'원점 정렬.',wrap:'STEP/STL을 올리면 구멍을 찾아 케이스와 뚜껑을 만듭니다.',assembly:'참조 부품과 케이스를 함께 봅니다.',bolt:'볼트 규격 표.',dim:'전체 치수와 구멍 치수를 표시합니다.',printer:'빌드볼륨 기준 분할.',split:'큰 모델을 격자/BSP/목 선분리로 쪼개고 다월 핀을 넣습니다.',export:'STEP, STL, 3MF, OBJ, DXF 도면, BOM CSV.',verify:'19종 커널 검사를 다시 돌립니다.'};
+  const byAct={}; for(const a of ALIASES){ if(!byAct[a[2]]) byAct[a[2]]=a[0]; }
+  function runAct(act){
+    if(act.startsWith('_view:')) return setView(act.slice(6));
+    if(act.startsWith('_tog:')) { const el=document.getElementById(act.slice(5)); if(el) el.click(); return; }
+    if(act==='_fit') { if(typeof fit==='function') fit(); return; }
+    if(act==='_help') { if(typeof toggleHelp==='function') toggleHelp(); return; }
+    if(act==='_bom') { const b=window.lastResult&&window.lastResult.bom; logline('sys', b&&b.length? b.map(x=>esc(JSON.stringify(x))).join('<br>') : '볼트 BOM 없음(판 설계에서 생성됩니다)'); return; }
+    const el=document.querySelector(`[data-act="${act}"]`); if(el) el.click(); else logline('sys','해당 도구 없음: '+esc(act));
+  }
+  // --- 명령행: 별칭 가로채기 + 빈 Enter 반복 + 이력 ---
+  const hist=[]; let hi=-1, lastAct=null;
+  const _orig=handleCommand;
+  handleCommand=async function(text){
+    const t=(text||'').trim();
+    if(!t){ if(lastAct){ logline('sys','<span class="n">반복 / repeat:</span> '+esc(lastAct)); runAct(lastAct);} else cmdEl.focus(); return; }
+    hist.push(t); hi=hist.length;
+    const up=t.toUpperCase();
+    const hit=ALIASES.find(a=>a[0]===up||a[1]===up);
+    if(hit){ logline('you',esc(t)+' <span class="n">('+esc(hit[1])+')</span>'); lastAct=hit[2]; runAct(hit[2]); return; }
+    return _orig(text);
+  };
+  document.addEventListener('click',e=>{const t=e.target.closest('.tool[data-act]'); if(t&&t.dataset.act) lastAct=t.dataset.act;},true);
+  // --- 제안 드롭다운(멈추면 표시, 중간 문자열 매칭, ↑↓ Tab Enter) ---
+  const cmdin=document.querySelector('.cmdin'); const sug=document.createElement('div'); sug.id='cmdSuggest'; cmdin.appendChild(sug);
+  let sel=-1, items=[], sugT=null;
+  function hideSug(){ sug.style.display='none'; sel=-1; items=[]; }
+  function showSug(){ const v=cmdEl.value.trim(); if(!v||v.length>24||/\s/.test(v)){ hideSug(); return; }
+    const up=v.toUpperCase();
+    items=ALIASES.filter(a=>a[0].startsWith(up)||a[1].includes(up)).slice(0,9);
+    if(!items.length){ hideSug(); return; }
+    sug.innerHTML=items.map((a,i)=>`<div data-i="${i}" class="${i===sel?'sel':''}"><b>${a[0]}</b>${a[1]}<span>${esc(a[3])}</span></div>`).join('');
+    sug.style.display='block';
+  }
+  cmdEl.addEventListener('input',()=>{ clearTimeout(sugT); sugT=setTimeout(showSug,180); });
+  sug.addEventListener('mousedown',e=>{ const d=e.target.closest('[data-i]'); if(!d) return; e.preventDefault(); cmdEl.value=items[+d.dataset.i][0]; hideSug(); cmdEl.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); });
+  cmdEl.addEventListener('keydown',e=>{
+    if(sug.style.display==='block'){
+      if(e.key==='ArrowDown'){ e.preventDefault(); sel=Math.min(items.length-1,sel+1); showSug(); return; }
+      if(e.key==='ArrowUp'){ e.preventDefault(); sel=Math.max(0,sel-1); showSug(); return; }
+      if(e.key==='Tab'){ e.preventDefault(); const i=sel<0?0:sel; cmdEl.value=items[i][0]; hideSug(); return; }
+      if(e.key==='Enter'&&sel>=0){ cmdEl.value=items[sel][0]; hideSug(); return; }  // 원래 Enter 핸들러가 이어서 실행
+      if(e.key==='Escape'){ hideSug(); return; }
+    }
+    if(e.key==='ArrowUp'&&hist.length){ e.preventDefault(); hi=Math.max(0,hi-1); cmdEl.value=hist[hi]||''; }
+    else if(e.key==='ArrowDown'&&hist.length){ e.preventDefault(); hi=Math.min(hist.length,hi+1); cmdEl.value=hist[hi]||''; }
+  },true);
+  cmdEl.addEventListener('blur',()=>setTimeout(hideSug,150));
+  // --- 전역 키: Esc(입력 비움, 패널 닫기), F1 도움말, F2 이력 확장, F7/F8/F9 토글, Ctrl+9 명령창, Ctrl+0 클린 스크린 ---
+  document.addEventListener('keydown',e=>{
+    const inInput=document.activeElement&&['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
+    if(e.key==='Escape'){ hideSug(); if(inInput&&document.activeElement===cmdEl&&cmdEl.value){ cmdEl.value=''; return; }
+      for(const id of ['sizepanel','fitpanel','presetpanel','skdim']){ const el=document.getElementById(id); if(el&&el.style.display&&el.style.display!=='none') el.style.display='none'; }
+      document.querySelectorAll('#vpctl span.open').forEach(x=>x.classList.remove('open')); const sc=document.getElementById('sbCustom'); if(sc) sc.style.display='none'; return; }
+    if(e.key==='F1'){ e.preventDefault(); runAct('_help'); return; }
+    if(e.key==='F2'){ e.preventDefault(); document.querySelector('.cmdwin').classList.toggle('expanded'); return; }
+    if(e.key==='F7'){ e.preventDefault(); runAct('_tog:t-grid'); return; }
+    if(e.key==='F8'){ e.preventDefault(); runAct('_tog:t-ortho'); return; }
+    if(e.key==='F9'){ e.preventDefault(); runAct('_tog:t-snap'); return; }
+    if((e.ctrlKey||e.metaKey)&&e.key==='9'){ e.preventDefault(); const c=document.querySelector('.cmdwin'); c.style.display=c.style.display==='none'?'':'none'; return; }
+    if((e.ctrlKey||e.metaKey)&&e.key==='0'){ e.preventDefault(); document.body.classList.toggle('clean'); return; }
+    if(!inInput&&e.key.length===1&&/[a-zA-Z0-9]/.test(e.key)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){ cmdEl.focus(); }  // 아무 데서나 타이핑하면 명령행으로(AutoCAD 관례)
+  });
+  // --- 상태 바: 좌표(실시간), 툴팁(F키), ≡ 커스터마이즈 ---
+  const st=document.querySelector('.status');
+  const coords=document.createElement('span'); coords.id='coords'; coords.textContent='0.0, 0.0, 0.0';
+  const old=[...st.querySelectorAll(':scope > span')].find(x=>/^\d/.test(x.textContent.trim())); if(old) old.replaceWith(coords); else st.insertBefore(coords, st.firstChild);
+  const tips={'t-grid':'격자 표시 (F7)','t-snap':'스냅 (F9)','t-ortho':'직교 투영 (F8)'};
+  for(const [id,t] of Object.entries(tips)){ const el=document.getElementById(id); if(el) el.title=t; }
+  const r=st.querySelector('.r');
+  const ws=document.createElement('span'); ws.className='sb-menu'; ws.id='sbWorkspace'; ws.title='작업공간 / 모드 전환'; ws.textContent='작업공간 '+(window.MODE==='printer'?'3D 프린터':'CAD'); ws.onclick=()=>{ const mb=document.getElementById('modeBadge'); if(mb) mb.click(); };
+  const cs=document.createElement('span'); cs.className='sb-menu'; cs.textContent='⛶'; cs.title='클린 스크린 (Ctrl+0)'; cs.onclick=()=>document.body.classList.toggle('clean');
+  const cu=document.createElement('span'); cu.className='sb-menu'; cu.textContent='≡'; cu.title='상태 바 항목 표시/숨김';
+  const box=document.getElementById('sbCustom');
+  cu.onclick=()=>{ if(box.style.display==='block'){ box.style.display='none'; return; }
+    const names={'t-grid':'격자 Grid','t-snap':'스냅 Snap','t-ortho':'직교 Ortho','coords':'좌표 Coordinates','sbWorkspace':'작업공간 Workspace'};
+    box.innerHTML=Object.entries(names).map(([id,n])=>{const el=document.getElementById(id); const on=el&&el.style.display!=='none'; return `<label><input type="checkbox" data-id="${id}" ${on?'checked':''}>${n}</label>`;}).join('');
+    box.querySelectorAll('input').forEach(i=>i.onchange=()=>{const el=document.getElementById(i.dataset.id); if(el) el.style.display=i.checked?'':'none';});
+    box.style.display='block'; };
+  r.appendChild(ws); r.appendChild(cs); r.appendChild(cu);
+  const _mb=document.getElementById('modeBadge'); if(_mb){ new MutationObserver(()=>{ ws.textContent='작업공간 '+(((_mb.textContent.includes('프린터')||/printer/i.test(_mb.textContent))&&!_mb.textContent.includes('없음'))?'3D 프린터':'CAD'); }).observe(_mb,{childList:true,characterData:true,subtree:true}); }
+  // 커서 아래 바닥(z=0) 평면 좌표
+  const ray=new THREE.Raycaster(), plane=new THREE.Plane(new THREE.Vector3(0,0,1),0), hitP=new THREE.Vector3(), ndc=new THREE.Vector2();
+  canvas.addEventListener('pointermove',e=>{ const rc=canvas.getBoundingClientRect(); ndc.set(((e.clientX-rc.left)/rc.width)*2-1, -((e.clientY-rc.top)/rc.height)*2+1); ray.setFromCamera(ndc, activeCam); if(ray.ray.intersectPlane(plane,hitP)) coords.textContent=`${hitP.x.toFixed(1)}, ${hitP.y.toFixed(1)}, 0.0`; });
+  // --- 뷰포트 컨트롤(좌상단 [-][ISO][음영]) ---
+  const vp=document.createElement('div'); vp.id='vpctl';
+  vp.innerHTML=`<span id="vpMin" title="리본 접기/펴기">[-]</span><span id="vpView">[등각 ISO]<div class="dd"><div data-v="top">윗면 Top</div><div data-v="front">정면 Front</div><div data-v="right">우측 Right</div><div data-v="iso">등각 ISO</div></div></span><span id="vpShade">[음영 Shaded]<div class="dd"><div data-s="shaded">음영 Shaded</div><div data-s="wire">와이어 Wireframe</div><div data-s="xray">반투명 X-ray</div></div></span>`;
+  document.querySelector('.main').appendChild(vp);
+  vp.querySelectorAll(':scope > span').forEach(sp=>sp.addEventListener('click',e=>{ if(e.target.closest('.dd')) return; if(sp.id==='vpMin'){ document.body.classList.toggle('clean'); return; } const o=sp.classList.contains('open'); vp.querySelectorAll('span.open').forEach(x=>x.classList.remove('open')); if(!o) sp.classList.add('open'); }));
+  vp.querySelectorAll('[data-v]').forEach(d=>d.onclick=()=>{ setView(d.dataset.v); document.getElementById('vpView').firstChild.textContent='['+d.textContent+']'; vp.querySelectorAll('span.open').forEach(x=>x.classList.remove('open')); });
+  function shade(mode){ grp.traverse(o=>{ if(o.isMesh&&o.material){ o.material.wireframe=(mode==='wire'); o.material.transparent=true; o.material.opacity=(mode==='xray'?0.45:1); o.material.depthWrite=(mode!=='xray'); } }); }
+  vp.querySelectorAll('[data-s]').forEach(d=>d.onclick=()=>{ shade(d.dataset.s); document.getElementById('vpShade').firstChild.textContent='['+d.textContent+']'; vp.querySelectorAll('span.open').forEach(x=>x.classList.remove('open')); });
+  const _origSetView=setView; window._setView=setView;
+  // --- 도면 배경 = AutoCAD 기본 다크 그레이 RGB 33,40,48 ---
+  try{ scene.background=new THREE.Color(0x212830); }catch(_){}
+  // --- 2단계 툴팁(0.5s 이름+별칭 → 2s 설명) ---
+  const tip=document.getElementById('tip2'); let t1=null,t2=null;
+  document.addEventListener('mouseover',e=>{ const t=e.target.closest('.tool[data-act]'); if(!t) return;
+    const act=t.dataset.act, name=t.querySelector('.ko')?.textContent||'', en=t.querySelector('.en')?.textContent||'', al=byAct[act];
+    clearTimeout(t1); clearTimeout(t2);
+    const place=()=>{ const rc=t.getBoundingClientRect(); tip.style.left=Math.min(rc.left, innerWidth-280)+'px'; tip.style.top=(rc.bottom+6)+'px'; };
+    t1=setTimeout(()=>{ tip.innerHTML=`<b>${esc(name)} ${esc(en)}${al?`<i>${esc(al)}</i>`:''}</b>`; place(); tip.style.display='block'; },500);
+    t2=setTimeout(()=>{ if(TIPS[act]){ tip.innerHTML=`<b>${esc(name)} ${esc(en)}${al?`<i>${esc(al)}</i>`:''}</b><p>${esc(TIPS[act])}</p><p style="color:#6f7a86">F1 도움말</p>`; place(); } },2000);
+  });
+  document.addEventListener('mouseout',e=>{ if(e.target.closest&&e.target.closest('.tool[data-act]')){ clearTimeout(t1); clearTimeout(t2); tip.style.display='none'; } });
+  // 첫 안내문을 AutoCAD 식 프롬프트로
+  logline('sys','<span class="n">명령 별칭:</span> L 선, C 원, REC 사각형, EXT 돌출, H 구멍, U 되돌리기, Z 전체보기, EXP 내보내기, V 검사, F1 도움말, F2 이력, Ctrl+0 클린 스크린. 빈 Enter = 마지막 명령 반복.'.replace(/, /g,' &nbsp;'));
+})();
+</script>
+
+
+<div id="side" role="complementary" aria-label="프린터 재료 공정 설정">
+  <div class="sh"><span>설정 <em style="font-style:normal;color:#6f7a86;font-weight:400">Printer → Filament → Process</em></span><span class="x" id="sideClose" title="접기">⟨</span></div>
+  <div class="body">
+    <input id="sideSearch" placeholder="설정 검색 (Ctrl+F)" aria-label="설정 검색">
+    <div class="sec" data-k="printer 프린터 빌드볼륨 bed">
+      <h4>Printer <em>프린터</em></h4>
+      <div class="row"><label>프리셋</label><select id="stPrinter" aria-label="프린터 프리셋">
+        <option value="none">직접 입력 / CAD 전용</option>
+        <option value="180,180,180">Bambu Lab A1 mini (180×180×180)</option>
+        <option value="256,256,256">Bambu Lab A1 / P1S / X1C (256³)</option>
+        <option value="250,210,220">Prusa MK4S (250×210×220)</option>
+        <option value="180,180,180,mini">Prusa MINI+ (180³)</option>
+        <option value="220,220,250">Creality Ender-3 V3 (220×220×250)</option>
+        <option value="custom">사용자 지정</option></select></div>
+      <div class="row"><label>빌드볼륨</label><input type="number" id="stBX" min="10" step="1" aria-label="X"><span class="u">×</span><input type="number" id="stBY" min="10" step="1" aria-label="Y"><span class="u">×</span><input type="number" id="stBZ" min="10" step="1" aria-label="Z"><span class="u">mm</span></div>
+    </div>
+    <div class="sec" data-k="filament 재료 필라멘트 pla petg abs tpu 밀도">
+      <h4>Filament <em>재료</em></h4>
+      <div class="row"><label>재료</label><select id="stMat" aria-label="재료">
+        <option value="pla" data-den="1.24">PLA (1.24 g/cm³)</option>
+        <option value="petg" data-den="1.27">PETG (1.27 g/cm³)</option>
+        <option value="abs" data-den="1.04">ABS / ASA (1.04 g/cm³)</option>
+        <option value="tpu" data-den="1.21">TPU (1.21 g/cm³)</option>
+        <option value="aluminum" data-den="2.70">알루미늄 가공 (2.70 g/cm³)</option>
+        <option value="steel" data-den="7.85">강 가공 (7.85 g/cm³)</option></select><span class="rst" data-for="stMat" title="기본값 PLA로">↺</span></div>
+      <div class="row adv"><label><span class="lvl y"></span>탭 체결 k</label><input type="text" id="stK" value="플라스틱 2.0D" disabled style="color:#8b96a2"></div>
+    </div>
+    <div class="sec" data-k="process 공정 노즐 층높이 구멍 보정 공차 nozzle layer">
+      <h4>Process <em>공정</em></h4>
+      <div class="row"><label>노즐</label><select id="stNozzle" aria-label="노즐 지름"><option value="0.4">0.4 mm (최소 벽 0.8)</option><option value="0.6">0.6 mm (최소 벽 1.2)</option><option value="0.2">0.2 mm (최소 벽 0.4)</option></select><span class="rst" data-for="stNozzle" title="기본값 0.4로">↺</span></div>
+      <div class="row"><label>층 높이</label><select id="stLayer" aria-label="층 높이"><option value="0.2">0.20 mm 표준</option><option value="0.12">0.12 mm 정밀</option><option value="0.28">0.28 mm 빠름</option></select></div>
+      <div class="row adv"><label><span class="lvl y"></span>구멍 보정</label><input type="number" id="stComp" value="0.2" min="0" max="1" step="0.05" aria-label="구멍 보정"><span class="u">mm</span><span class="rst" data-for="stComp" title="기본값 0.2로">↺</span></div>
+      <div class="row adv"><label><span class="lvl r"></span>자동 수정</label><select id="stIters" aria-label="자동 수정 횟수"><option value="3">최대 3회</option><option value="0">끄기</option></select></div>
+    </div>
+    <div class="sec" data-k="objects 파트 목록 object list">
+      <h4>Objects <em>파트 목록</em></h4>
+      <div id="objlist"><div style="color:#6f7a86">아직 모델이 없습니다</div></div>
+    </div>
+  </div>
+  <div class="ft"><span class="seg" id="modeSeg" title="기본: 자주 쓰는 값만 / 고급: 구멍 보정, 체결 k, 자동 수정"><b class="on" data-m="basic">기본</b><b data-m="advanced">고급</b></span><span style="color:#6f7a86">값은 검사 M1 P1 H3에 반영</span></div>
+</div>
+<div id="results" role="complementary" aria-label="검사 결과">
+  <div class="sh"><span>검사 결과 <em id="resSub" style="font-style:normal;color:#6f7a86;font-weight:400">아직 없음</em></span><span class="x" id="resClose" title="접기">⟩</span></div>
+  <div id="primary"><button id="primaryBtn" aria-label="생성 및 검사">생성 및 검사</button><button id="primaryMore" aria-label="더 보기">▾<div class="dd"></div></button></div>
+  <div id="chips"></div>
+  <div class="body"><div id="cards"><div style="color:#6f7a86;padding:4px 0">명령창에 만들 것을 적고 녹색 버튼을 누르면, 19종 커널 검사 결과가 여기에 카드로 나옵니다.</div></div></div>
+</div>
+<div id="objtools" role="toolbar" aria-label="객체 도구">
+  <b data-act="resize" title="크기 조절 (S)"><svg viewBox="0 0 24 24"><path d="M3 3h8v8M21 21h-8v-8M21 3l-7 7M3 21l7-7"/></svg><i>S</i></b>
+  <b data-act="layflat" title="바닥면에 눕히기 (F)"><svg viewBox="0 0 24 24"><path d="M3 17h18M6 17V9l6-4 6 4v8"/></svg><i>F</i></b>
+  <b data-act="center" title="원점 정렬 (D)"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><rect x="8" y="8" width="8" height="8"/></svg><i>D</i></b>
+  <b data-act="hole" title="구멍 뚫기 (H)"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16"/><circle cx="12" cy="12" r="4"/></svg><i>H</i></b>
+  <b data-act="split" title="분할 + 커넥터 (C)"><svg viewBox="0 0 24 24"><path d="M4 4l16 16M20 4L4 20"/></svg><i>C</i></b>
+  <b data-act="dim" title="치수 측정"><svg viewBox="0 0 24 24"><path d="M3 8v8M21 8v8M3 12h18"/></svg></b>
+  <b data-act="fit" title="끼워맞춤 공차"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.6"/></svg></b>
+</div>
+<span class="sidetoggle" id="sideOpen" title="설정 열기">설정 ⟩</span><span class="sidetoggle" id="resOpen" title="검사 결과 열기">⟨ 결과</span>
+<script>
+// ===== UX 개편 2단계: 슬라이서 관례(Bambu Studio 1차, PrusaSlicer 2차) =====
+// 근거: 왼쪽 Printer→Filament→Process 순서(Bambu wiki 1.1.2), 오른쪽 상단 단일 녹색 1차 버튼 #00AE42(Bambu CapsuleButton), 완료 시 자동 전환,
+//       경고는 패널 안 "원인 문장 + 수정 버튼"(Bambu Cut 패널), 수정값 주황 ↺(Prusa #ED6B21), 기본/고급(Prusa Simple/Advanced), Ctrl+F 설정 검색,
+//       시간/재료 칩 상시 표시, 빌드볼륨 초과 빨강, Object List 눈 아이콘, M R S F C 한 글자 단축키. 정리본: 03_기획/UX개편_결정표_20261030.md
+(function(){
+  const $=id=>document.getElementById(id);
+  const DEF={stMat:'pla',stNozzle:'0.4',stComp:'0.2',stLayer:'0.2',stIters:'3'};
+  // ---- 설정 읽기/저장 ----
+  function settings(){
+    const b=[+$('stBX').value,+$('stBY').value,+$('stBZ').value];
+    const hasBuild=$('stPrinter').value!=='none'&&b.every(v=>v>0);
+    return {material:$('stMat').value, nozzle:+$('stNozzle').value, hole_comp:+$('stComp').value, build:hasBuild?b:null, iters:+$('stIters').value};
+  }
+  window.realcadSettings=settings;
+  function persist(){ try{ localStorage.setItem('realcad_settings',JSON.stringify({printer:$('stPrinter').value,bx:$('stBX').value,by:$('stBY').value,bz:$('stBZ').value,mat:$('stMat').value,noz:$('stNozzle').value,comp:$('stComp').value,layer:$('stLayer').value,mode:document.getElementById('side').classList.contains('advanced')?'advanced':'basic'})); }catch(e){} }
+  function restore(){ try{ const v=JSON.parse(localStorage.getItem('realcad_settings')||'null'); if(!v) return; $('stPrinter').value=v.printer||'none'; $('stBX').value=v.bx||''; $('stBY').value=v.by||''; $('stBZ').value=v.bz||''; $('stMat').value=v.mat||'pla'; $('stNozzle').value=v.noz||'0.4'; $('stComp').value=v.comp||'0.2'; $('stLayer').value=v.layer||'0.2'; if(v.mode==='advanced'){ $('side').classList.add('advanced'); $('modeSeg').querySelectorAll('b').forEach(x=>x.classList.toggle('on',x.dataset.m==='advanced')); } }catch(e){} }
+  // ---- 수정됨 표시(주황 점) + ↺ ----
+  function markMod(){ for(const [id,d] of Object.entries(DEF)){ const el=$(id); if(!el) continue; const lab=el.closest('.row')?.querySelector('label'); const rst=el.closest('.row')?.querySelector('.rst'); const mod=String(el.value)!==d; if(lab) lab.classList.toggle('mod',mod); if(rst) rst.classList.toggle('show',mod); } }
+  document.querySelectorAll('#side .rst').forEach(r=>r.onclick=()=>{ const el=$(r.dataset.for); el.value=DEF[r.dataset.for]; el.dispatchEvent(new Event('change')); });
+  // ---- 프린터 프리셋 → 빌드볼륨 → 전역 MODE/BUILD + 베드 외곽선 ----
+  let bed=null;
+  function drawBed(){ if(bed){ scene.remove(bed); bed=null; } const st=settings(); if(!st.build) return;
+    const [x,y,z]=st.build; const g=new THREE.BoxGeometry(x,y,z); const e=new THREE.EdgesGeometry(g);
+    bed=new THREE.LineSegments(e,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.35})); bed.position.set(0,0,z/2); bed.name='bed'; scene.add(bed);
+    const base=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(x,y)),new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.9})); base.position.z=0.05; bed.add(base); base.position.z=-z/2+0.05; }
+  function syncBuild(){ const st=settings(); try{ if(st.build){ if(typeof BUILD!=='undefined') BUILD=st.build; if(typeof MODE!=='undefined'){ MODE='printer'; } } else if(typeof MODE!=='undefined'){ MODE='cad'; } if(typeof saveMode==='function') saveMode(); if(typeof applyModeBadge==='function') applyModeBadge(); }catch(e){} drawBed(); checkVolume(); }
+  $('stPrinter').onchange=function(){ const v=this.value; if(v!=='none'&&v!=='custom'){ const [x,y,z]=v.split(',').map(Number); $('stBX').value=x; $('stBY').value=y; $('stBZ').value=z; } if(v==='none'){ $('stBX').value=$('stBY').value=$('stBZ').value=''; } syncBuild(); persist(); stale(); };
+  ['stBX','stBY','stBZ'].forEach(id=>$(id).onchange=()=>{ if($('stPrinter').value!=='custom'&&$('stPrinter').value!=='none') $('stPrinter').value='custom'; syncBuild(); persist(); stale(); });
+  ['stMat','stNozzle','stComp','stLayer','stIters'].forEach(id=>$(id).addEventListener('change',()=>{ markMod(); persist(); stale(); if(id==='stMat'){ const m=$('stMat').value; $('stK').value=(m==='steel'?'강 1.0D':m==='aluminum'?'알루미늄 1.5D':'플라스틱 2.0D'); } }));
+  $('modeSeg').querySelectorAll('b').forEach(b=>b.onclick=()=>{ $('modeSeg').querySelectorAll('b').forEach(x=>x.classList.remove('on')); b.classList.add('on'); $('side').classList.toggle('advanced',b.dataset.m==='advanced'); persist(); });
+  // ---- 설정 검색(Ctrl+F) ----
+  $('sideSearch').addEventListener('input',function(){ const q=this.value.trim().toLowerCase(); document.querySelectorAll('#side .sec').forEach(sec=>{ const hit=!q||(sec.dataset.k+' '+sec.innerText).toLowerCase().includes(q); sec.style.display=hit?'':'none'; sec.classList.toggle('hit',!!q&&hit); }); });
+  document.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'&&!e.shiftKey){ e.preventDefault(); if(document.body.classList.contains('noside')) document.body.classList.remove('noside'); $('sideSearch').focus(); $('sideSearch').select(); } });
+  // ---- 접기/펴기 ----
+  $('sideClose').onclick=()=>document.body.classList.add('noside'); $('sideOpen').onclick=()=>document.body.classList.remove('noside');
+  $('resClose').onclick=()=>document.body.classList.add('nores'); $('resOpen').onclick=()=>document.body.classList.remove('nores');
+  // ---- 단계 표시줄(준비 → 검사 → 출력) ----
+  const tabsRow=document.querySelector('.tabs'); const sb=document.createElement('div'); sb.id='stepbar'; sb.innerHTML='<b class="on" data-s="1">1 준비 Prepare</b><b data-s="2">2 검사 Verify</b><b data-s="3">3 출력 Export</b>'; tabsRow.appendChild(sb);
+  function step(n){ sb.querySelectorAll('b').forEach(b=>{ const k=+b.dataset.s; b.classList.toggle('on',k===n); b.classList.toggle('done',k<n); }); }
+  // ---- 1차 버튼 상태 머신 ----
+  const pb=$('primaryBtn'), pm=$('primaryMore'), dd=pm.querySelector('.dd');
+  let state='idle'; // idle | busy | passed | failed
+  window._rc={get state(){return state;},setState:(v)=>setState(v),step:(n)=>step(n),stale:()=>stale()};
+  function setState(s){ state=s; pb.classList.remove('warn');
+    if(s==='idle'){ pb.textContent='생성 및 검사'; pb.disabled=false; dd.innerHTML='<div data-x="auto">예시 부품으로 바로 생성</div><div data-x="presets">프리셋에서 고르기</div><div data-x="photo">사진으로 생성</div>'; }
+    else if(s==='busy'){ pb.textContent='생성 중…'; pb.disabled=true; }
+    else if(s==='passed'){ pb.textContent='내보내기 ▾'; pb.disabled=false; buildExportMenu(); }
+    else if(s==='failed'){ pb.textContent='수정 후 재검사'; pb.classList.add('warn'); pb.disabled=false; buildExportMenu(true); }
+  }
+  function buildExportMenu(withVerify){ const dl=window.lastDownloads||lastDownloads||{}; let h=''; const names={STEP:'STEP (CAD 원본)',STL:'STL (슬라이서)','3MF':'3MF (슬라이서, 단위 포함)',OBJ:'OBJ',DXF:'DXF 치수 도면',BOM:'BOM CSV (볼트 목록)'}; for(const k of ['STEP','STL','3MF','OBJ','DXF','BOM']) if(dl[k]) h+=`<div data-dl="${k}">${names[k]||k}</div>`; h+='<div data-x="all">전체 내려받기</div>'+(withVerify?'<div data-x="verify">검사만 다시</div>':'')+'<div data-x="split">프린터 베드에 맞게 분할</div>'; dd.innerHTML=h; }
+  pm.onclick=e=>{ e.stopPropagation(); pm.classList.toggle('open'); };
+  document.addEventListener('click',e=>{ if(!e.target.closest('#primaryMore')) pm.classList.remove('open'); });
+  dd.addEventListener('click',e=>{ const d=e.target.closest('div[data-dl],div[data-x]'); if(!d) return; pm.classList.remove('open');
+    if(d.dataset.dl){ const url=(window.lastDownloads||lastDownloads)[d.dataset.dl]; const a=document.createElement('a'); a.href=url; a.download=''; document.body.appendChild(a); a.click(); a.remove(); step(3); return; }
+    const x=d.dataset.x; if(x==='all'){ for(const url of Object.values(window.lastDownloads||lastDownloads||{})){ const a=document.createElement('a'); a.href=url; a.download=''; document.body.appendChild(a); a.click(); a.remove(); } step(3); }
+    else { const el=document.querySelector(`.tool[data-act="${x}"]`); if(el) el.click(); } });
+  pb.onclick=()=>{ if(state==='passed'||state==='failed'){ if(state==='passed'){ pm.classList.toggle('open'); return; } cmdEl.focus(); cmdEl.placeholder='바꿀 내용을 적고 Enter (예: 구멍을 안쪽으로 3mm)'; return; }
+    const v=cmdEl.value.trim(); if(!v){ cmdEl.focus(); cmdEl.placeholder='만들 것을 먼저 적어 주세요 (예: M3 볼트 4개 브래킷 80x40x5)'; showToast('명령창에 만들 것을 적어 주세요'); return; } cmdEl.value=''; handleCommand(v); };
+  // ---- 생성 요청에 설정 동봉: fetch 가로채기(api/design, api/design_code, api/edit) ----
+  const _fetch=window.fetch.bind(window);
+  window.fetch=function(url,opt){ try{ if(typeof url==='string'&&/api\/(design|design_code|edit)$/.test(url)&&opt&&opt.body&&typeof opt.body==='string'){ const b=JSON.parse(opt.body); b.settings=settings(); opt=Object.assign({},opt,{body:JSON.stringify(b)}); setState('busy'); $('chips').classList.add('stale'); } }catch(e){} return _fetch(url,opt); };
+  // ---- 결과 → 카드/칩/객체 목록 (renderResult, renderCodeResult 뒤에 실행) ----
+  const FIXES={H2:'구멍을 규격 공차구멍으로',H4:'구멍을 안쪽으로 옮겨',H1:'볼트 간격을 넓혀',S2:'볼트 간격을 넓혀',M1:'벽을 더 두껍게',M2:'솔리드가 닫히게 다시',C1:'겹친 부분을 융합해서',H3:'판을 더 두껍게',I1:'보스를 더 높게',I2:'인서트 둘레 살을 2mm 이상으로',E2:'바닥을 1.2mm 이상으로',M3:'45도 넘는 면을 줄이거나 눕혀서',D1:'선언한 크기대로 다시',F0:'지원 규격으로 바꿔서',H5:'볼트 주변 공간을 넓혀',H6:'카운터보어를 머리보다 크게'};
+  function describe(f){ const a=(f.actual!=null&&f.required!=null)?`실제 <b>${num(f.actual)}</b> / 기준 ${num(f.required)} mm`:''; const rest=(f.message||'').split(' / ').slice(1).join(' / '); return [rest?esc(rest):'',a,(f.standard?`<span style="color:#6f7a86">${esc(f.standard)}</span>`:'')].filter(Boolean).join(' <span style="color:#55606c">|</span> '); }
+  function renderCards(d){ const box=$('cards'); const fs=d.findings||[]; const bad=fs.filter(f=>!f.ok&&f.severity==='HARD'), warn=fs.filter(f=>!f.ok&&f.severity!=='HARD'), ok=fs.filter(f=>f.ok);
+    $('resSub').textContent=`실패 ${bad.length} 경고 ${warn.length} 통과 ${ok.length}`;
+    const card=(f,cls)=>{ const fix=FIXES[f.code]; const sug=(f.suggestion&&(f.suggestion.option_a||f.suggestion.hint))||''; const title=(f.message||'').split(' / ')[0].trim(); return `<div class="card ${cls}"><div class="hd"><span class="cd">${esc(f.code)}</span><span>${esc(title)}</span><span class="st">${cls==='bad'?'실패':cls==='warn'?'경고':'통과'}</span></div><div class="why">${describe(f)}${sug?`<br><span style="color:#ffe3a3">제안: ${esc(sug)}</span>`:''}</div>${cls!=='ok'&&fix?`<div class="fix"><span data-edit="${esc(fix)}">${esc(fix)} 수정</span>${f.code==='M3'||f.code==='D1'?'':'<span data-edit="더 두껍게">더 두껍게</span>'}</div>`:''}</div>`; };
+    const dedupe=(arr)=>{ const m=new Map(); for(const f of arr){ const k=f.code+'|'+(f.message||'')+'|'+f.actual+'|'+f.required; if(m.has(k)) m.get(k).n++; else m.set(k,{f,n:1}); } return [...m.values()]; };
+    const withN=(html,n,lab)=>n>1?html.replace(`<span class="st">${lab}</span>`,`<span class="st">${lab} ×${n}</span>`):html;
+    let h=dedupe(bad).map(({f,n})=>withN(card(f,'bad'),n,'실패')).join('')+dedupe(warn).map(({f,n})=>withN(card(f,'warn'),n,'경고')).join('');
+    if(!bad.length&&!warn.length) h+=`<div class="card ok"><div class="hd"><span>모든 검사 통과</span><span class="st">OK</span></div><div class="why">${d.fixed?`메타 자동 수정 ${d.iters}회 뒤 통과. `:''}바로 내보내도 됩니다.</div></div>`;
+    const seen=new Map(); for(const f of ok){ const k=f.code+'|'+(f.message||'')+'|'+f.actual+'|'+f.required; if(seen.has(k)) seen.get(k).n++; else seen.set(k,{f,n:1}); }
+    h+=`<div id="okfold">통과 ${ok.length}건 ${ok.length?'보기 ▾':''}</div><div id="okwrap">${[...seen.values()].map(({f,n})=>card(f,'ok').replace('<span class="st">통과</span>', n>1?`<span class="st">통과 ×${n}</span>`:'<span class="st">통과</span>')).join('')}</div>`;
+    box.innerHTML=h; const of=$('okfold'); if(of) of.onclick=()=>$('okwrap').classList.toggle('show');
+    box.querySelectorAll('.fix span[data-edit]').forEach(sp=>sp.onclick=()=>{ if(!currentSession){ showToast('먼저 생성한 뒤 수정할 수 있어요'); return; } clarifyState=null; editDesign(sp.dataset.edit); });
+  }
+  function renderChips(d){ const c=$('chips'); c.classList.remove('stale'); const s=d.stats||{}; const den=+($('stMat').selectedOptions[0]?.dataset.den||1.24); const g20=s.volume_cm3!=null?Math.round((s.pla_g_20pct||0)/1.24*den*10)/10:null; const gs=s.volume_cm3!=null?Math.round(s.volume_cm3*den*10)/10:null;
+    const chips=[]; if(s.bbox_mm) chips.push(`<span title="바운딩 박스">⤢ <b>${s.bbox_mm.map(x=>Math.round(x)).join('×')}</b> mm</span>`); if(s.volume_cm3!=null) chips.push(`<span title="실체 부피">▣ <b>${s.volume_cm3}</b> cm³</span>`); if(g20!=null) chips.push(`<span title="20% 채움 추정 무게(재료 밀도 ${den} g/cm³), 100% 채움 ${gs} g">⚖ <b>${g20}</b> g</span>`); if(d.fixed) chips.push(`<span title="메타 자동 수정 횟수">↻ <b>${d.iters}</b>회 수정</span>`); const dl=Object.keys(d.downloads||{}); if(dl.length) chips.push(`<span>${dl.join(' ')}</span>`); c.innerHTML=chips.join(''); }
+  function renderObjects(){ const ol=$('objlist'); const ms=[]; grp.traverse(o=>{ if(o.isMesh) ms.push(o); }); if(!ms.length){ ol.innerHTML='<div style="color:#6f7a86">아직 모델이 없습니다</div>'; return; }
+    const over=checkVolume(); ol.innerHTML=ms.map((m,i)=>{ const col='#'+m.material.color.getHexString(); const hasBolts=!!((typeof lastResult!=='undefined'&&lastResult)||{}).bolts_url; const nm=m.name||(i===0?'본체 part':((hasBolts&&i===1)||(m.material.metalness||0)>=0.35?'볼트 bolts':'파트 '+(i+1))); return `<div class="o" data-i="${i}"><span class="eye ${m.visible?'':'off'}" title="표시/숨김">${m.visible?'👁':'◌'}</span><span class="sw" style="background:${col}"></span><span class="nm">${esc(nm)}</span>${i===0&&over?'<span class="bd">빌드볼륨 초과</span>':''}</div>`; }).join('');
+    ol.querySelectorAll('.eye').forEach(e=>e.onclick=()=>{ const m=ms[+e.closest('.o').dataset.i]; m.visible=!m.visible; renderObjects(); }); }
+  // ---- 빌드볼륨 초과: 빨강 반투명 박스 + 카드 ----
+  let overBox=null;
+  function checkVolume(){ if(overBox){ scene.remove(overBox); overBox=null; } const st=settings(); if(!st.build) return false; let first=null; grp.traverse(o=>{ if(!first&&o.isMesh) first=o; }); const b=new THREE.Box3().setFromObject(first||grp); if(!isFinite(b.min.x)) return false; const sz=b.getSize(new THREE.Vector3()); const over=sz.x>st.build[0]+1e-6||sz.y>st.build[1]+1e-6||sz.z>st.build[2]+1e-6;
+    if(over){ overBox=new THREE.Mesh(new THREE.BoxGeometry(sz.x,sz.y,sz.z),new THREE.MeshBasicMaterial({color:0xff4d4d,transparent:true,opacity:.18,depthWrite:false})); const c=b.getCenter(new THREE.Vector3()); overBox.position.copy(c); scene.add(overBox);
+      const cards=$('cards'); if(cards&&!cards.querySelector('.card.vol')){ const el=document.createElement('div'); el.className='card bad vol'; el.innerHTML=`<div class="hd"><span class="cd">BV</span><span>빌드볼륨 초과</span><span class="st">실패</span></div><div class="why">모델 <b>${Math.round(sz.x)}×${Math.round(sz.y)}×${Math.round(sz.z)}</b> mm가 프린터 <b>${st.build.map(Math.round).join('×')}</b> mm를 넘습니다.</div><div class="fix"><span data-x="split">둘로 나누기 (커넥터 자동)</span><span data-edit="프린터에 맞게 전체를 줄여">크기 줄이기</span></div>`; cards.prepend(el); const okAll=cards.querySelector('.card.ok .st'); if(okAll&&/OK/.test(okAll.textContent)) okAll.closest('.card').remove(); if(state==='passed'){ state='failed'; pb.textContent='빌드볼륨 초과: 분할 또는 축소'; pb.classList.add('warn'); buildExportMenu(true); } $('resSub').textContent=$('resSub').textContent.replace(/^실패 (\d+)/,(m,n)=>'실패 '+(+n+1)); el.querySelector('[data-x="split"]').onclick=()=>document.querySelector('.tool[data-act="split"]')?.click(); el.querySelector('[data-edit]').onclick=()=>{ if(currentSession) editDesign('프린터 빌드볼륨 '+st.build.map(Math.round).join('x')+'mm 안에 들어가게 전체 크기를 줄여'); }; } }
+    else { const v=$('cards')?.querySelector('.card.vol'); if(v) v.remove(); }
+    return over; }
+  function stale(){ $('chips').classList.add('stale'); if(state==='passed'||state==='failed'){ pb.textContent='설정 바뀜: 재검사'; pb.classList.add('warn'); state='failed'; } }
+  function afterResult(d){ if(!d||d.error){ setState(currentSession?'failed':'idle'); return; } renderCards(d); renderChips(d); setTimeout(()=>{ renderObjects(); checkVolume(); },900); const hardBad=(d.findings||[]).some(f=>!f.ok&&f.severity==='HARD'); setState(hardBad?'failed':'passed'); step(hardBad?2:3); showToast(hardBad?'검사 실패가 있어요. 카드의 수정 버튼을 눌러 보세요':`검사 완료. 경고 ${(d.findings||[]).filter(f=>!f.ok&&f.severity!=='HARD').length}건`); if(document.body.classList.contains('nores')) document.body.classList.remove('nores'); }
+  const _rr=renderResult; renderResult=function(d){ const r=_rr.apply(this,arguments); try{ afterResult(d); }catch(e){ console.warn(e); } return r; };
+  if(typeof renderCodeResult==='function'){ const _rc=renderCodeResult; renderCodeResult=function(d){ const r=_rc.apply(this,arguments); try{ afterResult(d); }catch(e){ console.warn(e); } return r; }; }
+  // 에러로 끝나는 경우: busy 상태가 남지 않게 로그를 감시
+  new MutationObserver(()=>{ if(state==='busy'&&!busy) setState(currentSession?'failed':'idle'); }).observe(document.getElementById('log'),{childList:true});
+  // ---- 한 글자 단축키(입력창 밖): S 크기 F 눕히기 D 정렬 H 구멍 C 분할 ----
+  document.addEventListener('keydown',e=>{ const inInput=document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName); if(inInput||e.ctrlKey||e.metaKey||e.altKey) return; const map={s:'resize',f:'layflat',d:'center',h:'hole',c:'split'}; const a=map[e.key.toLowerCase()]; if(a&&!busy){ e.preventDefault(); e.stopImmediatePropagation(); const el=document.querySelector(`.tool[data-act="${a}"]`); if(el) el.click(); } },true);
+  document.querySelectorAll('#objtools b[data-act]').forEach(b=>b.onclick=()=>document.querySelector(`.tool[data-act="${b.dataset.act}"]`)?.click());
+  // ---- 시작: 저장값 복원, 기존 MODE/BUILD와 동기화 ----
+  restore(); markMod();
+  if($('stPrinter').value==='none'&&typeof MODE!=='undefined'&&MODE==='printer'&&Array.isArray(BUILD)){ $('stPrinter').value='custom'; $('stBX').value=BUILD[0]; $('stBY').value=BUILD[1]; $('stBZ').value=BUILD[2]; }
+  syncBuild(); setState('idle'); step(1);
+  const _lm=window.loadModel; window.loadModel=function(){ const r=_lm.apply(this,arguments); setTimeout(()=>{ renderObjects(); checkVolume(); },1200); return r; };
+  const _lp=window.loadPieces; if(_lp) window.loadPieces=function(){ const r=_lp.apply(this,arguments); setTimeout(renderObjects,1200); return r; };
+})();
+</script>
+
+
+<!-- ===== UX 개편 3단계: 초보자 기본 모드(리본 숨김, 타이틀바 버튼 3개), 1차 버튼 진행 카드(슬라이서 우하단 알림 방식), 통과 카드 접기, 모드 모달 제거 ===== -->
+<style>
+body.simple .tabs .tab{display:none}
+body.simple #ribbon{display:none}
+body.simple .tabs{padding:4px 8px;min-height:30px}
+body.simple #stepbar{margin-left:4px}
+body.simple #btnSignin{display:none}
+body.simple #side,body.simple #results,body.simple #viewcube,body.simple #vpctl{top:var(--panel-top,150px)}
+body.simple .sidetoggle{top:calc(var(--panel-top,150px) + 4px)}
+body.simple .helppanel{top:calc(var(--panel-top,150px) + 20px)}
+body.simple #objtools{top:calc(var(--panel-top,150px) + 130px)}
+.titlebar .hbtn.on{background:rgba(45,108,223,.35);border-color:#2d6cdf}
+#stPrinter.pulse{outline:2px solid #00AE42;outline-offset:1px;transition:outline .2s}
+#progcard{position:fixed;right:calc(var(--res-w) + 26px);bottom:180px;z-index:40;display:none;min-width:250px;max-width:330px;background:#fff;color:#2b323a;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.35);font-size:12px;overflow:hidden}
+body.nores #progcard{right:16px}
+#progcard.show{display:flex;align-items:stretch}
+#progcard .bar{width:5px;background:#0a9a2e;flex:none}
+#progcard.err .bar{background:#e65c5c}#progcard.warn .bar{background:#fcb074}
+#progcard .pc-body{padding:9px 10px;flex:1;min-width:0}
+#progcard .pc-t{font-weight:600}
+#progcard .pc-s{color:#5c6672;margin-top:2px}
+#progcard .pc-bar{height:4px;background:#e6e9ed;border-radius:2px;margin-top:7px;overflow:hidden;position:relative}
+#progcard .pc-bar span{position:absolute;left:-40%;width:40%;height:100%;background:#00AE42;border-radius:2px;animation:pcslide 1.2s linear infinite}
+#progcard:not(.run) .pc-bar{display:none}
+@keyframes pcslide{to{left:100%}}
+#progcard .pc-x{padding:8px 10px;cursor:pointer;color:#6b747e;align-self:flex-start}
+#progcard .pc-x:hover{color:#d33}
+#cards details.okfold{margin:4px 0}
+#cards details.okfold summary{cursor:pointer;color:#8fd9a8;font-size:12px;padding:6px 8px;background:rgba(0,174,66,.08);border-radius:6px;list-style:none}
+#cards details.okfold summary::before{content:'▸ ';}
+#cards details.okfold[open] summary::before{content:'▾ ';}
+</style>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const rc=window._rc; if(!rc) return;
+  // ---- 1) 모드 모달 제거: 프린터 선택이 곧 모드 (Bambu/Prusa 는 시작 시 프린터만 고름)
+  const ob=$('onboard'); if(ob){ ob.classList.remove('show'); ob.style.display='none'; }
+  function openSide(){ document.body.classList.remove('noside'); }
+  window.openOnboarding=function(){ openSide(); const p=$('stPrinter'); if(p){ p.focus(); p.classList.add('pulse'); setTimeout(()=>p.classList.remove('pulse'),1600); } };
+  window.applyModeBadge=function(){ const el=$('modeBadge'); const sel=$('stPrinter'); if(!el||!sel) return; const on=!!sel.value&&sel.value!=='none'; const t=sel.selectedIndex>=0?sel.options[sel.selectedIndex].text:''; el.textContent=on?('프린터 '+t):'프린터 없음 (CAD)'; el.title='프린터를 바꾸려면 클릭 (왼쪽 설정의 프린터 칸)'; const ws=$('sbWorkspace'); if(ws) ws.textContent='작업공간 '+(on?'3D 프린터':'CAD'); };
+  applyModeBadge(); setTimeout(applyModeBadge,600); setTimeout(applyModeBadge,2000); window.addEventListener('load',()=>setTimeout(applyModeBadge,80)); $('stPrinter').addEventListener('change',()=>setTimeout(applyModeBadge,0));
+  $('modeBadge').onclick=()=>openOnboarding();
+  // ---- 2) 기본/고급 한 스위치: 기본은 리본 숨김, 타이틀바에 가져오기/되돌리기/고급 도구 (Prusa Simple 모드 방식, Tinkercad 상단 Import/Export/Undo)
+  const right=document.querySelector('.titlebar .right'); const badge=$('modeBadge');
+  const mk=(id,txt,title,act)=>{ const s=document.createElement('span'); s.className='hbtn'; s.id=id; s.textContent=txt; s.title=title; if(act) s.dataset.act=act; right.insertBefore(s,badge); return s; };
+  mk('hbImport','가져오기','STEP/STL 파일을 올려 케이스 만들기 또는 분할','wrap');
+  mk('hbUndo','되돌리기','직전 성공본으로 (U 또는 Ctrl+Z)','undo');
+  const bAdv=mk('hbAdv','고급 도구','리본 도구 전체와 고급 설정 보이기/숨기기');
+  function panelTop(){ const t=document.querySelector('.top'); if(t) document.documentElement.style.setProperty('--panel-top',(t.getBoundingClientRect().bottom+8)+'px'); }
+  window.addEventListener('resize',panelTop);
+  function setSimple(on,fromSeg){ document.body.classList.toggle('simple',on); setTimeout(panelTop,0); bAdv.classList.toggle('on',!on); bAdv.textContent=on?'고급 도구':'고급 도구 닫기'; try{localStorage.setItem('realcad_simple',on?'1':'0');}catch(e){}
+    if(!fromSeg){ const seg=$('modeSeg'); if(seg){ seg.querySelectorAll('b').forEach(x=>x.classList.toggle('on',(x.dataset.m==='advanced')!==on)); $('side').classList.toggle('advanced',!on); } } }
+  bAdv.onclick=()=>setSimple(!document.body.classList.contains('simple'));
+  $('modeSeg').querySelectorAll('b').forEach(b=>b.addEventListener('click',()=>setSimple(b.dataset.m!=='advanced',true)));
+  let simple=true; try{ if(localStorage.getItem('realcad_simple')==='0') simple=false; }catch(e){}
+  setSimple(simple);
+  window.setSimpleUI=setSimple;
+  // ---- 3) 진행 카드: 슬라이서처럼 캔버스 우하단, 단계 문구 + 막대 + 취소 (Bambu SlicingProgressNotification, Prusa 동일)
+  const pc=document.createElement('div'); pc.id='progcard'; pc.innerHTML='<i class="bar"></i><div class="pc-body"><div class="pc-t">생성 중</div><div class="pc-s">요청 보냄</div><div class="pc-bar"><span></span></div></div><span class="pc-x" title="취소">✕</span>'; document.body.appendChild(pc);
+  function place(){ const b=document.querySelector('.bottom'); if(b){ const r=b.getBoundingClientRect(); pc.style.bottom=(window.innerHeight-r.top+12)+'px'; } }
+  window.addEventListener('resize',place);
+  let ctrl=null,t0=0,timer=null,phase='요청 보냄',prevState='idle',prevLabel='',quiet=0;
+  function sub(){ pc.querySelector('.pc-s').textContent=phase+(t0?('  '+Math.round((Date.now()-t0)/1000)+'초'):''); }
+  function showProg(kind,title,s){ place(); pc.className='show '+kind; pc.querySelector('.pc-t').textContent=title; phase=s||''; sub(); pc.querySelector('.pc-x').style.display=(kind==='run')?'':'none'; clearTimeout(pc._h); }
+  function hideProg(delay){ clearTimeout(pc._h); pc._h=setTimeout(()=>{ pc.classList.remove('show'); },delay||0); }
+  const PH=[[/계약|contract|설계 중|designing|생성 요청/i,'설계 계약 작성'],[/코드|code/i,'CAD 코드 작성'],[/자동 수정|고치는|fix|iter/i,'자동 수정'],[/검사|verify|커널/i,'커널 검사']];
+  new MutationObserver(ms=>{ if(!pc.classList.contains('run')) return; const ll=[...$('log').children].slice(-1)[0]; const t=ll?(ll.textContent||''):''; for(const [re,lab] of PH){ if(re.test(t)){ phase=lab; break; } } sub(); }).observe($('log'),{childList:true,subtree:true,characterData:true});
+  const _f=window.fetch;
+  window.fetch=function(url,opt){
+    if(typeof url==='string'&&/api\/(design|design_code|edit)$/.test(url)&&opt&&opt.body){
+      ctrl=new AbortController(); opt=Object.assign({},opt,{signal:ctrl.signal}); if(rc.state!=='busy'){ prevState=rc.state; prevLabel=$('primaryBtn').textContent.trim(); } t0=Date.now(); const ll=[...$('log').children].slice(-1)[0]; let ph='요청 보냄'; if(ll){ const t=ll.textContent||''; for(const [re,lab] of PH){ if(re.test(t)){ ph=lab; break; } } } showProg('run','생성 중',ph); clearInterval(timer); timer=setInterval(sub,1000);
+      return _f(url,opt).finally(()=>{ clearInterval(timer); t0=0; });
+    }
+    return _f(url,opt);
+  };
+  pc.querySelector('.pc-x').onclick=()=>{ if(ctrl){ try{ ctrl.abort(); }catch(e){} } quiet=Date.now()+1500; showProg('warn','취소됨','요청을 중단했어요. 이전 결과는 그대로예요'); hideProg(3500); setTimeout(()=>{ if(prevLabel.startsWith('설정 바뀜')){ rc.setState('passed'); rc.stale(); } else rc.setState(prevState==='busy'?'idle':prevState); try{ busy=false; }catch(e){} },60); };
+  // 1차 버튼 글자 변화로 완료/실패 카드 (Bambu "Slice ok." + 체크, 오류는 붉은 띠)
+  const pb=$('primaryBtn'); let lastLabel=pb.textContent;
+  new MutationObserver(()=>{ const l=pb.textContent.trim(); if(l===lastLabel) return; lastLabel=l; if(Date.now()<quiet) return;
+    if(l.startsWith('내보내기')){ showProg('ok','완료 ✓','검사 통과. 녹색 버튼으로 내보내기'); hideProg(4500); }
+    else if(l.startsWith('수정 후')){ showProg('err','검사 실패','카드의 수정 버튼 한 번이면 고쳐서 다시 검사해요'); hideProg(6000); }
+    else if(l.startsWith('생성 및 검사')&&pc.classList.contains('run')){ showProg('err','생성 실패','로그의 붉은 줄을 확인하세요'); hideProg(5000); }
+  }).observe(pb,{childList:true,characterData:true,subtree:true});
+  // ---- 4) 완료/실패 토스트는 진행 카드와 중복이라 숨김 (슬라이서는 알림 하나)
+  const _toast=window.showToast; if(typeof _toast==='function'){ window.showToast=function(m){ if(typeof m==='string'&&/^(검사 완료|검사 실패가)/.test(m)) return; return _toast.apply(this,arguments); }; }
 })();
 </script>
 </body></html>

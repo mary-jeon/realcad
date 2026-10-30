@@ -29,6 +29,26 @@ WEB = ROOT / "web"
 GEN = WEB / "gen"
 GEN.mkdir(parents=True, exist_ok=True)
 
+
+def _prune_gen(keep: int = 300) -> None:
+    """생성물 폴더가 끝없이 커지지 않게 시작 시 최근 keep 개(토큰 묶음 기준)만 남긴다."""
+    try:
+        files = sorted(GEN.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        toks = []
+        for f in files:
+            t = f.name.split("_")[0].split(".")[0]
+            if t not in toks:
+                toks.append(t)
+        old = set(toks[keep:])
+        for f in files:
+            if f.name.split("_")[0].split(".")[0] in old:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+_prune_gen()
+
 import os as _os
 # 공개 터널 등에 노출할 때: REALCAD_TOKEN 환경변수를 주면 모든 /api/* 요청에 X-RealCAD-Token 헤더(또는 ?token=)를 요구한다.
 _TOKEN = _os.environ.get("REALCAD_TOKEN", "").strip()
@@ -86,9 +106,47 @@ class ClarifyReq(BaseModel):
     prompt: str
 
 
+class PrintSettings(BaseModel):
+    """왼쪽 사이드바(Printer → Filament → Process) 값. 검사 M1(노즐), H3(재료 k), P1(구멍 보정), 빌드볼륨에 들어간다."""
+    material: str | None = None       # pla | petg | abs | tpu | steel | aluminum
+    nozzle: float | None = None       # mm
+    hole_comp: float | None = None    # mm
+    build: list[float] | None = None  # [x, y, z] mm
+    iters: int | None = None          # 자동 수정 최대 횟수(0=끄기)
+
+
+def _apply_settings(c, st: "PrintSettings | None"):
+    if not st:
+        return c
+    # 재료: 프롬프트가 금속을 명시했으면(기획자가 steel/aluminum 으로 적음) 사이드바 플라스틱 값으로 덮지 않는다
+    if st.material and str(getattr(c, "material", "pla") or "pla").lower() in ("pla", "petg", "abs", "tpu", "plastic", ""):
+        try: c.material = str(st.material).lower()
+        except Exception: pass
+    if st.nozzle:
+        try: setattr(c, "nozzle", max(0.1, min(float(st.nozzle), 2.0)))
+        except Exception: pass
+    if st.hole_comp is not None and hasattr(c, "hole_comp"):
+        try: c.hole_comp = max(0.0, min(float(st.hole_comp), 1.0))
+        except Exception: pass
+    return c
+
+
+def _settings_note(st: "PrintSettings | None") -> str:
+    """코드 경로는 계약이 없으니 프롬프트 끝에 제조 조건을 한 줄로 붙인다(모델이 벽두께·구멍에 반영)."""
+    if not st:
+        return ""
+    bits = []
+    if st.material: bits.append(f"material {st.material}")
+    if st.nozzle: bits.append(f"FDM nozzle {st.nozzle} mm (min wall {round(st.nozzle*2,2)} mm)")
+    if st.hole_comp is not None: bits.append(f"add {st.hole_comp} mm to hole diameters for FDM shrink")
+    if st.build and len(st.build) == 3: bits.append(f"must fit build volume {int(st.build[0])}x{int(st.build[1])}x{int(st.build[2])} mm")
+    return (" (" + ", ".join(bits) + ")") if bits else ""
+
+
 class DesignReq(BaseModel):
     prompt: str
     answers: dict | None = None
+    settings: PrintSettings | None = None
 
 
 @app.post("/api/clarify")
@@ -136,13 +194,14 @@ def design(req: DesignReq):
 
 def _design(req: DesignReq):
     contract, _usage, _raw = plan(augment(req.prompt, req.answers))
+    _apply_settings(contract, getattr(req, "settings", None))
     if contract.kind == "retrieve":
         # 유기형(자유곡면) → 외부 API 없이 로컬 코드생성으로 곡면 제작(loft/타원체/스윕/필렛).
         # 실패하면 그때만 리트리벌 안내. 박스로 억지 변환이 아니라 '유기형 기법'으로 생성.
         r = contract.retrieve
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
-        cr = codegen.design_code(req.prompt, stl_path, step_path, max_iters=3)
+        cr = codegen.design_code(req.prompt + _settings_note(getattr(req, "settings", None)), stl_path, step_path, max_iters=3)
         if cr["ok"]:
             out = _emit_code(tok, stl_path, step_path, cr, _new_sid())
             out["organic"] = True
@@ -151,7 +210,29 @@ def _design(req: DesignReq):
                 else f"{len(r.parts)}개 부품으로 분해했어요. 각 부품을 /api/retrieve 또는 /api/generate3d 로.")
         return {"kind": "retrieve", "query": r.query, "note": r.note,
                 "parts": r.parts, "hint": hint}
-    return _respond(run(contract, max_iters=3))
+    _it = getattr(req, "settings", None) and req.settings.iters
+    return _respond(run(contract, max_iters=(3 if _it is None else max(0, min(int(_it), 5)))))
+
+
+def _mesh_stats(tm) -> dict:
+    """화면 상단 요약용: 치수(mm)·부피(cm³)·표면적(cm²)·PLA 무게 추정(100% 채움, 1.24 g/cm³)·슬라이서 전 대략치.
+    슬라이싱 없이 계산 가능한 값만 준다(출력 시간은 슬라이서가 정한다)."""
+    try:
+        import numpy as _np
+        ext = tm.bounding_box.extents
+        vol = float(abs(tm.volume)) / 1000.0            # mm³ → cm³
+        area = float(tm.area) / 100.0                   # mm² → cm²
+        return {
+            "bbox_mm": [round(float(x), 1) for x in ext],
+            "volume_cm3": round(vol, 2),
+            "area_cm2": round(area, 1),
+            "pla_g_solid": round(vol * 1.24, 1),        # 100% 채움
+            "pla_g_20pct": round((min(area * 0.12, vol) + max(vol - area * 0.12, 0) * 0.2) * 1.24, 1),  # 벽 1.2mm 두 겹 가정 + 내부 20%
+            "faces": int(len(tm.faces)),
+            "watertight": bool(tm.is_watertight),
+        }
+    except Exception as e:  # pragma: no cover
+        return {"error": f"{type(e).__name__}"}
 
 
 def _respond(r, sid: str | None = None):
@@ -186,6 +267,12 @@ def _respond(r, sid: str | None = None):
     if bolts is not None:
         ex.to_stl(bolts, GEN / f"{tok}_bolts.stl")
         bolts_url = f"gen/{tok}_bolts.stl"
+    dxf_url = None
+    from ..export.drawing import write_drawing
+    _z = (-c.plate.thickness / 2 if c.kind == "plate" else None)
+    if write_drawing(part, GEN / f"{tok}.dxf", z=_z, contract=c, fastener=(f if c.kind == "plate" else None), title=f"RealCAD {c.kind}") \
+            or ex.to_dxf(part, GEN / f"{tok}.dxf", z=_z):
+        dxf_url = f"gen/{tok}.dxf"
     if c.kind == "plate":
         from ..export.bom import make_bom, write_bom_csv
         _eng = next((x.actual for x in r["findings"] if x.code == "H3"), None)
@@ -209,12 +296,14 @@ def _respond(r, sid: str | None = None):
         "part_url": f"gen/{tok}_part.stl",
         "bolts_url": bolts_url,
         "bom": bom,
+        "stats": _mesh_stats(tm),
         "downloads": {
             "STL": f"gen/{tok}_part.stl",
             "3MF": f"gen/{tok}.3mf",
             "STEP": f"gen/{tok}.step",
             "OBJ": f"gen/{tok}.obj",
             **({"BOM": f"gen/{tok}_bom.csv"} if bom else {}),
+            **({"DXF": dxf_url} if dxf_url else {}),
         },
     }
 
@@ -222,6 +311,7 @@ def _respond(r, sid: str | None = None):
 class DesignCodeReq(BaseModel):
     prompt: str
     answers: dict | None = None
+    settings: PrintSettings | None = None
 
 
 def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> dict:
@@ -238,6 +328,15 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
         _hist = (_hist + [_prev["code"]])[-20:]
     SESSIONS[sid] = {"mode": "code", "code": r["code"], "hist": _hist}
     _hard = [f for f in (r.get("findings") or []) if f.get("severity") == "HARD"]
+    _dxf = None
+    try:
+        from build123d import import_step
+        from ..export.drawing import write_drawing
+        _p = import_step(str(step_path))
+        if write_drawing(_p, GEN / f"{tok}.dxf", title="RealCAD part") or ex.to_dxf(_p, GEN / f"{tok}.dxf"):
+            _dxf = f"gen/{tok}.dxf"
+    except Exception:
+        _dxf = None
     return {
         "passed": all(f.get("ok") for f in _hard),
         "iters": r["iters"],
@@ -250,6 +349,7 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
         "code": r["code"],
         "info": r["info"],
         "measure": r.get("measure"),
+        "stats": _mesh_stats(tm),
         "session": sid,
         "part_url": f"gen/{tok}_part.stl",
         "bolts_url": None,
@@ -258,6 +358,7 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
             "3MF": f"gen/{tok}.3mf",
             "STEP": f"gen/{tok}.step",
             "OBJ": f"gen/{tok}.obj",
+            **({"DXF": _dxf} if _dxf else {}),
         },
     }
 
@@ -269,7 +370,7 @@ def design_code_ep(req: DesignCodeReq):
     기본형 메뉴로 못 하는 "뭐든 다" 경로. 유기적 조각 형상은 여전히 불가(retrieve/Meshy).
     """
     try:
-        prompt = augment(req.prompt, req.answers)
+        prompt = augment(req.prompt, req.answers) + _settings_note(getattr(req, "settings", None))
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"
         step_path = GEN / f"{tok}.step"
@@ -285,6 +386,7 @@ def design_code_ep(req: DesignCodeReq):
 class EditReq(BaseModel):
     session: str
     instruction: str
+    settings: PrintSettings | None = None
 
 
 @app.post("/api/edit")
@@ -306,7 +408,7 @@ def edit_ep(req: EditReq):
             tok = uuid.uuid4().hex[:8]
             stl_path = GEN / f"{tok}_part.stl"
             step_path = GEN / f"{tok}.step"
-            r = editor.design_edit_code(st["code"], inst, stl_path, step_path, max_iters=3)
+            r = editor.design_edit_code(st["code"], inst + _settings_note(getattr(req, "settings", None)), stl_path, step_path, max_iters=3)
             if not r["ok"]:
                 # 수정 실패 — 세션 코드는 직전 성공본 유지(되돌릴 수 있게)
                 return {"error": r["error"], "code": r.get("code", ""),
@@ -318,6 +420,7 @@ def edit_ep(req: EditReq):
         # 파라메트릭 계약 편집
         prior = st["contract"]
         new_c, _u, _raw = editor.edit_contract(prior, inst)
+        _apply_settings(new_c, getattr(req, "settings", None))
         if new_c.kind == "retrieve":
             return {"kind": "retrieve", "query": new_c.retrieve.query,
                     "note": new_c.retrieve.note, "session": req.session, "edited": True,

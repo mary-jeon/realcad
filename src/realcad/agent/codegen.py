@@ -70,6 +70,13 @@ HARD RULES
   have MANY identical repeated features (roughly 40+, e.g. a keyboard's ~70 keys) does one-by-one
   fusing get too slow — THEN collect those repeats into a `Compound` (overlapping solids still print
   as one object). For a handful of features (ribs, a handle, a lid seat), always fuse — never Compound.
+- SCREW HOLE SIZES (use these, do not guess): clearance holes (normal fit) M3 3.4 / M4 4.5 / M5 5.5 / M6 6.6 / M8 9.0 mm;
+  heat-set insert holes M2 3.2 / M2.5 3.4 / M3 4.0 / M4 5.6 / M5 6.4 / M6 8.0 mm, depth = insert length + 1 mm
+  (M3 insert 5.7 long → 6.7 mm deep blind hole, keep ≥1 mm floor); counterbore for a socket-head cap screw
+  Ø = head Ø + 1 mm (M3 6.5 / M4 8 / M5 9.5 / M6 11), depth = head height (M3 3 / M4 4 / M5 5 / M6 6).
+- FASTENERS: when a part is "screwed/bolted to a wall" or "has N screws", model the HOLES for them in the
+  part — do NOT model the screws/bolts/nuts themselves as separate solids (they are bought hardware), unless the
+  user explicitly asks for a bolt or nut as the product. "Hooks"/"pegs"/"handles" belong to the body: fuse them.
 - Keep it robust. Prefer primitives + boolean + revolve/extrude/loft/sweep + fillet/chamfer
   over exotic operations. If unsure of a size, pick a sensible real-world default.
 
@@ -381,6 +388,9 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
             last_code = code
         try:
             info = sandbox.execute_to_files(code, stl_path, step_path)
+            d1 = dimension_check(code, info)
+            if d1:
+                raise sandbox.SandboxError(d1)
             return {"ok": True, "code": code, "info": info, "measure": measure,
                     "findings": _findings(info), "iters": it, "fixed": it > 0}
         except sandbox.SandboxError as e:
@@ -390,6 +400,52 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
                         "findings": [], "measure": measure}
     return {"ok": False, "error": error or "unknown", "code": code or "", "iters": max_iters,
             "findings": [], "measure": measure}
+
+
+_DIM_LINE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×X*]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×X*]\s*(\d+(?:\.\d+)?))?")
+_DIA_LINE = re.compile(r"[Øø⌀]\s*(\d+(?:\.\d+)?)|\b(?:dia|diameter|지름)\s*[=:]?\s*(\d+(?:\.\d+)?)", re.I)
+_H_LINE = re.compile(r"\b(?:height|tall|H|높이)\s*[=:≈~]?\s*(\d+(?:\.\d+)?)\s*(?:mm)?", re.I)
+
+
+def declared_overall_mm(code: str) -> float | None:
+    """코드 머리 주석(DIMENSION DISCIPLINE)에서 모델이 스스로 선언한 전체 크기(최대 치수, mm)를 뽑는다.
+    'overall 250 x 150 x 300', 'Ø90 x 300', 'height 250' 류. 없으면 None."""
+    head = [l.strip("# ").strip() for l in code.splitlines()[:25] if l.strip().startswith("#")]
+    cands = []
+    for l in head:
+        low = l.lower()
+        pri = 2 if any(k in low for k in ("overall", "total", "전체", "bounding", "envelope")) else 1
+        for m in _DIM_LINE.finditer(l):
+            nums = [float(x) for x in m.groups() if x]
+            if nums and max(nums) >= 5:
+                cands.append((pri, max(nums)))
+        for m in _DIA_LINE.finditer(l):
+            v = float(next(g for g in m.groups() if g))
+            if v >= 5: cands.append((pri, v))
+        for m in _H_LINE.finditer(l):
+            v = float(m.group(1))
+            if v >= 5: cands.append((pri, v))
+    if not cands:
+        return None
+    top = max(p for p, _ in cands)
+    return max(v for p, v in cands if p == top)
+
+
+def dimension_check(code: str, info: dict, tol: float = 0.6) -> str | None:
+    """D1 치수 충실도: 선언한 전체 크기와 실제 바운딩박스 최대 치수가 ±tol 밖이면 오류 문자열(재시도 입력)."""
+    bb = info.get("bbox") or []
+    if not bb:
+        return None
+    built = max(bb)
+    decl = declared_overall_mm(code)
+    if decl is None:
+        if built < 8.0:
+            return (f"결과가 너무 작습니다(최대 {built:.1f} mm). 실물 크기(mm)로 만드세요. 코드 첫 줄 주석에 전체 크기를 적고 그대로 쓰세요.")
+        return None
+    if built < decl * (1 - tol) or built > decl * (1 + tol):
+        return (f"치수 불일치: 주석에 전체 크기 {decl:.0f} mm 라고 선언했는데 실제 바운딩박스 최대 치수는 {built:.1f} mm 입니다 "
+                f"(bbox {bb}). 선언한 실물 치수대로 좌표·크기를 다시 계산하세요. 형상을 작게 뭉개서 통과시키지 마세요.")
+    return None
 
 
 def _findings(info: dict) -> list[dict]:
@@ -409,6 +465,11 @@ def _findings(info: dict) -> list[dict]:
         "standard": "1개=단일부품, 2개↑=조립/뚜껑분리", "suggestion": {},
     })
     bb = info.get("bbox") or [0, 0, 0]
+    out.append({
+        "code": "D1", "severity": "HARD", "ok": True,
+        "message": "치수 충실도 / declared size ≈ built size (±60%)",
+        "actual": float(max(bb)), "required": None, "standard": "코드 주석의 선언 치수 vs 커널 bbox", "suggestion": {},
+    })
     out.append({
         "code": "C2", "severity": "SOFT", "ok": all(0 < d <= 500 for d in bb),
         "message": f"크기 / size {bb[0]}×{bb[1]}×{bb[2]} mm",
@@ -433,6 +494,9 @@ def design_code(prompt: str, stl_path, step_path, max_iters: int = 3) -> dict:
         last_code = code
         try:
             info = sandbox.execute_to_files(code, stl_path, step_path)
+            d1 = dimension_check(code, info)
+            if d1:
+                raise sandbox.SandboxError(d1)
             return {"ok": True, "code": code, "info": info,
                     "findings": _findings(info), "iters": it, "fixed": it > 0}
         except sandbox.SandboxError as e:

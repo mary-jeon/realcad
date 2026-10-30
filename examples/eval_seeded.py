@@ -33,6 +33,10 @@ GOLD = {
                   "holes": [{"x": -25, "y": 0}, {"x": 25, "y": 0}]},
     "plate_m8_2h": {"kind": "plate", "plate": {"length": 120, "width": 50, "thickness": 8}, "fastener": "M8", "fit": "normal",
                     "holes": [{"x": -40, "y": 0}, {"x": 40, "y": 0}]},
+    "cbore_m5": {"kind": "plate", "plate": {"length": 100, "width": 50, "thickness": 10}, "fastener": "M5", "fit": "normal",
+                 "hole_style": "counterbore", "holes": [{"x": -35, "y": 0}, {"x": 35, "y": 0}]},
+    "insert_m3": {"kind": "plate", "plate": {"length": 60, "width": 40, "thickness": 9}, "fastener": "M3", "hole_type": "insert",
+                  "holes": [{"x": -20, "y": 0}, {"x": 20, "y": 0}]},
 }
 
 
@@ -43,7 +47,7 @@ def _nominal(spec):
 
 # 결함 변형 — (이름, 적용 함수, 기대 검출 코드)
 def m_small_hole(c):      # 구멍을 규격보다 작게 (LLM이 '대충' 뚫은 경우)
-    if c.get("hole_type") == "tapped": return None
+    if c.get("hole_type") in ("tapped", "insert"): return None
     c["hole_dia"] = round(_nominal(c["fastener"]) * 0.98, 2); return "H2"
 
 def m_edge(c):            # 첫 구멍을 모서리 쪽으로 밀어 연단거리 침범
@@ -63,7 +67,17 @@ def m_unknown_fastener(c):  # 보유하지 않은 규격
 def m_thin_tapped(c):     # 탭 구멍인데 판이 체결깊이보다 얇음
     c["hole_type"] = "tapped"; c["material"] = "pla"; c["plate"]["thickness"] = round(0.9 * _nominal(c["fastener"]), 2); return "H3"
 
-MUTATIONS = [("hole<D(H2)", m_small_hole), ("edge(H4)", m_edge), ("wall-hit(H1)", m_wall_hit),
+def m_thin_insert(c):     # 인서트 구멍인데 판이 인서트 길이보다 얇음
+    c["hole_type"] = "insert"; c.pop("hole_style", None)
+    c["plate"]["thickness"] = 4.0; return "I1"
+
+def m_tool_access(c):     # 벽을 머리는 안 닿지만 소켓이 안 들어가는 거리에
+    from realcad.fasteners.standards import resolve
+    f = resolve(c["fastener"])[0]; od = f.socket_od_mm or f.head_across_corners_mm + 3
+    c["wall"] = {"x": c["holes"][0]["x"] + f.head_across_corners_mm / 2 + 2.0 + 0.3, "height": 25, "thickness": 4}
+    return "H5"
+
+MUTATIONS = [("thin-insert(I1)", m_thin_insert), ("tool-access(H5)", m_tool_access), ("hole<D(H2)", m_small_hole), ("edge(H4)", m_edge), ("wall-hit(H1)", m_wall_hit),
              ("bolts-touch(H1)", m_bolts_touch), ("unknown-fastener(F0)", m_unknown_fastener), ("thin-tapped(H3)", m_thin_tapped)]
 
 

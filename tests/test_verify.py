@@ -74,3 +74,31 @@ def test_bom_through_and_tapped():
     c = D.from_dict({**BASE, "hole_type": "tapped", "fastener": "M4", "mate_thickness": 6})
     rows = make_bom(c, get("M4"), 3.3, engage_mm=8.0)
     assert rows[0]["length_mm"] == 16 and len(rows) == 1              # 6 + 8 = 14 → 16 mm
+
+
+def test_heat_set_insert_depth_rule():
+    ok = {**BASE, "plate": {"length": 60, "width": 40, "thickness": 9}, "fastener": "M3", "hole_type": "insert"}
+    summ, bad = _run(ok); assert summ["passed"], bad                      # 5.7 + 1 ≤ 9 − 1
+    thin = {**ok, "plate": {"length": 60, "width": 40, "thickness": 4}}
+    summ, bad = _run(thin); assert "I1" in summ["hard_fail"]
+
+
+def test_counterbore_head_sits_flush():
+    summ, bad = _run({**BASE, "plate": {"length": 80, "width": 40, "thickness": 10}, "fastener": "M5", "hole_style": "counterbore"})
+    assert summ["passed"], bad
+
+
+def test_tool_access_h5_catches_wall_inside_socket_radius():
+    from realcad.fasteners.standards import get
+    f = get("1/4-20")
+    x_wall = -25 + f.head_across_corners_mm / 2 + 2.0 + 0.3          # 머리는 안 닿지만 소켓(Ø16.5)은 닿음
+    summ, bad = _run({**BASE, "wall": {"x": x_wall, "height": 25, "thickness": 4}})
+    assert "H5" in summ["hard_fail"] and "H1" not in summ["hard_fail"]
+
+
+def test_overhang_warning_on_t_shape():
+    from realcad.verify.checks import m3_overhang
+    from build123d import Box, Pos
+    t = Box(10, 10, 40) + Pos(0, 0, 25) * Box(60, 60, 10)             # 버섯 모양: 윗판 아래가 전부 오버행
+    f = m3_overhang(t); assert not f.ok and f.actual > 10
+    assert m3_overhang(Box(30, 30, 30)).ok

@@ -59,6 +59,10 @@ class Enclosure:
     standoff_h: float = 4.0         # 바닥에서 보드를 띄우는 기둥 높이
     inner_h: float = 22.0           # 보드 위 부품 공간
     open_ports: bool = True         # 포트 쪽(긴 벽) 열기
+    board_l: float = 0.0            # board="custom" 일 때 보드 길이
+    board_w: float = 0.0            # board="custom" 일 때 보드 폭
+    board_holes: list = field(default_factory=list)   # custom: [[x,y],...] 보드 왼쪽아래 원점 mm
+    board_screw: str = "M3"         # custom: 기둥 나사
 
 
 @dataclass
@@ -114,7 +118,9 @@ class DesignContract:
     fastener: str = "1/4-20"
     fit: str = "normal"
     hole_dia: float | None = None      # 명시 구멍 지름(mm). None 이면 규격 공차구멍. 커널이 H2 로 실측 검증
-    hole_type: str = "through"         # through(관통+너트) | tapped(판에 직접 나사) — H3 체결깊이는 tapped 에만
+    hole_type: str = "through"         # through(관통+너트) | tapped(판에 직접 나사) | insert(히트세트 인서트) 
+    hole_style: str = "plain"          # plain | counterbore(머리 묻힘) | countersink(접시머리)
+    hole_comp: float = 0.2             # FDM 구멍 수축 보정(mm, 지름에 더함). 커뮤니티 실측 0.1~0.3 작게 나옴. 0 이면 보정 없음
     material: str = "pla"              # 판 재질: pla/petg/abs/plastic(k=2.0) aluminum(1.5) brass(1.3) steel(1.0)
     mate_thickness: float = 0.0        # 관통 체결 시 상대 부재 두께(mm). 볼트 길이 산정용(0=모름→판 두께만)
     washer: bool = False               # 평와셔 포함(길이 산정)
@@ -156,7 +162,10 @@ class DesignContract:
                 clearance=float(ed.get("clearance", 2)), wall=float(ed.get("wall", 2)),
                 base=float(ed.get("base", 2)), standoff_h=float(ed.get("standoff_h", 4)),
                 inner_h=float(ed.get("inner_h", 22)),
-                open_ports=bool(ed.get("open_ports", True))))
+                open_ports=bool(ed.get("open_ports", True)),
+                board_l=float(ed.get("board_l", 0) or 0), board_w=float(ed.get("board_w", 0) or 0),
+                board_holes=[[float(h[0]), float(h[1])] for h in (ed.get("board_holes") or []) if isinstance(h, (list, tuple)) and len(h) == 2][:12],
+                board_screw=str(ed.get("board_screw", "M3") or "M3")))
         if kind == "container":
             cd = d.get("container", d)
             return cls(kind="container", container=Container(
@@ -203,6 +212,8 @@ class DesignContract:
             fastener=d.get("fastener", "1/4-20"), fit=d.get("fit", "normal"),
             hole_dia=(float(d["hole_dia"]) if d.get("hole_dia") not in (None, "", 0) else None),
             hole_type=str(d.get("hole_type", "through") or "through").lower(),
+            hole_style=str(d.get("hole_style", "plain") or "plain").lower(),
+            hole_comp=float(d.get("hole_comp", 0.2) if d.get("hole_comp") is not None else 0.2),
             material=str(d.get("material", "pla") or "pla").lower(),
             mate_thickness=float(d.get("mate_thickness", 0) or 0),
             washer=bool(d.get("washer", False)), nut=bool(d.get("nut", True)),
@@ -227,7 +238,8 @@ class DesignContract:
             return {"kind": "enclosure", "enclosure": {
                 "board": e.board, "clearance": e.clearance, "wall": e.wall,
                 "base": e.base, "standoff_h": e.standoff_h, "inner_h": e.inner_h,
-                "open_ports": e.open_ports}}
+                "open_ports": e.open_ports, "board_l": e.board_l, "board_w": e.board_w,
+                "board_holes": e.board_holes, "board_screw": e.board_screw}}
         if self.kind == "profile":
             p = self.profile
             return {"kind": "profile", "profile": {
@@ -254,7 +266,7 @@ class DesignContract:
             "kind": "plate",
             "plate": {"length": self.plate.length, "width": self.plate.width,
                       "thickness": self.plate.thickness},
-            "fastener": self.fastener, "fit": self.fit, "hole_dia": self.hole_dia, "hole_type": self.hole_type, "material": self.material, "mate_thickness": self.mate_thickness, "washer": self.washer, "nut": self.nut,
+            "fastener": self.fastener, "fit": self.fit, "hole_dia": self.hole_dia, "hole_type": self.hole_type, "hole_style": self.hole_style, "hole_comp": self.hole_comp, "material": self.material, "mate_thickness": self.mate_thickness, "washer": self.washer, "nut": self.nut,
             "wall": ({"x": self.wall.x, "height": self.wall.height,
                       "thickness": self.wall.thickness} if self.wall else None),
             "holes": [{"x": h.x, "y": h.y} for h in self.holes],
@@ -305,9 +317,12 @@ def _sanitize(c: "DesignContract") -> "DesignContract":
         c.hole_dia = _clampf(c.hole_dia, 0.5, 100.0)
     if c.fit not in ("close", "normal", "loose"):
         c.fit = "normal"
-    if c.hole_type not in ("through", "tapped"):
+    if c.hole_type not in ("through", "tapped", "insert"):
         c.hole_type = "through"
+    if c.hole_style not in ("plain", "counterbore", "countersink"):
+        c.hole_style = "plain"
     c.mate_thickness = _clampf(c.mate_thickness, 0.0, 500.0)
+    c.hole_comp = _clampf(c.hole_comp, 0.0, 1.0)
     if len(c.holes) > _MAX_HOLES:
         c.holes = c.holes[:_MAX_HOLES]
     for h in c.holes:

@@ -87,6 +87,87 @@ def h3_engagement(engaged_mm: float, f: Fastener, material: str) -> Finding:
                                              "option_c": "더 작은 볼트"})
 
 
+def h5_tool_access(bolt_xy, f: Fastener, obstacle: Part, where: str, head_z0: float = 0.0) -> Finding:
+    """H5: 소켓/드라이버 공구 포락선(소켓 OD, 머리 위 +15 mm)이 벽·옆 볼트와 겹치면 공구가 못 들어간다."""
+    from build123d import Pos, Cylinder
+    od = f.socket_od_mm or (f.head_across_corners_mm + 3.0)
+    h = f.head_height_mm + 15.0
+    env = Pos(bolt_xy[0], bolt_xy[1], head_z0 + h / 2) * Cylinder(radius=od / 2, height=h)
+    v = _intersection_volume(env, obstacle)
+    ok = v <= 0.5
+    return Finding("H5", "HARD", ok, f"공구 접근 / socket clearance ({where}, 소켓 Ø{od:.1f})", actual=v, required=0.0,
+                   standard="6각 소켓 OD(참고값)", suggestion={} if ok else {"option_a": "구멍을 장애물에서 멀리", "option_b": "소켓캡(육각렌치) 볼트로 변경"})
+
+
+def h6_head_flush(part: Part, f: Fastener, xy, style: str) -> Finding:
+    """H6: 카운터보어/싱크 뒤 머리가 판면 아래로 묻히는지 — 머리 솔리드를 묻힌 위치에 놓고 판과 교차 = 0."""
+    from build123d import Pos
+    from ..geometry.builder import hex_bolt_solid
+    if style == "counterbore":
+        head = Pos(xy[0], xy[1], -f.head_height_mm) * hex_bolt_solid(f, 0.1)
+        v = _intersection_volume(head, part)
+        ok = v <= 0.5
+        return Finding("H6", "HARD", ok, "머리 묻힘 / counterbore fits head", actual=v, required=0.0,
+                       standard="보어 Ø ≥ 머리 맞모+1, 깊이 ≥ 머리 높이", suggestion={} if ok else {"option_a": "보어 지름/깊이 증가"})
+    return Finding("H6", "SOFT", True, "접시머리 / countersink (82°/90°)", standard="ASME B18.6.3 / ISO 10642")
+
+
+def i1_insert_depth(part: Part, f: Fastener, xy, thickness: float) -> Finding:
+    """I1: 히트세트 인서트 구멍 깊이 ≥ 인서트 길이 + 1 mm, 바닥 ≥ 1 mm (레이캐스트 실측)."""
+    from .engagement import engagement_raycast
+    from ..fasteners.standards import insert_spec
+    spec = insert_spec(f)
+    if not spec:
+        return Finding("I1", "HARD", False, f"{f.name} 용 히트세트 인서트 표 없음", standard="인서트 제조사 표")
+    hole_d, L, od = spec
+    floor = engagement_raycast(part, (xy[0], xy[1], -thickness - 1.0), (0, 0, 1))   # 바닥부터 첫 재료 두께
+    depth = thickness - floor if floor < thickness else 0.0
+    if depth <= 0.0:                      # 관통이면 깊이 = 판 두께
+        depth = thickness; floor = 0.0
+    need = L + 1.0
+    ok = depth >= min(need, thickness) - 1e-6 and (floor >= 1.0 or floor == 0.0) and thickness >= L + 1.0
+    return Finding("I1", "HARD", ok, f"인서트 구멍 / heat-set insert ({f.name}: Ø{hole_d} × {L}mm)", actual=depth, required=need,
+                   standard="인서트 길이 + 1 mm, 바닥 ≥ 1 mm", suggestion={} if ok else {"option_a": f"판 두께를 {L + 2:.1f}mm 이상으로", "option_b": "관통 + 너트로 변경"})
+
+
+def i2_insert_wall(edge_dist_mm: float, f: Fastener) -> Finding:
+    """I2: 인서트 둘레 살두께 ≥ 2.0 mm (커뮤니티 "벽이 얇아 warping and melting"). 구멍 중심↔모서리 − 인서트 OD/2."""
+    from ..fasteners.standards import insert_spec
+    spec = insert_spec(f)
+    od = spec[2] if spec else f.nominal_dia_mm * 1.6
+    wall = edge_dist_mm - od / 2.0
+    ok = wall >= 2.0 - 1e-6
+    return Finding("I2", "HARD", ok, f"인서트 둘레 살두께 / wall around insert (OD Ø{od:.1f})", actual=wall, required=2.0,
+                   standard="인서트 제조사 권장 ≥ 2 mm", suggestion={} if ok else {"option_a": f"구멍을 모서리에서 {2.0 - wall:.1f}mm 더 안쪽으로"})
+
+
+def p1_hole_comp(comp: float, hole_type: str) -> Finding:
+    """P1(정보): FDM 구멍 수축 보정 — 커뮤니티 실측으로 구멍이 0.1~0.3 mm 작게 나와 지름에 보정을 더해 뚫는다."""
+    applied = comp if hole_type != "tapped" else 0.0
+    return Finding("P1", "SOFT", True, f"FDM 구멍 보정 / hole compensation +{applied:.2f} mm 적용 (프린터별 0.1~0.3, 테스트 쿠폰으로 맞추세요)",
+                   actual=applied, required=None, standard="커뮤니티 실측(Bambu/Prusa 포럼)")
+
+
+def m3_overhang(part: Part, max_deg: float = 45.0) -> Finding:
+    """M3 출력 가능성(SOFT): 바닥면 제외, 아래를 향한 면 중 수평에서 max_deg 보다 완만한(=오버행 심한) 면적 비율."""
+    import math, tempfile, os
+    try:
+        import trimesh, numpy as np
+        from build123d import export_stl
+        with tempfile.TemporaryDirectory() as td:
+            pth = os.path.join(td, "m.stl"); export_stl(part, pth, tolerance=0.05, angular_tolerance=0.2)
+            m = trimesh.load(pth)
+        n = m.face_normals; z = m.vertices[m.faces][:, :, 2].mean(axis=1); zmin = m.vertices[:, 2].min()
+        down = n[:, 2] < -math.cos(math.radians(90 - max_deg))     # 법선이 아래로 45° 이상 기울어짐
+        down &= z > zmin + 0.5                                     # 바닥 접지면 제외
+        frac = float(m.area_faces[down].sum() / max(m.area, 1e-9))
+    except Exception as e:
+        return Finding("M3", "SOFT", True, f"오버행 측정 생략 ({type(e).__name__})", standard="FDM 45°")
+    ok = frac <= 0.10
+    return Finding("M3", "SOFT", ok, f"오버행 / overhang >{max_deg:.0f}° 면적 {frac * 100:.1f}%", actual=frac * 100, required=10.0,
+                   standard="FDM 45° 규칙 (10% 넘으면 서포트 필요)", suggestion={} if ok else {"option_a": "출력 방향 바꾸기 또는 45° 모따기"})
+
+
 def h4_edge_distance(edge_dist_mm: float, f: Fastener) -> Finding:
     """H4: 구멍 중심이 모서리에서 ≥ 1.5×지름."""
     req = 1.5 * f.nominal_dia_mm

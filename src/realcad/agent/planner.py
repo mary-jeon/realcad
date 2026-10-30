@@ -14,11 +14,18 @@ Units: millimeters. First pick the "kind" that best fits the request:
  "plate":{"length":<mm>,"width":<mm>,"thickness":<mm>},
  "wall":{"x":<mm>,"height":<mm>,"thickness":<mm>} | null,
  "fastener":"1/4-20","fit":"close|normal|loose",
- "hole_type":"through|tapped","material":"pla|petg|abs|aluminum|steel","mate_thickness":<mm or 0>,
- "washer":false,"nut":true,
+ "hole_type":"through|tapped|insert","hole_style":"plain|counterbore|countersink",
+ "material":"pla|petg|abs|aluminum|steel","mate_thickness":<mm or 0>,"washer":false,"nut":true,
  "holes":[{"x":<mm>,"y":<mm>}, ...]}
- - hole_type: "through" (default; bolt passes through, nut behind) or "tapped" (screw threads directly into this part —
-   use when the user says tapped/threaded/screw into the plate). material defaults to "pla" (3D-printed).
+ - hole_type: "through" (default; bolt passes through, nut behind), "tapped" (screw threads directly into this part —
+   tapped/threaded/screw into the plate), or "insert" (heat-set brass insert — use when the user says insert/인서트/heat-set,
+   or for a 3D-printed part that must be screwed into repeatedly; the kernel sizes the hole from the insert table and
+   checks depth). hole_style: "counterbore" (bolt head sunk flush, 머리 묻힘/카운터보어) or "countersink" (flat head, 접시머리)
+   when the user asks for a flush/hidden head; else "plain". material defaults to "pla" (3D-printed).
+ - hole_comp: FDM printed holes come out 0.1–0.3 mm small; the kernel adds 0.2 mm to auto-sized holes by default.
+   Set "hole_comp":0 only if the user says the part is machined/not printed, or gives a value ("add 0.3 to holes").
+ - UNITS: if the prompt is Korean or uses mm / M-sizes, prefer ISO metric fasteners (M3–M12). Use inch sizes only when
+   the user gives inch sizes (1/4-20 etc.).
    mate_thickness = thickness of the thing this plate bolts onto, if the user says it (else 0).
  - Plate centered at origin; x in [-length/2,length/2], y in [-width/2,width/2].
  - Hole centers >= 1.5x bolt dia from any edge; bolt heads clear of the wall (1/4-20 head ~12.8mm).
@@ -38,9 +45,13 @@ Units: millimeters. First pick the "kind" that best fits the request:
 
 4) "enclosure" — cases for single-board computers / dev boards (Raspberry Pi, Arduino).
    Standard board dimensions and mounting holes are built in; just pick the board:
-{"kind":"enclosure","enclosure":{"board":"raspberry_pi_4|raspberry_pi_5|raspberry_pi_3b|raspberry_pi_zero|arduino_uno",
-   "clearance":<mm>,"wall":<mm>,"base":<mm>,"standoff_h":<mm>,"inner_h":<mm>,"open_ports":true}}
+{"kind":"enclosure","enclosure":{"board":"raspberry_pi_4|raspberry_pi_5|raspberry_pi_3b|raspberry_pi_zero|arduino_uno|custom",
+   "clearance":<mm>,"wall":<mm>,"base":<mm>,"standoff_h":<mm>,"inner_h":<mm>,"open_ports":true,
+   "board_l":<mm>,"board_w":<mm>,"board_holes":[[x,y],...],"board_screw":"M3"}}
    - Use this for any "case / enclosure / housing for a <board>" request.
+   - board="custom" when the user gives their own board size (ESP32 dev kit, a custom PCB, "my board is 51x28 with holes at ..."):
+     fill board_l, board_w and board_holes (mm from the board's bottom-left corner). If the user gives no hole positions,
+     put 4 holes 3.5 mm in from each corner. board_screw M2.5 for small boards, M3 otherwise.
    - clearance ~2, wall ~2, base ~2, standoff_h ~4, inner_h ~22 unless the user says otherwise.
 
 5) "profile" — flat parts with a CUSTOM 2D outline extruded to a thickness: coasters,

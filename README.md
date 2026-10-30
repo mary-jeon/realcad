@@ -1,6 +1,6 @@
 # RealCAD — prompt → CAD that actually assembles
 
-**Describe a functional part (or show a photo) and get a 3D-printable model whose bolt holes match real fasteners, whose bolt heads don't collide, whose gears actually mesh — with every rule measured on the CAD kernel, not eyeballed.** Exports STEP · STL · 3MF · OBJ + a bolt BOM.
+**Describe a functional part (or show a photo) and get a 3D-printable model whose bolt holes match real fasteners, whose bolt heads don't collide, whose gears actually mesh — with every rule measured on the CAD kernel, not eyeballed.** Exports STEP · STL · 3MF · OBJ · **DXF plan view** + a bolt BOM.
 
 Built for the **Meta Global AI Developer Hackathon** (Indie track · *Push the Frontier* / manufacturing). All code written after the Oct 26 kickoff. The only runtime AI is **Meta Muse Spark 1.3** via the Meta Model API; the CAD kernel ([build123d](https://github.com/gumyr/build123d) / OpenCascade), verification and export run locally and free.
 
@@ -17,6 +17,27 @@ Built for the **Meta Global AI Developer Hackathon** (Indie track · *Push the F
 | **Split** a model bigger than your printer bed (grid / BSP / joint-aware) with dowel pins | kernel only | — | volume-conservation & fit checks |
 | 2D sketch → extrude, resize, fit-tolerance presets, 8 one-click functional parts, ViewCube | UI | — | — |
 
+## Built from what makers actually ask for
+We read 100 community threads (50 from r/3Dprinting, r/functionalprint, Bambu/Prusa forums, HN; 50 from Autodesk/Onshape forums, Eng-Tips, HN text-to-CAD threads — list in `docs/community-needs.md`). The recurring asks and where RealCAD answers them:
+
+| What people keep asking | Where it shows up | RealCAD |
+|---|---|---|
+| "Printed holes come out 0.1–0.3 mm small" | 17 + 14 posts on tolerance / dimension error | auto-sized holes get **+0.2 mm FDM compensation** (`hole_comp`, reported as P1); a **fit-test coupon** preset to measure your own printer |
+| "How do I prepare holes for heat-set inserts?" | 11 posts | `hole_type: insert` → insert table sizes the hole, **I1** checks depth + floor, **I2** checks ≥ 2 mm wall around the insert |
+| "I had to google free-fit hole sizes" (327-vote Fusion idea) | 14 posts on holes / standards | fastener + fit class → ASME B18.2.8 / ISO 273 hole; through / tapped / insert; counterbore / countersink; **the kernel re-measures the hole** (H2) |
+| "The electronics were fun, the enclosure was not" | 6 posts | Pi 3B/4/5/Zero, Arduino Uno presets with **real hole patterns**, or `board: custom` with your board's size and holes (E1/E2 measured) |
+| "AI mesh generators are useless for precise parts; code paths work, but I had no viewer" | 11 posts | code path writes build123d, runs in a sandbox, live viewer, "make the hole 0.3 bigger" edits, undo, and **D1** rejects collapsed/wrong-size results |
+| "Fusion already knows the dimensions — why do I draw them by hand?" | 6 posts | **dimensioned DXF drawing** (overall, hole Ø and positions, fastener note, units = mm in the header so AutoCAD does not scale it) |
+| "BOM is missing the fasteners" / "DXF came out 10× small" | 2 + 8 posts | bolt length / nut / washer **BOM CSV**; every export in mm |
+| "There is no universe where I describe CAD in a text prompt" | HN, repeatedly | fair — RealCAD also takes **photos**, STEP uploads, 2D sketches and presets; text is one input, the kernel report is the contract |
+
+## UI (web/acad.html) — built on what AutoCAD and slicer users already know
+We studied the Autodesk help for AutoCAD's command line, status bar, ViewCube and tooltips, and the Bambu Studio / PrusaSlicer / Tinkercad docs for the slicer workflow (notes: `docs/ux-references.md`). What carried over:
+- **Command line** (bottom): natural language *or* AutoCAD-style aliases (`L C REC EXT H U Z EXP V SPLIT …`), autocomplete on pause, ↑↓ history, empty Enter repeats, Esc cancels, F1/F2/F7/F8/F9, Ctrl+9 command line, Ctrl+0 clean screen. Drawing background is AutoCAD's default dark grey (RGB 33,40,48).
+- **Left sidebar** in slicer order **Printer → Filament → Process**: printer presets set the build volume (white bed outline; parts that exceed it turn red and get a "split / shrink" card), material feeds the thread-engagement rule (H3) and the weight estimate, nozzle feeds the minimum-wall rule (M1), hole compensation feeds P1. Changed values get an orange dot and a ↺ reset (PrusaSlicer convention); Basic/Advanced hides the rare ones; Ctrl+F searches settings.
+- **Right panel**: one green primary button (Bambu's `Slice plate` position and colour) that becomes **Export ▾** when the kernel passes, chips with size / volume / estimated grams, and the verification results as **cards** — failures first, each with the measured vs required value and a one-tap fix that is sent back to Muse Spark as an edit.
+- Object list with show/hide, a vertical object toolbar (S resize, F lay flat, D centre, H hole, C split), viewport controls `[-][ISO][Shaded]`, two-stage tooltips.
+
 ## Verification (the differentiator) — all measured on the OCC kernel
 | Code | Check | How it is measured | Standard |
 |---|---|---|---|
@@ -28,13 +49,19 @@ Built for the **Meta Global AI Developer Hackathon** (Indie track · *Push the F
 | S2 | Wrench clearance between bolts | centre distance ≥ 2 × head width (warning) | — |
 | G1 | Gears mesh | mate gear at theoretical centre distance, rotated half a pitch: intersection = 0 | 20° involute, 0.05 m backlash |
 | E1 / E2 | Board standoffs match the real hole pattern / floor under standoff ≥ 1 mm | measured pilot-hole positions & diameters; ray-cast floor | Pi 3B/4/5/Zero, Arduino Uno |
+| H5 | Tool access | a socket-OD envelope above each bolt head must not intersect the wall | socket OD table |
+| H6 | Counterbore fits the head | the head solid, sunk flush, has zero intersection with the plate | B18.2.1 / ISO 4017 head |
+| I1 / I2 | Heat-set insert hole | blind hole depth ≥ insert length + 1 mm, floor ≥ 1 mm (ray-cast); ≥ 2 mm wall around the insert | insert maker tables |
+| P1 | FDM hole compensation | +0.2 mm (configurable) on auto-sized holes, never on tapped holes; shown in the report | community measurements |
+| D1 | Dimension fidelity (code path) | the overall size the model declared in its own header comment vs the measured bounding box (±60 %) | — |
 | M2 | Watertight | OCC validity **and** the exported mesh is watertight | printable |
+| M3 | Overhang | area of downward faces steeper than 45° (warning above 10 %) | FDM rule of thumb |
 | C1 | No overlapping-but-unfused solids, no floating pieces | pairwise solid intersection; detached solids must rest on z = 0 | printable |
 
-Fastener table: UNC/UNF #4–1/2 and ISO M2–M12 with B18.2.8 clearance holes, B18.2.1 / B18.6.3 / ISO 4017 head sizes, nut heights, washers, socket OD, standard lengths. The **BOM** picks a standard bolt length from grip + washer + nut + 2 pitches (or mate thickness + engagement for tapped holes).
+Fastener table: UNC/UNF #4–1/2 and ISO M2–M12 with B18.2.8 clearance holes, B18.2.1 / B18.6.3 / ISO 4017 head sizes, nut heights, washers, socket OD, standard lengths, and heat-set insert hole sizes. Holes can be through (+nut), tapped, or heat-set insert; plain, counterbored or countersunk. The **BOM** picks a standard bolt length from grip + washer + nut + 2 pitches (or mate thickness + engagement for tapped holes).
 
 ## Evaluation
-**Seeded-error detection** (`examples/eval_seeded.py`, kernel only, 3 s): 10 correct designs × 6 planted faults (hole smaller than the clearance hole, hole too close to the edge, wall through the bolt head, bolts touching, unsupported fastener, tapped plate thinner than the engagement) → **58 / 58 caught, 0 false alarms on the 10 correct designs**.
+**Seeded-error detection** (`examples/eval_seeded.py`, kernel only, 5 s): correct designs × planted faults (hole smaller than the clearance hole, hole too close to the edge, wall through the bolt head, bolts touching, unsupported fastener, tapped plate thinner than the engagement) → **93 / 93 caught, 0 false alarms on the 12 correct designs** (12 designs × 8 faults incl. thin insert boss, wall inside the socket radius).
 
 **End-to-end with Muse Spark** (`examples/eval_smoke.py --set wide`, 20 prompts in Korean and English, Oct 29 2026): see the table at the bottom of this file (regenerated by the script). "Pass" means the result executed, is a valid watertight solid with no unfused/floating pieces and passed every HARD check — not that it is beautiful.
 
@@ -75,7 +102,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for modules, the sandbox design and what 
 Generated code runs in a separate `python -I` process with an allow-listed namespace (only build123d's own geometry API — no `os`, `sys`, `ctypes`, file or network functions, no `export_*`/`import_*`, no dunder access or `str.format`), CPU / wall-clock / memory limits, and result gates. The web app binds to localhost, disables `/docs`, validates upload types and sizes, clamps every numeric contract value, and can require a token. It is still a local developer tool — do not expose it unauthenticated.
 
 ## Limitations / roadmap
-Tool-access (socket envelope) and overhang checks, counterbores, true edge distance against arbitrary outlines, multi-axis splitting, metric-first toggle, more board presets. Organic high-detail figures are out of scope (parametric CAD ≠ sculpting).
+True edge distance against arbitrary outlines, multi-axis splitting, more board presets, wrench-swing (open-end) clearance, teardrop holes for horizontal axes, snap-fit beam sizing. Organic high-detail figures are out of scope (parametric CAD ≠ sculpting).
 
 ## License
 MIT © 2026 Mary Jeon
@@ -83,28 +110,28 @@ MIT © 2026 Mary Jeon
 ---
 ### Latest end-to-end run (auto-filled)
 <!-- EVAL_TABLE_START -->
-Set `wide` · 2026-10-29 · **20/20 passed** (16 on the first attempt, 4 after auto-repair) · mean 34 s per design
+Set `wide` · 2026-10-30 · **20/20 passed** (12 on the first attempt, 8 after auto-repair) · mean 36 s per design
 
 | # | path | result | tries | s | prompt |
 |---|---|---|---|---|---|
-| 0 | code | ✅ | 1 | 15 | a coffee mug with a handle, 350 ml |
-| 1 | code | ✅ | 1 | 31 | 휴대폰 거치대, 폰 두께 9mm, 각도 60도 |
-| 2 | code | ✅ | 2 | 45 | M3 볼트 4개로 벽에 거는 라즈베리파이 4 케이스 (포트 구멍 포함) |
-| 3 | code | ✅ | 1 | 21 | a spur gear, 24 teeth, module 2, 8 mm bore, 10 mm thick |
-| 4 | code | ✅ | 1 | 29 | 에어팟 프로 케이스 홀더, 책상 모서리에 끼우는 클립형 (책상 두께 25mm) |
-| 5 | code | ✅ | 1 | 29 | a wall-mount bracket with two 1/4-20 bolt holes, 80x40x5 mm, with a 30 mm lip |
-| 6 | code | ✅ | 1 | 17 | 펜 6자루 꽂는 육각 연필통 |
-| 7 | code | ✅ | 2 | 67 | 건담 피규어 180mm |
-| 8 | param | ✅ | 1 | 5 | a wall-mount bracket with two 1/4-20 bolt holes |
-| 9 | param | ✅ | 1 | 16 | pencil holder, 80mm diameter, 100mm tall, 3 compartments |
-| 10 | param | ✅ | 1 | 2 | case for raspberry pi 5 |
-| 11 | param | ✅ | 1 | 4 | 24 tooth spur gear module 1.5 bore 6 |
-| 12 | code | ✅ | 1 | 27 | USB-C 케이블 정리 클립 5구 |
-| 13 | code | ✅ | 1 | 27 | a hex nut M8 and a matching bolt, separate pieces |
-| 14 | code | ✅ | 4 | 94 | 도어 스토퍼 쐐기, 고무패드 홈 포함 |
-| 15 | code | ✅ | 1 | 20 | a 100x100 VESA monitor arm adapter plate, M4 holes |
-| 16 | code | ✅ | 1 | 36 | a chibi cat figure |
-| 17 | code | ✅ | 1 | 24 | 벽걸이 열쇠 걸이, 고리 4개, 나사 2개 |
-| 18 | code | ✅ | 1 | 23 | a snap-fit box with lid, 60x40x30 inner |
-| 19 | code | ✅ | 4 | 145 | a watering can 1.5L |
+| 0 | code | ✅ | 3 | 44 | a coffee mug with a handle, 350 ml |
+| 1 | code | ✅ | 1 | 23 | 휴대폰 거치대, 폰 두께 9mm, 각도 60도 |
+| 2 | code | ✅ | 1 | 33 | M3 볼트 4개로 벽에 거는 라즈베리파이 4 케이스 (포트 구멍 포함) |
+| 3 | code | ✅ | 1 | 22 | a spur gear, 24 teeth, module 2, 8 mm bore, 10 mm thick |
+| 4 | code | ✅ | 1 | 38 | 에어팟 프로 케이스 홀더, 책상 모서리에 끼우는 클립형 (책상 두께 25mm) |
+| 5 | code | ✅ | 1 | 44 | a wall-mount bracket with two 1/4-20 bolt holes, 80x40x5 mm, with a 30 mm lip |
+| 6 | code | ✅ | 1 | 16 | 펜 6자루 꽂는 육각 연필통 |
+| 7 | code | ✅ | 2 | 70 | 건담 피규어 180mm |
+| 8 | param | ✅ | 1 | 12 | a wall-mount bracket with two 1/4-20 bolt holes |
+| 9 | param | ✅ | 1 | 12 | pencil holder, 80mm diameter, 100mm tall, 3 compartments |
+| 10 | param | ✅ | 1 | 5 | case for raspberry pi 5 |
+| 11 | param | ✅ | 1 | 3 | 24 tooth spur gear module 1.5 bore 6 |
+| 12 | code | ✅ | 2 | 32 | USB-C 케이블 정리 클립 5구 |
+| 13 | code | ✅ | 1 | 28 | a hex nut M8 and a matching bolt, separate pieces |
+| 14 | code | ✅ | 2 | 47 | 도어 스토퍼 쐐기, 고무패드 홈 포함 |
+| 15 | code | ✅ | 2 | 26 | a 100x100 VESA monitor arm adapter plate, M4 holes |
+| 16 | code | ✅ | 1 | 31 | a chibi cat figure |
+| 17 | code | ✅ | 2 | 51 | 벽걸이 열쇠 걸이, 고리 4개, 나사 2개 |
+| 18 | code | ✅ | 3 | 63 | a snap-fit box with lid, 60x40x30 inner |
+| 19 | code | ✅ | 4 | 129 | a watering can 1.5L |
 <!-- EVAL_TABLE_END -->

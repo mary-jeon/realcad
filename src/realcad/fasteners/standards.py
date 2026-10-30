@@ -204,3 +204,20 @@ def std_length(f: Fastener, required_mm: float) -> float:
         if L >= required_mm - 1e-6:
             return float(L)
     return float(table[-1])
+
+
+# 히트세트 인서트(3D 프린팅용 황동 인서트) 권장 구멍·길이 — 제조사(ruthex/CNC Kitchen 류) 공개 권장값, ±0.1 mm 편차 (참고값)
+#        규격: (구멍 지름 mm, 인서트 길이 mm, 바깥지름 mm)
+HEAT_SET_INSERT: dict[str, tuple[float, float, float]] = {
+    "M2": (3.2, 4.0, 3.6), "M2.5": (3.4, 5.7, 3.9), "M3": (4.0, 5.7, 4.6), "M4": (5.6, 8.1, 6.3),
+    "M5": (6.4, 9.5, 7.1), "M6": (8.0, 12.7, 8.7), "M8": (10.0, 12.7, 10.8),
+    "#4-40": (3.6, 5.0, 4.1), "#6-32": (4.2, 6.4, 4.8), "#8-32": (5.0, 7.9, 5.6), "#10-24": (5.9, 9.5, 6.6), "1/4-20": (7.6, 12.7, 8.4),
+}
+
+
+def insert_spec(f: "Fastener") -> tuple[float, float, float] | None:
+    """해당 나사용 히트세트 인서트 (구멍 지름, 길이, 바깥지름). 표에 없으면 None."""
+    for k, v in HEAT_SET_INSERT.items():
+        if ALL.get(k) is f:
+            return v
+    return None

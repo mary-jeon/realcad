@@ -146,15 +146,23 @@ class UnknownBoard(ValueError):
     pass
 
 
-def board_spec(name: str) -> dict:
+def board_spec(name: str, e=None) -> dict:
+    """프리셋 보드 또는 board="custom"(계약의 board_l/board_w/board_holes 로 정의)."""
+    if name == "custom" and e is not None and e.board_l > 0 and e.board_w > 0:
+        from ..fasteners.standards import resolve, insert_spec
+        f = resolve(e.board_screw)[0]
+        pilot = round(f.nominal_dia_mm - 1.0825 * f.pitch_mm, 2)      # 셀프탭/탭용 파일럿
+        return {"l": e.board_l, "w": e.board_w, "screw": f.name, "pilot": pilot,
+                "holes": _centered(e.board_l, e.board_w, [tuple(h) for h in e.board_holes]),
+                "dx": 0.0, "dy": 0.0}
     if name not in BOARDS:
-        raise UnknownBoard(f"미지원 보드 {name!r}. 지원: {', '.join(BOARDS)}")
+        raise UnknownBoard(f"미지원 보드 {name!r}. 지원: {', '.join(BOARDS)} 또는 custom(board_l, board_w, board_holes)")
     return BOARDS[name]
 
 
 def build_enclosure(e) -> Part:
     """기판 케이스: 외함 + 보드 고정 기둥(나사 파일럿홀) + 포트 쪽 열림. 바닥 z=0."""
-    b = board_spec(e.board)
+    b = board_spec(e.board, e)
     bl, bw = b["l"], b["w"]
     inner_l, inner_w = bl + 2 * e.clearance, bw + 2 * e.clearance
     outer_l, outer_w = inner_l + 2 * e.wall, inner_w + 2 * e.wall
@@ -388,11 +396,51 @@ def build_from_contract(c):
     part = plate(c.plate.length, c.plate.width, c.plate.thickness)
     if c.wall is not None:
         part = part + wall(c.wall.x, c.plate.width, c.wall.height, c.wall.thickness)
-    if getattr(c, "hole_type", "through") == "tapped":
+    ht = getattr(c, "hole_type", "through")
+    if ht == "tapped":
         # 탭 구멍: 탭 드릴 ≈ D − 1.0825·p (75% 체결). 나사산은 모델링하지 않고 H3 로 깊이만 검증
         dia = float(c.hole_dia) if getattr(c, "hole_dia", None) else round(f.nominal_dia_mm - 1.0825 * f.pitch_mm, 2)
+    elif ht == "insert":
+        from ..fasteners.standards import insert_spec
+        spec = insert_spec(f)
+        dia = float(c.hole_dia) if getattr(c, "hole_dia", None) else (spec[0] if spec else f.clearance(c.fit))
     else:
         dia = float(c.hole_dia) if getattr(c, "hole_dia", None) else f.clearance(c.fit)
+    style = getattr(c, "hole_style", "plain")
+    comp = float(getattr(c, "hole_comp", 0.0) or 0.0)
+    if ht != "tapped" and comp > 0 and not getattr(c, "hole_dia", None):   # 자동 사이징 구멍에만 FDM 수축 보정(명시 지름은 그대로)
+        dia = round(dia + comp, 2)
     for h in c.holes:
-        part = drill(part, h.x, h.y, dia, c.plate.thickness)
+        if ht == "insert":
+            # 인서트 구멍은 맹공(바닥 1 mm 남김) + 인서트 길이 + 1 mm 여유, 판이 얇으면 관통
+            from ..fasteners.standards import insert_spec
+            spec = insert_spec(f); L = (spec[1] + 1.0) if spec else c.plate.thickness
+            depth = min(L, c.plate.thickness - 1.0) if c.plate.thickness - 1.0 > 1.0 else c.plate.thickness
+            if depth >= c.plate.thickness - 1e-6:
+                part = drill(part, h.x, h.y, dia, c.plate.thickness)
+            else:
+                part = part - Pos(h.x, h.y, -depth / 2 + 0.01) * Cylinder(radius=dia / 2, height=depth + 0.02)
+        else:
+            part = drill(part, h.x, h.y, dia, c.plate.thickness)
+        if style == "counterbore":
+            part = part - counterbore_cutter(f, h.x, h.y)
+        elif style == "countersink":
+            part = part - countersink_cutter(f, h.x, h.y)
     return part, f, dia
+
+
+def counterbore_cutter(f: Fastener, x: float, y: float) -> Part:
+    """카운터보어: 지름 = 머리 맞모거리 + 1.0 mm, 깊이 = 머리 높이(머리 윗면이 판면과 같아짐)."""
+    d = f.head_across_corners_mm + 1.0
+    depth = f.head_height_mm
+    return Pos(x, y, -depth / 2 + 0.01) * Cylinder(radius=d / 2, height=depth + 0.02)
+
+
+def countersink_cutter(f: Fastener, x: float, y: float) -> Part:
+    """카운터싱크(접시머리): 입구 지름 ≈ 2.0×D, 각도 90°(미터)/82°(인치). 원뿔 커터."""
+    from build123d import Cone
+    top_d = 2.0 * f.nominal_dia_mm
+    ang = 90.0 if f.is_metric else 82.0
+    depth = (top_d / 2.0) / math.tan(math.radians(ang / 2.0))
+    # Cone(bottom_radius, top_radius, height) 는 바닥이 -h/2, 위가 +h/2 → 위를 판면(z=0)에 맞춘다
+    return Pos(x, y, -depth / 2 + 0.01) * Cone(bottom_radius=0.01, top_radius=top_d / 2, height=depth + 0.02)
