@@ -10,7 +10,11 @@ Built for the **Meta Global AI Developer Hackathon** (Indie track · *Push the F
 | Action | Path | What Meta does | What the kernel does |
 |---|---|---|---|
 | **Design** a bracket / cup / gear / Pi case / coaster / clip / ball | contract path (no code exec) | planner → JSON design contract; judge fixes parameters on failure | builds parametric part, runs the checks below, exports |
+| **Assemble** the other classic CAD-exam tasks: **gear pump** (two spur gears in G7 pockets, bushed shafts, gasket, sealed cover), **drill jig** (give the workpiece size, drill Ø and hole coordinates: base, posts, jig plate with DIN 179 / KS B 1030 press-fit bushes, locating pins, side clamp), **bench vise** (lead screw + two guide posts in a triangle, nut, bushes, jaw plates, handle), **cam strap clamp** (pin, eccentric cam lever, slotted strap, 90° V-block, return spring, round workpiece) | contract path | planner → `preset: gear_pump / drill_jig / vise / cam_clamp` with only the user's numbers | KS/DIN tables for the rest; checks per task: A5 pocket centre distance + mesh, A7 motion (gears counter-rotated, jaw opened in 5 steps, cam turned 0~180°), A8 pump clearances, A9 drill path (chip gap, breakthrough hole, bush length ≥ 2d), A10 bush positions = requested hole pattern (measured), A11 guide/thread engagement at max opening, A12 clamp contact at lock and 2e clearance at release |
+| **Assemble** an eccentric reciprocating device (편심왕복장치, the other classic CAD exam task): eccentric shaft, link, slider in a guide bush, top cover, box housing, pulley, bearings, seal, rings | contract path | planner → `preset: eccentric_slider` with e, link length, slider Ø | same KS tables; **A7 motion check** rotates the eccentric through 8 angles and measures interference, stroke (= 2e) and guide engagement |
+| **Assemble** a power train: shaft, parallel keys, spur gear (+ pinion on a 2nd shaft), V-belt pulley, two ball bearings, housing, covers, oil seal, retaining rings, cover bolts | contract path | planner → assembly contract with only what the user said (bearing code, gear m/z, pulley type/PD, pinion teeth) | **KS tables** (keys B 1311, bearings B 2023, rings B 1336, seals B 2804, V-grooves B 1400) derive every other dimension, parts are placed with mates M1~M9, then **A1~A6** are measured (interference, mating diameters, axial location, keys, gear pair centre distance, shoulders); exports per-part STL, assembly STEP, BOM CSV and a section DXF; "분해도" gives an exploded view |
 | **AnyCAD** "make me a phone stand / tumbler / keyboard / Gundam" | code path | writes build123d code; auto-repairs from kernel error messages | runs code in a sandbox, rejects unfused/floating/non-watertight results |
+| **AnyCAD around a real product** "a bracket that hangs a **Mac mini M4** on my laptop stand arm" | spec lookup + code path | names the product, gives its official outer size from an **official spec table** first and from model recall second with a self-reported confidence (shown as 확실 / 추정 / 모름), lists faces to keep clear (vents, ports, power button), then asks **only what no model can know** (the stand arm width and thickness, orientation; max 3 questions) and codes with clearance | same sandbox + checks; see `docs/product-spec-references.md` for the measured recall accuracy and sources |
 | **Photo** → part that fits reality | code path + vision | reads a ruler / card / coin / A4 in the photo to recover real mm, then codes | same as above |
 | **Edit** "bigger, add 2 holes, thicker lid" · **Undo** (20 steps) | both | minimal contract diff / minimal code edit | re-verifies |
 | **Wrap**: upload a STEP/STL of a board → sealed case with lid, standoffs, port cut-outs | kernel only | — | detects mounting holes on the imported model |
@@ -37,6 +41,7 @@ We studied the Autodesk help for AutoCAD's command line, status bar, ViewCube an
 - **Left sidebar** in slicer order **Printer → Filament → Process**: printer presets set the build volume (white bed outline; parts that exceed it turn red and get a "split / shrink" card), material feeds the thread-engagement rule (H3) and the weight estimate, nozzle feeds the minimum-wall rule (M1), hole compensation feeds P1. Changed values get an orange dot and a ↺ reset (PrusaSlicer convention); Basic/Advanced hides the rare ones; Ctrl+F searches settings.
 - **Right panel**: one green primary button (Bambu's `Slice plate` position and colour) that becomes **Export ▾** when the kernel passes, chips with size / volume / estimated grams, and the verification results as **cards** — failures first, each with the measured vs required value and a one-tap fix that is sent back to Muse Spark as an edit.
 - Object list with show/hide, a vertical object toolbar (S resize, F lay flat, D centre, H hole, C split), viewport controls `[-][ISO][Shaded]`, two-stage tooltips.
+- **Beginner mode is the default** (stage 3): the ribbon and tabs are hidden, the title bar keeps only Import / Undo / Advanced tools, and Enter in the command line does what the old Design button did. Pressing the green button greys it and shows a bottom-right progress card (stage name, elapsed seconds, bar, cancel) exactly like Bambu Studio's slicing notification; success turns it into a "완료 ✓" card and lights step 3 "출력", failure shows a red card, and changing a setting invalidates the result ("설정 바뀜: 재검사"). There is no start-up mode dialog: choosing a printer in the sidebar *is* 3D-printer mode, no printer is CAD mode (the only difference the server knows is the build volume).
 
 ## Verification (the differentiator) — all measured on the OCC kernel
 | Code | Check | How it is measured | Standard |
@@ -57,6 +62,18 @@ We studied the Autodesk help for AutoCAD's command line, status bar, ViewCube an
 | M2 | Watertight | OCC validity **and** the exported mesh is watertight | printable |
 | M3 | Overhang | area of downward faces steeper than 45° (warning above 10 %) | FDM rule of thumb |
 | C1 | No overlapping-but-unfused solids, no floating pieces | pairwise solid intersection; detached solids must rest on z = 0 | printable |
+| A1 | Assembly interference | intersection volume of every part pair whose bounding boxes overlap (same definition as Inventor's Interference Analysis) | 0 mm³ |
+| A2 | Mating diameters match | the cylindrical faces of BOTH parts of each fit (bearing bore ↔ shaft seat, bearing OD ↔ housing bore, gear/pulley bore ↔ seat, cover spigot ↔ bore) are measured on the finished solids | KS B 0401 fits (H7/k5, H7/h6) |
+| A3 | Axial location chain | each bearing's inner ring (shoulder + retaining ring / collar) and outer ring (housing lip + cover lip) are stopped on both sides | textbook assembly practice |
+| A4 | Key fit | t1 + t2 − h ≥ 0.1 mm, key length ≤ hub width − 2, measured key top below the hub groove floor | KS B 1311 |
+| A5 | Gear pair | housing bore centre distance measured from the bore cylinders = m(z1+z2)/2; gear ∩ pinion ≈ 0 at that distance | 20° involute, 0.05 m backlash |
+| A6 | Bearing shoulders | shaft shoulder Ø within [da min, da max], housing lip Ø ≤ Da max | NSK 6204/6205 values |
+| A8 | Pump clearances (gear pump) | pocket Ø ≥ gear tip Ø, pocket depth + gasket ≥ gear width | 153LAB exam analysis (Ø39 G7/h6, 28 + 1.0 = 29) |
+| A9 | Drill path (drill jig) | chip gap ≥ 0.5 d, breakthrough hole Ø d+2 measured in the base, bush length ≥ 2 d | jig design practice, DIN 179 lengths |
+| A10 | Hole pattern (drill jig) | every requested hole centre has a bush bore cylinder measured within ±0.05 mm | user input |
+| A11 | Engagement at max opening (vise) | guide post stays ≥ bush length inside the bush, screw ≥ 1.5 d in the nut | shop practice |
+| A12 | Clamping (cam clamp) | strap bottom = workpiece top at 180°, clearance = 2e at 0° | eccentric cam lift Rc − e cosθ |
+| A7 | Motion (eccentric preset) | link, slider, pin and the rotated shaft are placed at 0°, 45° … 315° and intersected with every fixed part; pin travel must equal 2e; slider rod must stay ≥ 5 mm above the bush | stroke = 2e |
 
 Fastener table: UNC/UNF #4–1/2 and ISO M2–M12 with B18.2.8 clearance holes, B18.2.1 / B18.6.3 / ISO 4017 head sizes, nut heights, washers, socket OD, standard lengths, and heat-set insert hole sizes. Holes can be through (+nut), tapped, or heat-set insert; plain, counterbored or countersunk. The **BOM** picks a standard bolt length from grip + washer + nut + 2 pitches (or mate thickness + engagement for tapped holes).
 
@@ -87,9 +104,10 @@ Optional env: `REALCAD_TOKEN` (require `X-RealCAD-Token` on `/api/*` when you ex
 ```
 prompt (+ photo)
   → clarify   [Muse Spark]  ask at most one essential question
+  → spec      [Muse Spark]  named product → official size table, else model recall + confidence; ask only the counterpart's measurements
   → planner   [Muse Spark]  design contract (JSON)        ─┐  contract path: no code execution
   → builder   [build123d]   part + standard fasteners      │
-  → verify    [OCC kernel]  F0 H1 H2 H3 H4 S2 G1 E1 E2 M2 C1
+  → verify    [OCC kernel]  F0 H1 H2 H3 H4 S2 G1 E1 E2 M2 C1 · assembly: A1 A2 A3 A4 A5 A6
   → judge     [Muse Spark]  parameter fixes on failure (≤3 loops)
   → export    STEP · STL · 3MF · OBJ · bolt BOM (CSV)
   or
@@ -102,7 +120,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for modules, the sandbox design and what 
 Generated code runs in a separate `python -I` process with an allow-listed namespace (only build123d's own geometry API — no `os`, `sys`, `ctypes`, file or network functions, no `export_*`/`import_*`, no dunder access or `str.format`), CPU / wall-clock / memory limits, and result gates. The web app binds to localhost, disables `/docs`, validates upload types and sizes, clamps every numeric contract value, and can require a token. It is still a local developer tool — do not expose it unauthenticated.
 
 ## Limitations / roadmap
-True edge distance against arbitrary outlines, multi-axis splitting, more board presets, wrench-swing (open-end) clearance, teardrop holes for horizontal axes, snap-fit beam sizing. Organic high-detail figures are out of scope (parametric CAD ≠ sculpting).
+Assembly: six presets (power train with one or two parallel shafts, eccentric slider, gear pump, drill jig, bench vise, cam strap clamp); threads, springs and bearings are simplified solids (bought parts); no helical/bevel gears, no belt, threads are not modelled (bolt holes use the nominal diameter), tolerances are nominal (fit classes are reported, not applied as deviations). Only 6203/6204/6205 bearing shoulder values and the 20×35×7 seal were cross-checked against maker catalogues, the rest are ISO 15 / JIS series values. True edge distance against arbitrary outlines, multi-axis splitting, more board presets, wrench-swing (open-end) clearance, teardrop holes for horizontal axes, snap-fit beam sizing. Organic high-detail figures are out of scope (parametric CAD ≠ sculpting).
 
 ## License
 MIT © 2026 Mary Jeon

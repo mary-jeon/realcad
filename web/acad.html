@@ -291,6 +291,7 @@ body.noside #side{display:none}body.noside #sideOpen{display:block}body.noside #
 body.nores #results{display:none}body.nores #resOpen{display:block}body.nores #viewcube,body.nores .navbar,body.nores #objtools{right:16px}
 @media (max-width:1100px){#side,#results{display:none}#sideOpen,#resOpen{display:block}}
 
+.log table.spec{border-collapse:collapse;margin:4px 0;font-size:12px}.log table.spec th,.log table.spec td{border:1px solid #3a3f4a;padding:2px 6px;text-align:left}.log table.spec th{color:#9aa4b2;font-weight:normal}
 </style></head>
 <body>
 <div class="top">
@@ -537,6 +538,18 @@ window.loadModel=function(partUrl,boltsUrl){
     if(--pending===0){ fit(); sizeReady(); }});
   window._opMats=[]; one(partUrl,0x9aa7b2,0.1); if(boltsUrl) one(boltsUrl,0xd1495b,0.4);
 };
+// 주소에 ?load=gen/파일.stl 이 있으면 그 모델을 바로 띄운다(공유 링크, 외부에서 만든 STL 보기)
+(function(){ const lp=new URLSearchParams(location.search).get('load'); if(lp&&/^gen\/[\w.-]+\.stl$/.test(lp)) setTimeout(()=>{ loadModel(lp); if(typeof logline==='function') logline('sys','불러옴 / loaded: '+lp); },400); })();
+window.loadParts=function(parts){
+  // 조립: 부품마다 STL 하나, 색과 품명을 붙여 객체 목록에 그대로 보이게
+  scene.remove(grp); grp=new THREE.Group(); scene.add(grp);
+  let pending=parts.length; window._opMats=[];
+  parts.forEach((p,i)=>loader.load(p.url+'?'+Date.now(),gg=>{gg.computeVertexNormals();
+    const metal=/베어링|볼트|^축|키|멈춤링|스페이서|칼라/.test(p.name);
+    const m=new THREE.Mesh(gg,regMat(new THREE.MeshStandardMaterial({color:new THREE.Color(p.color||'#9aa7b2'),metalness:metal?0.45:0.1,roughness:0.5,opacity:1})));
+    m.name=(p.no?p.no+'. ':'')+p.name+(p.qty>1?' ×'+p.qty:'');
+    grp.add(m); if(--pending===0){ fit(); sizeReady(); }}));
+};
 window.loadPieces=function(urls,axis){
   scene.remove(grp); grp=new THREE.Group(); scene.add(grp);
   const cols=[0x8f9ba6,0xc98a5a,0x7a9e7e,0xb06b8e]; let pending=urls.length;
@@ -614,6 +627,18 @@ const PRESETS=[
   prompt:'벽에 M5 볼트 2개로 고정하는 브래킷, 볼트 머리가 판면 아래로 묻히게 카운터보어. 판 100x50mm 두께 10mm, 구멍 간격 70mm.'},
  {ko:'헤드폰 스탠드',sub:'책상 걸이',svg:'<path d="M6 20V11a6 6 0 0 1 12 0v9"/><path d="M4 20h16"/>',
   prompt:'책상 위 헤드폰 걸이 스탠드. 높이 280mm 기둥, 맨 위에 헤드밴드가 걸리는 폭 120mm 곡면 가로대, 바닥은 지름 110mm 원형 받침. 쓰러지지 않게 바닥 무겁게.'},
+ {ko:'탁상 바이스 조립',sub:'나사축 1 + 가이드 포스트 2 삼각 배치',path:'design',svg:'<rect x="3" y="14" width="18" height="5"/><rect x="5" y="6" width="4" height="8"/><rect x="13" y="6" width="4" height="8"/><path d="M9 10h4"/>',
+  prompt:'탁상 바이스 조립. 조 폭 80, 최대 벌림 60, 리드나사 M16, 가이드 포스트 2개. 본체, 이동조, 물림판, 너트, 가이드부시, 멈춤링, 핸들까지 조립된 상태로.'},
+ {ko:'캠 클램프 조립',sub:'V블록 + 누름판 + 캠 손잡이, 행정 2e',path:'design',svg:'<path d="M3 18h18"/><path d="M6 18l4-5 4 5"/><circle cx="10" cy="9" r="2.5"/><path d="M12 8l7-4"/>',
+  prompt:'캠 클램프 조립. 지름 30 원통 공작물을 90도 V블록에 놓고 누름판을 캠 손잡이로 누르는 클램프, 캠 편심 4. 본체, 축, 스프링, 멈춤링까지 조립된 상태로.'},
+ {ko:'드릴지그 조립',sub:'공작물 치수 + 구멍 좌표 → 부시 지그',path:'design',svg:'<rect x="3" y="14" width="18" height="4"/><rect x="5" y="4" width="14" height="4"/><path d="M8 8v6M16 8v6"/>',
+  prompt:'드릴지그 조립. 공작물 80x50x15, 지름 10 구멍 2개를 중심에서 x -20 과 +20 에 뚫는 지그. 베이스, 기둥, 지그판, 고정부시, 위치결정 핀, 사이드 클램프까지 조립된 상태로.'},
+ {ko:'기어펌프 조립',sub:'기어 2 + 축 + 부시 + 커버, 포켓 G7',path:'design',svg:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="12" r="3.5"/><circle cx="15" cy="12" r="3.5"/>',
+  prompt:'기어펌프 조립. 스퍼기어 모듈 1.5 잇수 24 이폭 29 두 개, 본체, 구동축과 종동축, 부시, 개스킷, 오일실 커버, 볼트까지 조립된 상태로.'},
+ {ko:'편심왕복장치 조립',sub:'편심축+링크+슬라이더, 행정 = 2e',path:'design',svg:'<circle cx="9" cy="14" r="5"/><circle cx="11" cy="12" r="1.5"/><path d="M11 12l4-7M15 3v4"/>',
+  prompt:'편심왕복장치 조립. 베어링 6204 두 개, 편심량 8mm(행정 16), 링크 길이 50, 슬라이더 봉 지름 20, A형 V벨트 풀리 피치지름 100. 본체, 상부 커버, 가이드부시, 오일실, 멈춤링, 볼트까지 조립된 상태로.'},
+ {ko:'동력전달장치 조립',sub:'축+기어+베어링+풀리, KS 규격표',path:'design',svg:'<circle cx="8" cy="12" r="5"/><circle cx="17" cy="12" r="3.5"/><path d="M3 12h1M13 12h0.5M20.5 12h1"/>',
+  prompt:'동력전달장치 조립. 베어링 6204 두 개, 축 지름 20, 스퍼기어 모듈 2 잇수 30, 피니언 잇수 18, A형 V벨트 풀리 피치지름 100. 본체, 커버, 오일실, 멈춤링, 볼트까지 조립된 상태로.'},
 ];
 function buildPresets(){
   const el=document.getElementById('presetlist'); if(!el||el._built) return; el._built=true;
@@ -621,7 +646,7 @@ function buildPresets(){
   el.querySelectorAll('.prebtn').forEach(b=>b.onclick=()=>{
     const p=PRESETS[+b.dataset.pi]; document.getElementById('presetpanel').style.display='none';
     cmdEl.value=p.prompt; logline('you',esc(p.ko)+' <span class="n">(프리셋: 기본값으로 생성, 뒤에 크기조절, 수정으로 다듬어)</span>');
-    designCode(p.prompt);
+    if(p.path==='design') design(p.prompt); else designCode(p.prompt);
   });
 }
 function togglePresetPanel(){
@@ -920,6 +945,30 @@ function renderResult(d, wait){
   if(d.kind==='container'&&c.container){const k=c.container; sm=`컨테이너 Container: ${k.shape} ${k.shape==='round'?('Ø'+k.outer_d):(k.length+'×'+k.width)} × h${k.height}, 벽 ${k.wall}`+(k.dividers?`, 칸막이 ${k.dividers}`:'');}
   else if(d.kind==='gear'&&c.gear){const k=c.gear; sm=`기어 Gear: ${k.teeth}T, 모듈 ${k.module}, 두께 ${k.thickness}, 보어 Ø${k.bore}`;}
   else if(d.kind==='enclosure'&&c.enclosure){const k=c.enclosure; sm=`케이스 Enclosure: ${k.board}, 벽 ${k.wall}, 바닥 ${k.base}, 기둥 ${k.standoff_h}, 포트 ${k.open_ports?'열림/open':'닫힘'}`;}
+  else if(d.kind==='assembly'&&c.assembly){const k=c.assembly, L=d.layout||{}, g=k.gear||{}, pu=k.pulley||{};
+    if(k.preset==='vise'){
+      sm=`조립 Assembly: 탁상 바이스, 조 폭 ${k.jaw_w}, 최대 벌림 ${k.open_max}, 리드나사 M${k.screw_d}, 가이드 포스트 Ø${(L.post||[])[0]} ×2, 너트 Ø${(L.nut||[])[0]}×${(L.nut||[])[1]}`
+        +`, 부품 ${(d.parts||[]).length}종`+(k.exploded>0?`, 분해도 간격 ${k.exploded}mm`:'');
+    } else if(k.preset==='cam_clamp'){
+      sm=`조립 Assembly: 캠 클램프, 공작물 Ø${k.work_d}, 캠 편심 ${k.cam_lift} (행정 ${L.stroke||2*k.cam_lift}), V블록 90도`
+        +`, 부품 ${(d.parts||[]).length}종`+(k.exploded>0?`, 분해도 간격 ${k.exploded}mm`:'');
+    } else if(k.preset==='drill_jig'){
+      const w=k.work||{}, b=L.bush||{};
+      sm=`조립 Assembly: 드릴지그, 공작물 ${w.length}×${w.width}×${w.thickness}, 드릴 Ø${k.drill_d} ×${(k.holes||[]).length}, 고정부시 Ø${b.d2}×${b.l}, 칩 여유 ${L.gap}`
+        +`, 부품 ${(d.parts||[]).length}종`+(k.exploded>0?`, 분해도 간격 ${k.exploded}mm`:'');
+    } else if(k.preset==='gear_pump'){
+      sm=`조립 Assembly: 기어펌프, 스퍼기어 m${g.module} z${g.teeth} ×2 (중심거리 ${L.center_distance}), 포켓 Ø${(L.pocket||[])[0]} G7 깊이 ${(L.pocket||[])[1]}, 저널 Ø${L.journal_d}, 오일실 ${L.seal}`
+        +`, 부품 ${(d.parts||[]).length}종`+(k.exploded>0?`, 분해도 간격 ${k.exploded}mm`:'');
+    } else if(k.preset==='eccentric_slider'){
+      sm=`조립 Assembly: 편심왕복장치, 베어링 ${L.bearing||k.bearing} ×2, 축 Ø${L.shaft_d||'?'}, 편심량 e=${L.eccentricity||k.eccentricity} (행정 ${L.stroke||(2*(k.eccentricity||0))}), 링크 L=${L.link_length||k.link_length}, 슬라이더 Ø${L.slider_d||k.slider_d}`
+        +(pu.type&&pu.type!=='none'?`, 풀리 ${pu.type}형 PD${pu.dp}`:'')
+        +`, 부품 ${(d.parts||[]).length}종`+(k.exploded>0?`, 분해도 간격 ${k.exploded}mm`:'');
+    } else {
+    sm=`조립 Assembly: 동력전달장치, 베어링 ${L.bearing||k.bearing} ×${(L.ys||[0]).length*2}, 축 Ø${L.shaft_d||'?'}, 기어 m${g.module} z${g.teeth}`
+      +(k.pinion_teeth?` + 피니언 z${k.pinion_teeth} (중심거리 ${L.center_distance})`:'')
+      +(pu.type&&pu.type!=='none'?`, 풀리 ${pu.type}형 PD${pu.dp}`:'')
+      +`, 부품 ${(d.parts||[]).length}종`+(k.exploded>0?`, 분해도 간격 ${k.exploded}mm`:'');
+    }}
   else if(c.plate){sm=`plate ${c.plate.length}×${c.plate.width}×${c.plate.thickness}`+(c.wall?`, wall x=${c.wall.x}`:'')+`, ${d.fastener} × ${(c.holes||[]).length}, 구멍 Ø${d.hole_dia}`;}
   else{sm=`${esc(d.kind||'part')} 생성됨 / generated`;}
   wait.innerHTML='계약 Contract: '+sm;
@@ -930,10 +979,16 @@ function renderResult(d, wait){
   logline('sys', (d.passed?'<span class="ok">■ 검증 통과 / PASSED</span>':'<span class="bad">■ 검증 실패 / FAILED</span>')
     +(d.fixed?`, 메타 자동 수정 ${d.iters}회 / auto-fixed`:'')
     +(d.downloads?`, 내보내기 준비 / export ready: ${Object.keys(d.downloads).join(', ')}`:''));
+  if(d.mates&&d.mates.length){
+    logline('sys','<b>조립 관계 / mates ('+d.mates.length+'):</b>');
+    for(const m of d.mates){ logline('sys',`&nbsp;&nbsp;${m.ok?'<span class="ok">OK</span>':'<span class="bad">FAIL</span>'} ${esc(m.id)} ${esc(m.pair)}: ${esc(m.type)} <span class="n">${esc(m.detail||'')}</span>`); }
+  }
+  if(d.parts&&d.parts.length){ logline('sys','<span class="n">부품표 / BOM '+d.parts.length+'행: '+esc(d.parts.map(p=>p.name+(p.qty>1?' ×'+p.qty:'')).join(', '))+' (내보내기 메뉴의 BOM CSV, DXF 는 축 중심 단면 조립도)</span>'); }
   lastDownloads=d.downloads||null;
   lastMeshUrl=d.part_url||null;   // #5 분할 소스
   if(d.session) currentSession=d.session;
-  if(d.part_url){ window.loadModel(d.part_url, d.bolts_url); if(!d.edited) editHint(); }
+  if(d.parts&&d.parts.length){ window.loadParts(d.parts); if(!d.edited) editHint(); }
+  else if(d.part_url){ window.loadModel(d.part_url, d.bolts_url); if(!d.edited) editHint(); }
 }
 // 빠른 수정 칩: 초보가 뭐라 칠지 몰라도 한 번 탭으로 흔한 수정. 안 맞으면 되돌리기로 되감기.
 const QUICKEDITS=[
@@ -975,13 +1030,43 @@ async function design(prompt){
   busy=false;
 }
 // 만능 CAD: AI가 build123d 코드를 직접 짜서 임의 기계부품 생성(격리 실행, 자동수정, 조금 느림)
-async function designCode(prompt){
+async function designCode(prompt, extra){
   if(busy||!prompt) return; busy=true;
   const wait=logline('sys','만능 CAD: 코드 짜서 깎는 중 / writing CAD code… <span class="n">(조금 걸려요, 최대 몇십 초)</span>');
-  try{ const r=await fetch('api/design_code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fitPrefix()+prompt})});
+  try{ const body={prompt:fitPrefix()+prompt}; if(extra&&extra.spec_text) body.spec_text=extra.spec_text; if(extra&&extra.answers) body.answers=extra.answers;
+    const r=await fetch('api/design_code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     renderCodeResult(await r.json(), wait); }
   catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
   busy=false;
+}
+// 만능 CAD 앞단: 시판 제품 규격 조회 → 확실/추정/모름 표 → 상대편 물건 치수만 되묻기 → 코드 생성
+async function specLookup(text){   // {products, questions, spec_text} 또는 null. 표를 로그에 그린다.
+  const wait=logline('sys','제품 규격 조회 중 / looking up product specs… <span class="n">(공식 규격표, 그다음 Meta 기억)</span>');
+  let d=null;
+  try{ busy=true; const r=await fetch('api/spec_lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})}); d=await r.json(); }
+  catch(e){ d=null; }
+  finally{ busy=false; }
+  if(!d||!(d.products||[]).length){ wait.innerHTML='제품 규격: 해당 없음 / no known product in request'; return null; }
+  renderSpecTable(wait, d); return d;
+}
+async function designCodeFlow(text){
+  if(busy||!text) return;
+  const d=await specLookup(text);
+  if(!d){ designCode(text); return; }
+  specAsk(text, d);
+}
+function renderSpecTable(wait, d){
+  const st=s=>s.startsWith('확실')?'<span class="ok">'+esc(s)+'</span>':(s==='추정'?'<span style="color:#d6b25f">추정</span>':'<span class="bad">모름</span>');
+  const rows=d.products.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.dims)} mm</td><td>${p.weight_g?esc(String(p.weight_g))+' g':'?'}</td><td>${st(p.status)}</td><td class="n">${p.source?esc(p.source.replace(/^https?:\/\//,'')):(p.confidence?'확신도 '+p.confidence:'')}</td></tr>`).join('');
+  wait.innerHTML='제품 규격 조회 결과 / product specs:'
+    +`<table class="spec"><tr><th>제품</th><th>가로 x 세로 x 높이</th><th>무게</th><th>상태</th><th>출처</th></tr>${rows}</table>`
+    +(d.products.some(p=>(p.keep_clear||[]).length)?`<div class="n">피해서 설계: ${esc(d.products.flatMap(p=>p.keep_clear||[]).join(' / '))}</div>`:'')
+    +(d.counterpart?`<div class="n">상대편 물건: ${esc(d.counterpart)} (치수는 모델이 모름, 직접 재야 함)</div>`:'');
+}
+function specAsk(text, d){   // 상대편 물건 치수만 하나씩 묻고 끝나면 코드 경로로
+  const q=d.questions||[];
+  if(q.length){ clarifyState={orig:text,questions:q,idx:0,answers:[],mode:'code',spec_text:d.spec_text||'',keyed:{}}; logline('sys','어떤 모델도 모르는 치수만 하나씩 물을게 / only what no model can know:'); askClarify(); }
+  else designCode(text,{spec_text:d.spec_text||''});
 }
 function renderCodeResult(d, wait){
   if(d && d.error){
@@ -1180,7 +1265,9 @@ function answerClarify(v){
   const ans=(v||qq.suggestion||'').toString();
   logline('you', v?v.replace(/</g,'&lt;'):('(추천값: '+(qq.suggestion||'')+')'));
   clarifyState.answers.push(qq.question+'='+ans); clarifyState.idx++;
+  if(clarifyState.keyed) clarifyState.keyed[qq.key||('q'+clarifyState.idx)]=qq.question+' = '+ans;
   if(clarifyState.idx<clarifyState.questions.length){ askClarify(); }
+  else if(clarifyState.mode==='code'){ const st=clarifyState; clarifyState=null; designCode(st.orig,{spec_text:st.spec_text,answers:st.keyed}); }
   else{ const combined=clarifyState.orig+' / '+clarifyState.answers.join(', '); clarifyState=null; design(combined); }
 }
 async function handleCommand(text){
@@ -1188,6 +1275,8 @@ async function handleCommand(text){
   if(!text) return;
   if(CLEAR_RE.test(text.trim())){ logline('you',text.replace(/</g,'&lt;')); doClear(); return; }
   logline('you',text.replace(/</g,'&lt;'));
+  const sp=await specLookup(text);            // 시판 제품 이름이 있으면 규격표 → 상대편 치수 질문 → 코드 경로
+  if(sp){ specAsk(text, sp); return; }
   if(looksSpecific(text)){ design(text); return; }
   const q=await clarify(text);
   if(q.length){ clarifyState={orig:text,questions:q,idx:0,answers:[]}; logline('sys','몇 가지만 하나씩 확인할게 / quick questions, one at a time:'); askClarify(); }
@@ -1217,7 +1306,7 @@ document.addEventListener('click',e=>{const c=e.target.closest('.chip[data-edit]
 document.addEventListener('click',e=>{const t=e.target.closest('[data-act]'); if(!t)return;
   const a=t.dataset.act, v=cmdEl.value.trim();
   if(a==='design'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 설계를 누르세요 / type what to make, then Design'); cmdEl.focus(); return; } cmdEl.value=''; handleCommand(v); }
-  else if(a==='anycad'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 만능을 누르세요 / type what to make, then AnyCAD'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; logline('you',esc(v)+' <span class="n">(만능/AnyCAD)</span>'); designCode(v); }
+  else if(a==='anycad'){ if(!v){ logline('sys','명령창에 만들 것을 입력하고 만능을 누르세요 / type what to make, then AnyCAD'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; logline('you',esc(v)+' <span class="n">(만능/AnyCAD)</span>'); designCodeFlow(v); }
   else if(a==='auto'){ clarifyState=null; cmdEl.value=''; const p=v||'a round pencil holder about 80mm diameter, 100mm tall, 2mm wall'; logline('you',p.replace(/</g,'&lt;')+' <span class="n">(자동/auto)</span>'); design(p); }
   else if(a==='edit'){ if(!currentSession){ logline('sys','먼저 설계, 만능으로 무언가를 생성한 뒤, 명령창에 바꿀 내용을 적고 수정을 누르세요 / generate first, then type a change and hit Edit'); return; } if(!v){ logline('sys','명령창에 바꿀 내용을 입력하고 수정을 누르세요 (예: "버튼 5개 추가", "더 크게", "두께 3mm") / type a change, then Edit'); cmdEl.focus(); return; } cmdEl.value=''; clarifyState=null; editDesign(v); }
   else if(a==='undo') undoDesign();
@@ -1340,7 +1429,7 @@ function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classL
     ['GRID','GRID','_tog:t-grid','격자 켜기/끄기(F7)'],['ORTHO','ORTHO','_tog:t-ortho','직교 투영(F8)'],['SNAP','SNAP','_tog:t-snap','스냅(F9)'],
     ['CLS','CLEAR','clear','화면 비우기'],['HELP','HELP','_help','빠른 도움말(F1)'],['BOM','BOM','_bom','볼트 BOM 보기'],
   ];
-  const TIPS={design:'명령창의 자연어를 설계 계약(치수, 볼트, 보드)으로 바꿔 커널 검사까지 돌립니다.',anycad:'기본형에 없는 부품을 코드로 생성합니다. 실패하면 커널 오류로 자동 수정.',auto:'입력이 없으면 예시 부품을 바로 만듭니다.',voice:'마이크로 말한 문장을 명령창에 넣습니다.',photo:'사진 속 자, 카드, 동전으로 실제 mm를 역산해 생성합니다.',presets:'자주 뽑는 기능 부품 12종을 한 번에.',edit:'명령창에 적은 변경("구멍 0.3 크게")을 최소 수정으로 반영합니다.',undo:'직전 성공본으로 되돌립니다(최대 20단계).',resize:'치수 입력, 비율 고정, ½×/2×로 크기를 바꿉니다.',fit:'끼우는 부품에 FDM 공차를 자동 적용합니다.',clear:'모델과 로그를 비웁니다.',sk_line:'두 점을 찍어 선. Esc로 취소.',sk_circle:'중심과 반지름 점.',sk_rect:'대각 두 점.',sk_offset:'스케치를 바깥/안쪽으로 평행 이동.',sk_extrude:'닫힌 스케치를 높이만큼 돌출.',sk_clear:'스케치 지우기.',hole:'클릭한 위치에 구멍을 뚫습니다.',layflat:'가장 넓은 면이 바닥에 오도록 눕힙니다.',center:'원점 정렬.',wrap:'STEP/STL을 올리면 구멍을 찾아 케이스와 뚜껑을 만듭니다.',assembly:'참조 부품과 케이스를 함께 봅니다.',bolt:'볼트 규격 표.',dim:'전체 치수와 구멍 치수를 표시합니다.',printer:'빌드볼륨 기준 분할.',split:'큰 모델을 격자/BSP/목 선분리로 쪼개고 다월 핀을 넣습니다.',export:'STEP, STL, 3MF, OBJ, DXF 도면, BOM CSV.',verify:'19종 커널 검사를 다시 돌립니다.'};
+  const TIPS={design:'명령창의 자연어를 설계 계약(치수, 볼트, 보드)으로 바꿔 커널 검사까지 돌립니다.',anycad:'기본형에 없는 부품을 코드로 생성합니다. 실패하면 커널 오류로 자동 수정.',auto:'입력이 없으면 예시 부품을 바로 만듭니다.',voice:'마이크로 말한 문장을 명령창에 넣습니다.',photo:'사진 속 자, 카드, 동전으로 실제 mm를 역산해 생성합니다.',presets:'자주 뽑는 기능 부품 12종과 조립 과제 2종(동력전달장치, 편심왕복장치)을 한 번에.',edit:'명령창에 적은 변경("구멍 0.3 크게")을 최소 수정으로 반영합니다.',undo:'직전 성공본으로 되돌립니다(최대 20단계).',resize:'치수 입력, 비율 고정, ½×/2×로 크기를 바꿉니다.',fit:'끼우는 부품에 FDM 공차를 자동 적용합니다.',clear:'모델과 로그를 비웁니다.',sk_line:'두 점을 찍어 선. Esc로 취소.',sk_circle:'중심과 반지름 점.',sk_rect:'대각 두 점.',sk_offset:'스케치를 바깥/안쪽으로 평행 이동.',sk_extrude:'닫힌 스케치를 높이만큼 돌출.',sk_clear:'스케치 지우기.',hole:'클릭한 위치에 구멍을 뚫습니다.',layflat:'가장 넓은 면이 바닥에 오도록 눕힙니다.',center:'원점 정렬.',wrap:'STEP/STL을 올리면 구멍을 찾아 케이스와 뚜껑을 만듭니다.',assembly:'참조 부품과 케이스를 함께 봅니다.',bolt:'볼트 규격 표.',dim:'전체 치수와 구멍 치수를 표시합니다.',printer:'빌드볼륨 기준 분할.',split:'큰 모델을 격자/BSP/목 선분리로 쪼개고 다월 핀을 넣습니다.',export:'STEP, STL, 3MF, OBJ, DXF 도면, BOM CSV.',verify:'19종 커널 검사를 다시 돌립니다.'};
   const byAct={}; for(const a of ALIASES){ if(!byAct[a[2]]) byAct[a[2]]=a[0]; }
   function runAct(act){
     if(act.startsWith('_view:')) return setView(act.slice(6));
@@ -1611,6 +1700,7 @@ function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classL
   if($('stPrinter').value==='none'&&typeof MODE!=='undefined'&&MODE==='printer'&&Array.isArray(BUILD)){ $('stPrinter').value='custom'; $('stBX').value=BUILD[0]; $('stBY').value=BUILD[1]; $('stBZ').value=BUILD[2]; }
   syncBuild(); setState('idle'); step(1);
   const _lm=window.loadModel; window.loadModel=function(){ const r=_lm.apply(this,arguments); setTimeout(()=>{ renderObjects(); checkVolume(); },1200); return r; };
+  const _lpa=window.loadParts; if(_lpa) window.loadParts=function(){ const r=_lpa.apply(this,arguments); setTimeout(()=>{ renderObjects(); checkVolume(); },1800); return r; };
   const _lp=window.loadPieces; if(_lp) window.loadPieces=function(){ const r=_lp.apply(this,arguments); setTimeout(renderObjects,1200); return r; };
 })();
 </script>

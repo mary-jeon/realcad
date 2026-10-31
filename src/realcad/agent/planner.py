@@ -83,7 +83,53 @@ Units: millimeters. First pick the "kind" that best fits the request:
    "socket_d":<mm bottom bulb-socket hole dia, 0=none>,"socket_h":<mm hole depth, optional>}}
    - Use for "moon lamp / ball / sphere / globe shade". Thin wall (~2mm) so slicers print a shell.
 
-8) "retrieve" — the request is an ORGANIC / FREEFORM / SCULPTED product that the
+8) "assembly" — a MACHINE-ELEMENT ASSEMBLY built from KS standard parts. Two presets:
+   preset "power_train" (default) = 동력전달장치 (동력 전달 장치, 축 조립, gearbox / shaft assembly):
+   shaft + parallel keys + spur gear (+ optional pinion on a second parallel shaft) + V-belt pulley + two deep-groove
+   ball bearings + housing + two covers + oil seal + retaining rings + cover bolts, built ASSEMBLED in place (mates fixed).
+   Use it whenever the user wants standard machine elements (shaft, gear, bearing, pulley, key, 베어링, 기어, 축, 풀리, 키)
+   assembled together, or says 조립/어셈블리/assembly of such parts. Never send these to retrieve, plate or gear.
+{"kind":"assembly","assembly":{"preset":"power_train","bearing":"6204","shaft_d":0,
+   "gear":{"module":2,"teeth":30,"width":0},"pinion_teeth":0,
+   "pulley":{"type":"A","dp":100,"grooves":1,"hub_width":0},
+   "housing":true,"covers":true,"bolts":true,"oil_seal":true,"rings":true,"exploded":0}}
+   - bearing: one of 6000-6006, 6200-6207, 6300-6305 (its bore = the shaft bearing seat). If the user gives only a
+     shaft diameter (10,12,15,17,20,25,30,35), set "shaft_d" and leave bearing "6204"; the kernel picks the 62xx bearing.
+   - Keys (KS B 1311), retaining ring grooves (KS B 1336), oil seal (KS B 2804), shoulders (bearing da/Da), housing bore,
+     cover bolt PCD and gear center distance are ALL derived from built-in KS tables. Do NOT give them; only pass what
+     the user said. gear.width 0 = 10 x module. pulley.type "none" = no pulley. pinion_teeth > 0 adds a mating pinion
+     on a second parallel shaft at center distance m(z1+z2)/2 (use when the user mentions a gear PAIR, 감속, 피니언, 두 축).
+   - exploded: gap in mm for an exploded view when the user asks 분해도 / exploded view (e.g. 15); else 0.
+   - housing/covers/bolts/oil_seal/rings: false only if the user explicitly excludes that part.
+   - preset "eccentric_slider" = 편심왕복장치 / 편심 슬라이더 / eccentric reciprocating device (the other classic CAD exam
+     task): eccentric shaft + link (crank) + vertical slider in a guide bush + top cover + box housing + pulley +
+     bearings. Use it when the user says 편심왕복장치, 편심, 왕복, 슬라이더, eccentric, reciprocating, stroke/행정.
+     Extra fields: "eccentricity" (e in mm, stroke = 2e; default 8, or stroke/2 if the user gives a stroke),
+     "link_length" (default 50), "slider_d" (slider rod dia, default 20). No gear/pinion fields are used.
+     e.g. {"kind":"assembly","assembly":{"preset":"eccentric_slider","bearing":"6204","eccentricity":8,"link_length":50,
+     "slider_d":20,"pulley":{"type":"A","dp":100,"grooves":1,"hub_width":0},"housing":true,"covers":true,"bolts":true,
+     "oil_seal":true,"rings":true,"exploded":0}}
+   - preset "gear_pump" = 기어펌프 / gear pump / 오일 펌프: body with two gear pockets, two spur gears, drive and driven
+     shafts in bushes, gasket, cover with oil seal, 6 cover bolts. Fields: gear.module, gear.teeth, gear.width
+     (0 = 0.8 x PCD; the exam example is m1.5 z24 width 29). No bearing/pulley/pinion fields are used.
+     e.g. {"kind":"assembly","assembly":{"preset":"gear_pump","gear":{"module":1.5,"teeth":24,"width":29},
+     "housing":true,"covers":true,"bolts":true,"exploded":0}}
+   - preset "drill_jig" = 드릴지그 / drill jig / 지그 for drilling holes in a workpiece: base + two posts + jig plate with
+     press-fit drill bushes (DIN 179 / KS B 1030 sizes), locating pins, side clamp (stud + pad + nut), the workpiece as
+     a reference body. Fields: "work":{"length","width","thickness"} (the workpiece, mm), "drill_d" (hole/drill dia, 1~20),
+     "holes":[[x,y],...] hole centres measured from the WORKPIECE CENTRE (convert if the user gives them from a corner).
+     e.g. {"kind":"assembly","assembly":{"preset":"drill_jig","work":{"length":80,"width":50,"thickness":15},"drill_d":10,
+     "holes":[[-20,0],[20,0]],"exploded":0}}
+   - preset "vise" = 탁상 바이스 / 바이스 / 탁상 클램프 / bench vise: body with fixed jaw, moving jaw on two guide posts
+     (triangle layout with the lead screw), lead screw with collar + retaining ring, nut in the body, guide bushes, jaw plates,
+     handle. Fields: "jaw_w" (jaw width, default 80), "open_max" (max opening, default 60), "screw_d" (lead screw dia 16/20/25).
+     e.g. {"kind":"assembly","assembly":{"preset":"vise","jaw_w":80,"open_max":60,"screw_d":16,"exploded":0}}
+   - preset "cam_clamp" = 캠 클램프 / 스트랩 클램프 / 클램프 for a round workpiece on a V-block: base with uprights, pin, cam
+     lever, strap (누름판), V-block (90°), return spring, the round workpiece as reference. Fields: "work_d" (workpiece dia,
+     default 30), "cam_lift" (cam eccentricity e, strap travel = 2e, default 4).
+     e.g. {"kind":"assembly","assembly":{"preset":"cam_clamp","work_d":30,"cam_lift":4,"exploded":0}}
+
+9) "retrieve" — the request is an ORGANIC / FREEFORM / SCULPTED product that the
    parametric primitives above CANNOT represent: ergonomic hand-held shapes, characters,
    figurines, animals, bodies, vehicles, anatomical/anthropomorphic forms, sculptural art.
    Examples: computer mouse, shoe/sneaker, action figure, animal, helmet, ergonomic grip/handle,
@@ -101,7 +147,7 @@ Units: millimeters. First pick the "kind" that best fits the request:
        {"name":"왼다리 left leg","query":"gundam leg"},{"name":"오른다리 right leg","query":"gundam leg"},
        {"name":"백팩 backpack","query":"gundam backpack thruster"},{"name":"무기 weapon","query":"gundam rifle weapon"}].
    - ONLY use retrieve for clearly freeform/organic shapes. If ANY primitive above
-     (plate/container/gear/enclosure/profile/clamp/ball) can CONFIDENTLY represent the request,
+     (plate/container/gear/enclosure/profile/clamp/ball/assembly) can CONFIDENTLY represent the request,
      use that primitive instead — never regress a box/cup/disc/sphere into retrieve.
      When unsure, prefer the matching primitive over retrieve.
 

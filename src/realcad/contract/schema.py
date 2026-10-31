@@ -4,6 +4,7 @@
 kind: plate(판/브래킷+볼트구멍) · container(통/컵/박스, 벽+바닥) · gear(스퍼 기어)
     · enclosure(보드 케이스) · profile(평면 커스텀 실루엣 돌출) · clamp(봉 무는 C클립)
     · ball(속 빈 구 쉘, 달 조명)
+    · assembly(조립: power_train 동력전달장치, eccentric_slider 편심왕복장치. 규격표로 치수 유도)
     · retrieve(파라메트릭 기본형으로 못 만드는 유기적 자유곡면 — 외부 3D 라이브러리 검색으로 넘김).
 """
 from __future__ import annotations
@@ -104,6 +105,46 @@ class Ball:
 
 
 @dataclass
+class Assembly:
+    """동력전달장치(power_train) 조립. 결정 입력 4개(베어링 호칭, 기어 m·z, 풀리 형·피치지름, 피니언 잇수)에서
+    나머지 치수는 KS 규격표(mech/standards.py)로 유도한다. 메이트 M1~M9 는 빌더가 좌표로 고정한다."""
+    preset: str = "power_train"
+    bearing: str = "6204"         # 깊은 홈 볼베어링 호칭 → 축 베어링 자리 지름 = 내경
+    shaft_d: float = 0.0          # 0 이면 베어링 내경
+    gear_module: float = 2.0
+    gear_teeth: int = 30
+    gear_width: float = 0.0       # 0 이면 10m
+    pinion_teeth: int = 0         # 0 이면 피니언(두번째 축) 없음
+    pulley_type: str = "A"        # V벨트 형 A B C D, "none" 이면 풀리 없음
+    pulley_dp: float = 100.0      # 풀리 피치(호칭) 지름
+    pulley_grooves: int = 1
+    pulley_hub_w: float = 0.0     # 0 이면 자동(홈 수·축 지름)
+    housing: bool = True
+    covers: bool = True
+    bolts: bool = True
+    oil_seal: bool = True
+    rings: bool = True            # 멈춤링
+    exploded: float = 0.0         # 분해도 간격(mm), 0 = 조립 상태
+    # preset "eccentric_slider"(편심왕복장치) 전용
+    eccentricity: float = 8.0     # 편심량 e (행정 = 2e)
+    link_length: float = 50.0     # 링크 중심 간 길이(편심 저널 중심 ↔ 핀)
+    slider_d: float = 20.0        # 슬라이더 봉 지름(= 가이드부시 보어)
+    # preset "drill_jig"(드릴지그) 전용: 공작물과 구멍 패턴
+    work_l: float = 80.0
+    work_w: float = 50.0
+    work_t: float = 15.0
+    drill_d: float = 10.0
+    holes: list = field(default_factory=lambda: [[-20.0, 0.0], [20.0, 0.0]])   # 공작물 중심 기준 (x, y)
+    # preset "vise"(탁상 바이스) 전용
+    jaw_w: float = 80.0           # 조 폭(Y)
+    open_max: float = 60.0        # 최대 벌림
+    screw_d: float = 16.0         # 리드나사 호칭 지름
+    # preset "cam_clamp"(캠 클램프) 전용
+    work_d: float = 30.0          # 원통 공작물 지름
+    cam_lift: float = 4.0         # 캠 편심(리프트)
+
+
+@dataclass
 class Retrieve:
     """파라메트릭 기본형으로 표현 불가 → 외부 3D 모델 라이브러리에서 검색해 불러온다."""
     query: str = ""               # 외부 라이브러리 검색어(영문)
@@ -133,6 +174,7 @@ class DesignContract:
     profile: Profile | None = None
     clamp: Clamp | None = None
     ball: Ball | None = None
+    assembly: Assembly | None = None
     retrieve: Retrieve | None = None
     fastener_exact: bool = True        # builder 가 채움: 요청 규격을 정확히 보유했는가
     fastener_note: str = ""            # 미보유 시 치환 설명(F0 메시지)
@@ -199,6 +241,37 @@ class DesignContract:
                 pocket_w=float(cd.get("pocket_w", 80)), pocket_d=float(cd.get("pocket_d", 15)),
                 pocket_h=float(cd.get("pocket_h", 100)), tab_l=float(cd.get("tab_l", 30)),
                 tab_w=float(cd.get("tab_w", 20)), tab_t=float(cd.get("tab_t", 4))))
+        if kind == "assembly":
+            ad = d.get("assembly", d)
+            g = ad.get("gear") if isinstance(ad.get("gear"), dict) else {}
+            pu = ad.get("pulley") if isinstance(ad.get("pulley"), dict) else {}
+            ptype = str(pu.get("type", ad.get("pulley_type", "A")) or "A")
+            return cls(kind="assembly", assembly=Assembly(
+                preset=str(ad.get("preset", "power_train") or "power_train"),
+                bearing=str(ad.get("bearing", "6204") or "6204"),
+                shaft_d=float(ad.get("shaft_d", 0) or 0),
+                gear_module=float(g.get("module", ad.get("gear_module", 2)) or 2),
+                gear_teeth=int(g.get("teeth", ad.get("gear_teeth", 30)) or 30),
+                gear_width=float(g.get("width", ad.get("gear_width", 0)) or 0),
+                pinion_teeth=int(ad.get("pinion_teeth", 0) or 0),
+                pulley_type=("none" if ptype.lower() in ("none", "no", "false", "") else ptype.upper()),
+                pulley_dp=float(pu.get("dp", ad.get("pulley_dp", 100)) or 100),
+                pulley_grooves=int(pu.get("grooves", ad.get("pulley_grooves", 1)) or 1),
+                pulley_hub_w=float(pu.get("hub_width", ad.get("pulley_hub_w", 0)) or 0),
+                housing=bool(ad.get("housing", True)), covers=bool(ad.get("covers", True)),
+                bolts=bool(ad.get("bolts", True)), oil_seal=bool(ad.get("oil_seal", True)),
+                rings=bool(ad.get("rings", True)),
+                exploded=float(ad.get("exploded", 0) or 0),
+                eccentricity=float(ad.get("eccentricity", ad.get("e", 8)) or 8),
+                link_length=float(ad.get("link_length", 50) or 50),
+                slider_d=float(ad.get("slider_d", 20) or 20),
+                work_l=float((ad.get("work") or {}).get("length", ad.get("work_l", 80)) or 80),
+                work_w=float((ad.get("work") or {}).get("width", ad.get("work_w", 50)) or 50),
+                work_t=float((ad.get("work") or {}).get("thickness", ad.get("work_t", 15)) or 15),
+                drill_d=float(ad.get("drill_d", 10) or 10),
+                jaw_w=float(ad.get("jaw_w", 80) or 80), open_max=float(ad.get("open_max", 60) or 60), screw_d=float(ad.get("screw_d", 16) or 16),
+                work_d=float(ad.get("work_d", 30) or 30), cam_lift=float(ad.get("cam_lift", 4) or 4),
+                holes=[[float(h[0]), float(h[1])] for h in (ad.get("holes") or [[-20, 0], [20, 0]]) if isinstance(h, (list, tuple)) and len(h) == 2][:16]))
         if kind == "ball":
             bd = d.get("ball", d)
             return cls(kind="ball", ball=Ball(
@@ -258,6 +331,21 @@ class DesignContract:
             return {"kind": "ball", "ball": {
                 "outer_d": b.outer_d, "wall": b.wall,
                 "socket_d": b.socket_d, "socket_h": b.socket_h}}
+        if self.kind == "assembly":
+            a = self.assembly
+            return {"kind": "assembly", "assembly": {
+                "preset": a.preset, "bearing": a.bearing, "shaft_d": a.shaft_d,
+                "gear": {"module": a.gear_module, "teeth": a.gear_teeth, "width": a.gear_width},
+                "pinion_teeth": a.pinion_teeth,
+                "pulley": {"type": a.pulley_type, "dp": a.pulley_dp, "grooves": a.pulley_grooves, "hub_width": a.pulley_hub_w},
+                "housing": a.housing, "covers": a.covers, "bolts": a.bolts, "oil_seal": a.oil_seal,
+                "rings": a.rings, "exploded": a.exploded,
+                **({"eccentricity": a.eccentricity, "link_length": a.link_length, "slider_d": a.slider_d}
+                   if a.preset == "eccentric_slider" else {}),
+                **({"work": {"length": a.work_l, "width": a.work_w, "thickness": a.work_t}, "drill_d": a.drill_d, "holes": a.holes}
+                   if a.preset == "drill_jig" else {}),
+                **({"jaw_w": a.jaw_w, "open_max": a.open_max, "screw_d": a.screw_d} if a.preset == "vise" else {}),
+                **({"work_d": a.work_d, "cam_lift": a.cam_lift} if a.preset == "cam_clamp" else {})}}
         if self.kind == "retrieve":
             r = self.retrieve
             return {"kind": "retrieve", "retrieve": {
@@ -276,7 +364,8 @@ class DesignContract:
 # ── 입력 범위 가드 ──────────────────────────────────────────────
 MAX_DIM_MM = 1000.0        # 한 변 최대(일반 프린터 빌드볼륨의 수 배)
 MIN_DIM_MM = 0.2
-_INT_LIMITS = {"teeth": (4, 200), "dividers": (0, 50), "arms": (2, 64), "points": (3, 64)}
+_INT_LIMITS = {"teeth": (4, 200), "dividers": (0, 50), "arms": (2, 64), "points": (3, 64),
+               "gear_teeth": (8, 200), "pinion_teeth": (0, 200), "pulley_grooves": (1, 6)}
 _MAX_HOLES = 64
 
 
@@ -292,7 +381,7 @@ def _clampf(v, lo=MIN_DIM_MM, hi=MAX_DIM_MM):
 
 def _sanitize(c: "DesignContract") -> "DesignContract":
     """음수·NaN·10^6 같은 값으로 커널이 멈추지 않게 모든 수치를 가둔다."""
-    for obj in (c.plate, c.wall, c.container, c.gear, c.enclosure, c.profile, c.clamp, c.ball):
+    for obj in (c.plate, c.wall, c.container, c.gear, c.enclosure, c.profile, c.clamp, c.ball, c.assembly):
         if obj is None:
             continue
         for k, v in list(vars(obj).items()):
@@ -313,6 +402,27 @@ def _sanitize(c: "DesignContract") -> "DesignContract":
                 setattr(obj, k, _clampf(v, -MAX_DIM_MM, MAX_DIM_MM))
             elif isinstance(v, (int, float)):
                 setattr(obj, k, _clampf(v))
+    if c.assembly is not None:
+        a = c.assembly
+        # 0 = 자동 인 필드는 일반 루프가 0.2 로 올려놓으므로 되돌린다
+        a.shaft_d = 0.0 if a.shaft_d < 5.0 else _clampf(a.shaft_d, 5.0, 75.0)
+        a.gear_module = _clampf(a.gear_module, 0.5, 10.0)
+        a.gear_width = 0.0 if a.gear_width < 1.0 else _clampf(a.gear_width, 1.0, 200.0)
+        a.pulley_dp = _clampf(a.pulley_dp, 40.0, 600.0)
+        a.pulley_hub_w = 0.0 if a.pulley_hub_w < 1.0 else _clampf(a.pulley_hub_w, 1.0, 200.0)
+        a.exploded = 0.0 if a.exploded < 0.5 else _clampf(a.exploded, 0.5, 120.0)
+        if a.pulley_type not in ("A", "B", "C", "D", "none"):
+            a.pulley_type = "A"
+        if a.preset not in ("power_train", "eccentric_slider", "gear_pump", "drill_jig", "vise", "cam_clamp"):
+            a.preset = "power_train"
+        a.eccentricity = _clampf(a.eccentricity, 2.0, 30.0)
+        a.link_length = _clampf(a.link_length, 20.0, 200.0)
+        a.slider_d = _clampf(a.slider_d, 8.0, 40.0)
+        a.work_l = _clampf(a.work_l, 10.0, 400.0); a.work_w = _clampf(a.work_w, 10.0, 400.0); a.work_t = _clampf(a.work_t, 1.0, 100.0)
+        a.drill_d = _clampf(a.drill_d, 1.0, 20.0)
+        a.jaw_w = _clampf(a.jaw_w, 30.0, 300.0); a.open_max = _clampf(a.open_max, 10.0, 300.0); a.screw_d = _clampf(a.screw_d, 8.0, 40.0)
+        a.work_d = _clampf(a.work_d, 5.0, 200.0); a.cam_lift = _clampf(a.cam_lift, 1.0, 20.0)
+        a.holes = [[_clampf(h[0], -200.0, 200.0), _clampf(h[1], -200.0, 200.0)] for h in (a.holes or [])][:16] or [[0.0, 0.0]]
     if c.hole_dia is not None:
         c.hole_dia = _clampf(c.hole_dia, 0.5, 100.0)
     if c.fit not in ("close", "normal", "loose"):

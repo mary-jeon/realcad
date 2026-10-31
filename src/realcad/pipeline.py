@@ -7,6 +7,15 @@ from .verify import checks as v
 
 def build_and_verify(c: DesignContract):
     """return (part, fastener|None, hole_dia|None, findings, summary)."""
+    if c.kind == "assembly":
+        # 조립: 부품별 솔리드를 조립 좌표로 만들고 A1~A6 + 부품별 M2. 단품용 C1/M3 는 적용하지 않는다(의도된 분리 부품).
+        from .mech import build_assembly
+        from .verify.assembly import verify_assembly
+        asm = build_assembly(c.assembly)
+        findings = verify_assembly(asm, c)
+        part = asm.compound
+        part._rc_asm = asm                      # 웹 응답(부품별 STL·BOM·메이트)용
+        return part, None, None, findings, v.summarize(findings)
     part, f, dia = build_from_contract(c)
     findings = []
 

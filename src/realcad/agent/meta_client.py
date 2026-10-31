@@ -46,7 +46,39 @@ def _call(messages, model, temperature, max_tokens, json_mode):
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"Meta API {e.code}: {e.read().decode()[:400]}") from e
     ch = resp["choices"][0]
+    _log_usage(model, resp.get("usage", {}))
     return ch["message"].get("content"), ch.get("finish_reason"), resp.get("usage", {})
+
+
+# 호출마다 토큰 사용량을 로그에 적는다(크레딧 잔액은 API 로 못 보니 우리가 센다).
+# 단가: dev.meta.ai/docs/pricing-rate-limits (2026-10-31) muse-spark-1.3 입력 $1.25 / 출력 $4.25 / 캐시 입력 $0.15 per 1M
+_PRICE = {"muse-spark-1.3": (1.25, 4.25, 0.15), "muse-spark-1.3-contributor": (0.10, 0.20, 0.002)}
+USAGE_LOG = Path(os.environ.get("REALCAD_USAGE_LOG", Path.home() / "Library" / "Logs" / "realcad.meta_usage.jsonl"))
+
+
+def _log_usage(model: str, usage: dict) -> None:
+    try:
+        import time
+        pi, po, pc = _PRICE.get(model, _PRICE["muse-spark-1.3"])
+        it = int(usage.get("prompt_tokens", 0) or 0); ot = int(usage.get("completion_tokens", 0) or 0)
+        ct = int(((usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)) or 0)
+        cost = ((it - ct) * pi + ct * pc + ot * po) / 1e6
+        USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with USAGE_LOG.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": model, "in": it, "out": ot, "cached": ct, "usd": round(cost, 5)}) + "\n")
+    except Exception:
+        pass
+
+
+def usage_summary() -> dict:
+    """누적 호출 수, 토큰, 추정 비용(USD). 로그가 시작된 시점부터만."""
+    n = ti = to = 0; usd = 0.0
+    try:
+        for line in USAGE_LOG.read_text(encoding="utf-8").splitlines():
+            d = json.loads(line); n += 1; ti += d.get("in", 0); to += d.get("out", 0); usd += d.get("usd", 0.0)
+    except Exception:
+        pass
+    return {"calls": n, "in": ti, "out": to, "usd": round(usd, 3)}
 
 
 def chat(messages: list[dict], model: str = MODEL,

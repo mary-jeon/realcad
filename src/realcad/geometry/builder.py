@@ -390,6 +390,12 @@ def build_from_contract(c):
         return build_clamp(c.clamp), None, None
     if c.kind == "ball":
         return build_ball(c.ball), None, None
+    if c.kind == "assembly":
+        from ..mech import build_assembly
+        asm = build_assembly(c.assembly)
+        part = asm.exploded(c.assembly.exploded) if c.assembly.exploded > 0 else asm.compound
+        part._rc_asm = asm
+        return part, None, None
     from ..fasteners.standards import resolve
     f, exact, note = resolve(c.fastener)
     c.fastener_exact, c.fastener_note = exact, note      # 파이프라인이 F0 로 보고

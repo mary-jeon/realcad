@@ -16,6 +16,7 @@ from ..agent.planner import plan, plan_photo
 from ..agent.clarify import clarify, augment
 from ..agent.loop import run
 from ..agent import codegen
+from ..agent import product_spec
 from ..agent import editor
 from ..contract.schema import DesignContract
 from ..printing.split import plan_split
@@ -255,8 +256,25 @@ def _respond(r, sid: str | None = None):
 
     tok = uuid.uuid4().hex[:8]
     stl_path = GEN / f"{tok}_part.stl"
-    ex.to_stl(part, stl_path)
-    ex.to_step(part, GEN / f"{tok}.step")
+    # 조립(assembly): 분해도 간격이 있으면 표시·내보내기는 벌린 상태, 검사·도면은 조립 상태
+    asm = getattr(part, "_rc_asm", None) if c.kind == "assembly" else None
+    disp = part
+    parts_out, mates, layout, asm_bom = None, None, None, None
+    if asm is not None:
+        gap = float(getattr(c.assembly, "exploded", 0.0) or 0.0)
+        disp = asm.exploded(gap) if gap > 0 else part
+        parts_out = []
+        for i, (pi, solid) in enumerate(asm.part_solids(gap)):
+            ex.to_stl(solid, GEN / f"{tok}_p{i}.stl")
+            parts_out.append({"no": pi.no, "name": pi.name, "spec": pi.spec, "qty": pi.qty, "material": pi.material,
+                              "color": pi.color, "url": f"gen/{tok}_p{i}.stl"})
+        mates, layout, asm_bom = asm.mates, asm.layout, asm.bom
+        import csv as _csv
+        with (GEN / f"{tok}_bom.csv").open("w", newline="", encoding="utf-8") as fp:
+            w = _csv.DictWriter(fp, fieldnames=["no", "item", "spec", "qty", "material"]); w.writeheader()
+            for row in asm_bom: w.writerow(row)
+    ex.to_stl(disp, stl_path)
+    ex.to_step(disp, GEN / f"{tok}.step")
     # 내보내기 포맷: STL(엔진), 3MF·OBJ(trimesh 변환), STEP
     import trimesh
     tm = trimesh.load(str(stl_path))
@@ -269,10 +287,13 @@ def _respond(r, sid: str | None = None):
         bolts_url = f"gen/{tok}_bolts.stl"
     dxf_url = None
     from ..export.drawing import write_drawing
-    _z = (-c.plate.thickness / 2 if c.kind == "plate" else None)
-    if write_drawing(part, GEN / f"{tok}.dxf", z=_z, contract=c, fastener=(f if c.kind == "plate" else None), title=f"RealCAD {c.kind}") \
+    _z = (-c.plate.thickness / 2 if c.kind == "plate" else (layout["z_axis"] if layout else None))   # 조립은 축 중심 단면(조립도)
+    if write_drawing(part, GEN / f"{tok}.dxf", z=_z, contract=c, fastener=(f if c.kind == "plate" else None),
+                     title=(f"RealCAD {c.kind}" if c.kind != "assembly" else "RealCAD power train assembly, section through shaft axis")) \
             or ex.to_dxf(part, GEN / f"{tok}.dxf", z=_z):
         dxf_url = f"gen/{tok}.dxf"
+    if asm_bom:
+        bom = asm_bom
     if c.kind == "plate":
         from ..export.bom import make_bom, write_bom_csv
         _eng = next((x.actual for x in r["findings"] if x.code == "H3"), None)
@@ -296,6 +317,7 @@ def _respond(r, sid: str | None = None):
         "part_url": f"gen/{tok}_part.stl",
         "bolts_url": bolts_url,
         "bom": bom,
+        **({"parts": parts_out, "mates": mates, "layout": layout} if parts_out else {}),
         "stats": _mesh_stats(tm),
         "downloads": {
             "STL": f"gen/{tok}_part.stl",
@@ -312,6 +334,24 @@ class DesignCodeReq(BaseModel):
     prompt: str
     answers: dict | None = None
     settings: PrintSettings | None = None
+    spec_text: str | None = None      # /api/spec_lookup 이 돌려준 권위 치수 블록(SPEC, KEEP CLEAR)
+
+
+class SpecLookupReq(BaseModel):
+    prompt: str
+
+
+@app.post("/api/spec_lookup")
+def spec_lookup_ep(req: SpecLookupReq):
+    """상용 제품 규격 조회: 프롬프트에 나온 시판 제품의 외형 치수를 공식 규격표, 그다음 Meta 기억(확신도)으로 찾아
+    확실 / 추정 / 모름 표와, 어떤 모델도 모르는 상대편 물건 치수 질문(최대 3개)을 돌려준다. 만능 CAD 앞단."""
+    try:
+        card = product_spec.lookup(req.prompt)
+        d = card.to_dict()
+        d["usage"] = {k: v for k, v in (card.usage or {}).items() if k in ("prompt_tokens", "completion_tokens", "error")}
+        return d
+    except Exception as e:
+        return {"products": [], "questions": [], "counterpart": "", "spec_text": "", "error": _safe_err(e)}
 
 
 def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> dict:
@@ -370,7 +410,11 @@ def design_code_ep(req: DesignCodeReq):
     기본형 메뉴로 못 하는 "뭐든 다" 경로. 유기적 조각 형상은 여전히 불가(retrieve/Meshy).
     """
     try:
-        prompt = augment(req.prompt, req.answers) + _settings_note(getattr(req, "settings", None))
+        prompt = req.prompt + _settings_note(getattr(req, "settings", None))
+        if req.spec_text:
+            prompt += "\n\n" + req.spec_text.strip()
+        meas = product_spec.answers_text(req.answers)
+        prompt += ("\n\n" + meas) if meas else ""
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"
         step_path = GEN / f"{tok}.step"
