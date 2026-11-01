@@ -1,10 +1,12 @@
-"""캠 클램프(스트랩 클램프) 조립 빌더(preset cam_clamp) : CAD 실기 과제 6.
+"""Cam clamp (strap clamp) assembly builder (preset cam_clamp): CAD practical exam task 6.
 
-근거: 01_리서치/CAD실기과제_4종_조사_20261031.md §4 (153LAB 2023년 4회 기능사 3일차 스트랩 클램프: 본체, 누름판, V블록 90도,
-축, 캠 손잡이, 스프링, 원통 공작물. 축 끼워맞춤 g6/h6).
-구조: 본체(바닥판 + 기둥 2)의 축(핀, Y 방향)에 캠 손잡이가 끼워져 돈다. 누름판(스트랩)은 세로 장공으로 축을 지나며 위아래로만 움직이고,
-캠 바깥 원이 누름판 윗면을 눌러 내린다. 누름판 앞끝이 V블록 위 원통 공작물을 누르고, 뒤끝은 스프링이 받친다.
-기구학: 편심 원 캠 반지름 Rc, 편심 e. 각도 θ 에서 캠 바닥까지 거리 = Rc - e cosθ (θ=0 풀림, θ=180 잠김). 행정 = 2e.
+Reference: 153LAB 2023 round 4 craftsman exam, day 3 strap clamp (base, strap, 90 degree V-block,
+shaft, cam handle, spring, cylindrical workpiece; shaft fit g6/h6).
+Structure: the cam handle turns on a pin (Y axis) held by the base (base plate + 2 posts). The strap passes the pin
+through a vertical slot so it only moves up and down, and the cam's outer circle presses its top face down.
+The strap's front end clamps a cylindrical workpiece on the V-block; a spring supports the rear end.
+Kinematics: eccentric circle cam, radius Rc, eccentricity e. At angle θ the distance to the cam bottom is
+Rc - e cosθ (θ=0 released, θ=180 locked). Stroke = 2e.
 """
 from __future__ import annotations
 import math
@@ -17,16 +19,16 @@ from .power_train import PartInfo, Assembly, cyl_x, ring_x, retaining_ring_solid
 BASE_T = 15.0
 BASE_L = 170.0
 BASE_W = 90.0
-UPR_T = 12.0           # 기둥 두께(Y)
-STRAP_W = 25.0         # 누름판 폭(Y)
-STRAP_T = 12.0         # 누름판 두께
-STRAP_L = 120.0        # 누름판 길이(X): 뒤끝 -50, 앞끝 +70
+UPR_T = 12.0           # Post thickness (Y)
+STRAP_W = 25.0         # Strap width (Y)
+STRAP_T = 12.0         # Strap thickness
+STRAP_L = 120.0        # Strap length (X): rear end -50, front end +70
 PIN_D = 10.0
-CAM_R = 20.0           # 캠 바깥 원 반지름
-CAM_T = 14.0           # 캠 두께(Y)
+CAM_R = 20.0           # Cam outer circle radius
+CAM_T = 14.0           # Cam thickness (Y)
 LEVER_D = 10.0
 LEVER_L = 110.0
-X_V = 50.0             # V블록 중심 x
+X_V = 50.0             # V-block center x
 X_SPRING = -40.0
 SPRING_D = 14.0
 
@@ -34,15 +36,15 @@ SPRING_D = 14.0
 def layout_cam_clamp(a) -> dict:
     wd, e = float(a.work_d), float(a.cam_lift)
     r = wd / 2.0
-    vw = round(max(wd * 0.9, 20.0), 1)                  # V 입구 폭(90도 V: 깊이 = vw/2)
-    v_h = 30.0                                          # V블록 높이
-    v_len = STRAP_W + 2 * 12.0                          # V블록 길이(Y)
+    vw = round(max(wd * 0.9, 20.0), 1)                  # V opening width (90 degree V: depth = vw/2)
+    v_h = 30.0                                          # V-block height
+    v_len = STRAP_W + 2 * 12.0                          # V-block length (Y)
     z_vtop = BASE_T + v_h
-    z_apex = z_vtop - vw / 2.0                          # V 꼭짓점 높이
-    z_wc = z_apex + r * math.sqrt(2.0)                  # 90도 V 에 놓인 원통 중심
-    z_wtop = z_wc + r                                   # 공작물 윗면 = 잠김 때 누름판 바닥
-    z_pin = z_wtop + STRAP_T + CAM_R + e                # θ=180: 캠 바닥 = Rc + e 아래 → 누름판 윗면
-    y_upr = STRAP_W / 2.0 + 1.0 + UPR_T / 2.0           # 기둥 중심 y(누름판 양옆 1 mm 틈)
+    z_apex = z_vtop - vw / 2.0                          # V apex height
+    z_wc = z_apex + r * math.sqrt(2.0)                  # Center of the cylinder resting in the 90 degree V
+    z_wtop = z_wc + r                                   # Workpiece top = strap bottom when locked
+    z_pin = z_wtop + STRAP_T + CAM_R + e                # θ=180: cam bottom is Rc + e below the pin, at the strap top face
+    y_upr = STRAP_W / 2.0 + 1.0 + UPR_T / 2.0           # Post center y (1 mm gap on each side of the strap)
     ring = S.retaining_ring(PIN_D)
     pin_len = 2 * (y_upr + UPR_T / 2.0) + 2 * (ring.m + 1.5)
     return dict(wd=wd, r=r, e=e, vw=vw, v_h=v_h, v_len=v_len, z_vtop=z_vtop, z_apex=z_apex, z_wc=z_wc, z_wtop=z_wtop,
@@ -51,7 +53,7 @@ def layout_cam_clamp(a) -> dict:
 
 
 def strap_z_top(L: dict, theta_deg: float) -> float:
-    """각도 θ 에서 누름판 윗면 높이 = 핀 중심 - (Rc - e cosθ)."""
+    """Strap top face height at angle θ = pin center - (Rc - e cosθ)."""
     return L["z_pin"] - (CAM_R - L["e"] * math.cos(math.radians(theta_deg)))
 
 
@@ -60,13 +62,13 @@ def _body(L: dict) -> Part:
     body = base
     for sy in (-1, 1):
         body = body + Pos(0, sy * L["y_upr"], BASE_T + L["upr_h"] / 2.0) * Box(30.0, UPR_T, L["upr_h"])
-        body = body + Pos(0, sy * L["y_upr"], BASE_T + L["upr_h"]) * Rot(90, 0, 0) * Cylinder(radius=15.0, height=UPR_T)   # 둥근 머리
-    body = body - Pos(0, 0, L["z_pin"]) * Rot(90, 0, 0) * Cylinder(radius=PIN_D / 2.0, height=BASE_W + 2)                 # 축 구멍 H7
-    for sx in (-60.0, 80.0):                                                                                              # 테이블 고정 장공 대신 구멍 4
+        body = body + Pos(0, sy * L["y_upr"], BASE_T + L["upr_h"]) * Rot(90, 0, 0) * Cylinder(radius=15.0, height=UPR_T)   # Rounded top
+    body = body - Pos(0, 0, L["z_pin"]) * Rot(90, 0, 0) * Cylinder(radius=PIN_D / 2.0, height=BASE_W + 2)                 # Shaft hole H7
+    for sx in (-60.0, 80.0):                                                                                              # 4 holes instead of table mounting slots
         for sy in (-1, 1):
             body = body - Pos(sx, sy * (BASE_W / 2.0 - 10.0), BASE_T / 2.0) * Cylinder(radius=5.5, height=BASE_T + 2)
-    body = body - Pos(X_SPRING, 0, BASE_T) * Cylinder(radius=SPRING_D / 2.0 + 0.5, height=6.0)                           # 스프링 자리(깊이 3)
-    for sy in (-1, 1):                                                                                                    # V블록 고정 볼트 구멍(아래에서)
+    body = body - Pos(X_SPRING, 0, BASE_T) * Cylinder(radius=SPRING_D / 2.0 + 0.5, height=6.0)                           # Spring seat (depth 3)
+    for sy in (-1, 1):                                                                                                    # V-block mounting bolt holes (from below)
         body = body - Pos(X_V, sy * 14.0, BASE_T / 2.0) * Cylinder(radius=3.3, height=BASE_T + 2)
     return body
 
@@ -74,44 +76,44 @@ def _body(L: dict) -> Part:
 def _vblock(L: dict) -> Part:
     vw, vh = L["vw"], L["v_h"]
     blk = Pos(X_V, 0, BASE_T + vh / 2.0) * Box(vw + 20.0, L["v_len"], vh)
-    # 90도 V 홈(Y 방향으로 관통): 단면 삼각형(꼭짓점 z_apex, 입구 폭 vw 윗면)
+    # 90 degree V groove (through in Y): triangular section, apex at z_apex, opening width vw at the top face
     tri = Polygon((X_V - vw / 2.0 - 1.0, L["z_vtop"] + 1.0), (X_V + vw / 2.0 + 1.0, L["z_vtop"] + 1.0), (X_V, L["z_apex"] - 1.0), align=None)
     cut = extrude(Plane.XZ * tri, amount=L["v_len"] / 2.0 + 1.0, both=True)
     blk = blk - cut
     for sy in (-1, 1):
-        blk = blk - Pos(X_V, sy * 14.0, BASE_T + 6.0) * Cylinder(radius=3.0, height=14.0)                                   # M6 탭(아래에서 볼트)
+        blk = blk - Pos(X_V, sy * 14.0, BASE_T + 6.0) * Cylinder(radius=3.0, height=14.0)                                   # M6 tapped holes (bolted from below)
     return blk
 
 
 def _strap(L: dict) -> Part:
-    """누름판(풀림 θ=0 기준 위치). 세로 장공: 폭 = 핀 Ø, 높이 = 핀 Ø + 2e + 1."""
+    """Strap (positioned for the released state θ=0). Vertical slot: width = pin Ø, height = pin Ø + 2e + 1."""
     zt = strap_z_top(L, 0.0)
     s = Pos((70.0 + (-50.0)) / 2.0, 0, zt - STRAP_T / 2.0) * Box(STRAP_L, STRAP_W, STRAP_T)
     slot_h = PIN_D + 2 * L["e"] + 1.0
-    zc = L["z_pin"] - L["e"] - 0.5 + 0.0            # 풀림 때 핀은 장공 위쪽, 잠김 때 아래쪽
+    zc = L["z_pin"] - L["e"] - 0.5 + 0.0            # Pin sits at the top of the slot when released, at the bottom when locked
     s = s - Pos(0, 0, zc) * Box(PIN_D, STRAP_W + 2, slot_h)
     return s
 
 
 def _cam(L: dict) -> Part:
-    """캠 손잡이(θ=0 기준: 편심이 +Z 쪽, 캠 바닥까지 Rc - e). 축 = 핀(Y), 회전 중심 = 핀."""
+    """Cam handle (at θ=0 the eccentric points +Z, distance to cam bottom Rc - e). Axis = pin (Y), rotation center = pin."""
     e = L["e"]
-    disc = Pos(0, 0, e) * Rot(90, 0, 0) * Cylinder(radius=CAM_R, height=CAM_T)          # 편심 원(중심이 핀보다 e 위)
+    disc = Pos(0, 0, e) * Rot(90, 0, 0) * Cylinder(radius=CAM_R, height=CAM_T)          # Eccentric circle (center e above the pin)
     hub = Rot(90, 0, 0) * Cylinder(radius=PIN_D / 2.0 + 5.0, height=CAM_T)
-    lever = Pos(-(CAM_R / 2.0 + LEVER_L / 2.0), 0, 0) * Rot(0, 90, 0) * Cylinder(radius=LEVER_D / 2.0, height=LEVER_L)   # 풀림(θ=0): 레버가 -X 로 수평, 잠김(180): +X
+    lever = Pos(-(CAM_R / 2.0 + LEVER_L / 2.0), 0, 0) * Rot(0, 90, 0) * Cylinder(radius=LEVER_D / 2.0, height=LEVER_L)   # Released (θ=0): lever horizontal toward -X; locked (180): +X
     ball = Pos(-(CAM_R / 2.0 + LEVER_L), 0, 0) * Sphere(radius=9.0)
     cam = disc + hub + lever + ball
-    cam = cam - Rot(90, 0, 0) * Cylinder(radius=PIN_D / 2.0, height=CAM_T + 2)                                           # 핀 구멍
+    cam = cam - Rot(90, 0, 0) * Cylinder(radius=PIN_D / 2.0, height=CAM_T + 2)                                           # Pin hole
     return Pos(0, 0, L["z_pin"]) * cam
 
 
 def place_cam(L: dict, theta_deg: float, local_at_pin: Part) -> Part:
-    return Pos(0, 0, L["z_pin"]) * Rot(0, theta_deg, 0) * Pos(0, 0, -L["z_pin"]) * local_at_pin   # +θ: 레버 -X → +Z(90) → +X(180), 편심 +Z → -Z
+    return Pos(0, 0, L["z_pin"]) * Rot(0, theta_deg, 0) * Pos(0, 0, -L["z_pin"]) * local_at_pin   # +θ: lever -X → +Z (90) → +X (180), eccentric +Z → -Z
 
 
 def _spring(L: dict, theta_deg: float) -> Part:
-    z0 = BASE_T + 3.0                                  # 자리 바닥
-    z1 = strap_z_top(L, theta_deg) - STRAP_T           # 누름판 바닥
+    z0 = BASE_T + 3.0                                  # Seat bottom
+    z1 = strap_z_top(L, theta_deg) - STRAP_T           # Strap bottom
     return Pos(X_SPRING, 0, (z0 + z1) / 2.0) * (Cylinder(radius=SPRING_D / 2.0, height=z1 - z0) - Cylinder(radius=SPRING_D / 2.0 - 2.0, height=z1 - z0 + 2))
 
 
@@ -142,7 +144,7 @@ def build_cam_clamp(a) -> Assembly:
     add("스프링", _spring(L, 0.0), f"압축 코일 Ø{SPRING_D:g} (간략 원통), 누름판 뒤끝 복귀", 1, "SWP", (0, 0, 0.5), "키")
     for sy in (-1, 1):
         y_out = L["y_upr"] + UPR_T / 2.0
-        ring_local = Rot(0, 0, 90) * retaining_ring_solid(rg, 0.0, 0.0, 0.0)          # X축 링 → Y축 링
+        ring_local = Rot(0, 0, 90) * retaining_ring_solid(rg, 0.0, 0.0, 0.0)          # X axis ring → Y axis ring
         add("멈춤링(C형)", Pos(0, sy * (y_out + rg.m / 2.0) - (rg.t / 2.0 if sy > 0 else -rg.t / 2.0) * 0 + (-rg.t / 2.0 if sy > 0 else rg.t / 2.0) * 0, L["z_pin"]) * Pos(0, -rg.t / 2.0, 0) * ring_local,
             f"축용 {rg.d1:g} KS B 1336", 1, "SK5", (0, sy * 2.5, 0), "멈춤링")
 

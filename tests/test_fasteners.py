@@ -1,4 +1,4 @@
-"""볼트 표 값·조회 동작 회귀 테스트 (ASME B18.2.8-1999 최소 공차구멍, B18.6.3/B18.2.1 머리)."""
+"""Regression tests for bolt table values and lookups (ASME B18.2.8-1999 minimum clearance holes, B18.6.3/B18.2.1 heads)."""
 import math
 import pytest
 from realcad.fasteners import standards as st
@@ -17,7 +17,7 @@ def test_inch_clearance_b18_2_8(key, close, normal, loose):
     assert math.isclose(f.clearance("close"), close * IN, abs_tol=0.01)
     assert math.isclose(f.clearance("normal"), normal * IN, abs_tol=0.01)
     assert math.isclose(f.clearance("loose"), loose * IN, abs_tol=0.01)
-    assert f.clearance("close") > f.nominal_dia_mm          # 구멍은 항상 나사보다 크다
+    assert f.clearance("close") > f.nominal_dia_mm          # the hole is always larger than the thread
 
 
 @pytest.mark.parametrize("key,close,normal,loose", [
@@ -31,7 +31,7 @@ def test_metric_clearance_iso273(key, close, normal, loose):
 
 
 def test_machine_screw_heads_b18_6_3():
-    assert math.isclose(st.get("#8-32").head_across_flats_mm, 0.250 * IN, abs_tol=0.01)   # 너트 폭 11/32 아님
+    assert math.isclose(st.get("#8-32").head_across_flats_mm, 0.250 * IN, abs_tol=0.01)   # nut width is not 11/32
     assert math.isclose(st.get("#4-40").head_across_flats_mm, 0.188 * IN, abs_tol=0.01)
     assert math.isclose(st.get("#10-24").head_height_mm, 0.120 * IN, abs_tol=0.01)
 
@@ -67,7 +67,7 @@ def test_resolve_marks_inexact():
     f, exact, note = st.resolve("M20")
     assert not exact and f.name == "M12" and "M12" in note
     f, exact, note = st.resolve("#12-24")
-    assert not exact and f.name.startswith("#10")           # 같은 인치 계열에서 제안, M5 아님
+    assert not exact and f.name.startswith("#10")           # suggest within the same inch series, not M5
 
 
 def test_std_length():

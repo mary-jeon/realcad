@@ -10,4 +10,4 @@ def test_dimension_check_flags_collapse_and_passes_match():
     code = "# overall 250 x 150 x 300 mm\n"
     assert dimension_check(code, {"bbox": [12, 24, 103]}) is not None
     assert dimension_check(code, {"bbox": [240, 160, 290]}) is None
-    assert dimension_check("x=1", {"bbox": [3, 3, 3]}) is not None     # 선언 없어도 8mm 미만이면 의심
+    assert dimension_check("x=1", {"bbox": [3, 3, 3]}) is not None     # under 8mm is suspicious even without a declaration

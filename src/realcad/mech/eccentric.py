@@ -1,12 +1,14 @@
-"""편심왕복장치(편심 슬라이더) 조립 빌더 : 두 번째 CAD 실기 과제 프리셋.
+"""Eccentric reciprocating mechanism (eccentric slider) assembly builder: second CAD practical exam preset.
 
-근거: 01_리서치/편심왕복장치_과제조사_20261031.md (2023년 기사 출제 해설 153LAB, 기능사 강의 목차, 행정 = 2e).
-부품: 본체(박스), 편심축, 링크(크랭크), 슬라이더, 핀, 가이드부시, 상부 커버, V벨트 풀리, 평행키, 간격링 2,
-      볼베어링 2, 멈춤링 2, 오일실, 끝 커버 2, 볼트. 풀리 쪽과 베어링 쪽 구조는 동력전달장치(power_train)와 공유.
+Reference: 153LAB 2023 engineer exam commentary, craftsman course outline (stroke = 2e).
+Parts: body (box), eccentric shaft, link (crank), slider, pin, guide bushing, top cover, V-belt pulley, parallel key,
+      2 spacer rings, 2 ball bearings, 2 retaining rings, oil seal, 2 end covers, bolts.
+      The pulley and bearing sides share their layout with power_train.
 
-좌표: 축 = X, y = 0, z = Z_AXIS. 편심 저널은 각도 θ 에서 (y, z) = (e cosθ, e sinθ) 만큼 어긋난다(θ = 0 은 +Y).
-링크는 저널 위 스트랩 + 위로 뻗은 막대, 윗끝 핀으로 슬라이더(수직 봉)와 연결. 슬라이더는 상부 커버의 가이드부시가 안내.
-기구학: 핀 높이 z_pin(θ) = z_axis + e sinθ + sqrt(L² − (e cosθ)²), 링크 기울기 φ = asin(e cosθ / L). 행정 = 2e.
+Coordinates: shaft = X, y = 0, z = Z_AXIS. At angle θ the eccentric journal is offset by (y, z) = (e cosθ, e sinθ) (θ = 0 is +Y).
+The link is a strap around the journal plus an upward bar; a pin at its top joins the slider (vertical rod),
+which is guided by the guide bushing in the top cover.
+Kinematics: pin height z_pin(θ) = z_axis + e sinθ + sqrt(L² - (e cosθ)²), link tilt φ = asin(e cosθ / L). Stroke = 2e.
 """
 from __future__ import annotations
 import math
@@ -18,12 +20,12 @@ from .power_train import (PartInfo, Assembly, cyl_x, ring_x, shaft_keyway_cutter
                           bearing_solid, retaining_ring_solid, pulley_solid, hex_bolt_x, _cover, _cover_bolt_points,
                           fit, BASE_T, COVER_T, SPIGOT, LIP)
 
-WALL_Y = 8.0          # 본체 옆벽 두께
-TOP_T = 14.0          # 본체 윗벽 두께(커버 볼트 탭 12 + 여유)
-COLLAR_L = 6.0        # 간격링 길이(베어링 쪽 3 + 링크 쪽 3)
-LINK_W = 16.0         # 링크 두께(X)
-ROD_W = 24.0          # 링크 막대 폭(Y)
-TONGUE_T = 8.0        # 슬라이더 혀 두께(X)
+WALL_Y = 8.0          # Body side wall thickness
+TOP_T = 14.0          # Body top wall thickness (cover bolt tap 12 + margin)
+COLLAR_L = 6.0        # Spacer ring length (3 on the bearing side + 3 on the link side)
+LINK_W = 16.0         # Link thickness (X)
+ROD_W = 24.0          # Link bar width (Y)
+TONGUE_T = 8.0        # Slider tongue thickness (X)
 TONGUE_H = 30.0
 PIN_D = 10.0
 BUSH_WALL = 4.0
@@ -31,7 +33,7 @@ BUSH_L = 30.0
 BUSH_FLANGE = 4.0
 TOPCOVER_T = 12.0
 TOPCOVER_W = 80.0
-CLEAR = 4.0           # 링크 궤도 ↔ 본체 안쪽 여유
+CLEAR = 4.0           # Clearance between the link sweep and the body interior
 
 
 def layout_eccentric(a) -> dict:
@@ -45,8 +47,8 @@ def layout_eccentric(a) -> dict:
     e = float(a.eccentricity)
     L = float(a.link_length)
     if L < 3.0 * e:
-        L = 3.0 * e                                        # 링크 기울기 ≤ 19.5도 보장
-    de = d + 2 * e + 4.0                                   # 편심 저널 지름(기본 축을 2 mm 살로 감쌈)
+        L = 3.0 * e                                        # Keeps link tilt ≤ 19.5 degrees
+    de = d + 2 * e + 4.0                                   # Eccentric journal diameter (wraps the base shaft with 2 mm of material)
     strap_R = de / 2.0 + 8.0
     ds = float(a.slider_d)
     gs = S.vpulley_groove(a.pulley_type, a.pulley_dp) if a.pulley_type != "none" else None
@@ -61,7 +63,7 @@ def layout_eccentric(a) -> dict:
     hub_gap = fb.head_height_mm + 2.0
     Wy = pcd + 14.0
 
-    # X 좌표
+    # X coordinates
     x = 0.0
     stub = ring.n + 0.5
     xg1 = x + stub
@@ -74,28 +76,28 @@ def layout_eccentric(a) -> dict:
         collar = (x_hub_end, xb1)
     else:
         xp0 = None
-        xb1 = stub + ring.m + SPIGOT + COVER_T          # 임시, 아래에서 왼쪽 재계산
+        xb1 = stub + ring.m + SPIGOT + COVER_T          # Temporary; left side recomputed below
         x_cov1_out = xb1 - SPIGOT - COVER_T
         x_w1_0 = x_cov1_out + COVER_T
         collar = None
         xg1 = xb1 - ring.m
         x = xg1 - stub
     x_w1_1 = xb1 + bs.B + LIP
-    collar_l = max(COLLAR_L, (ds + 10.0 - LINK_W) / 2.0)    # 본체 안 길이(2 collar + 링크 - 2 턱) ≥ 슬라이더 봉 Ø + 6
-    x_c2 = xb1 + bs.B                                      # 간격링(왼) 시작
-    xe0 = x_c2 + collar_l                                  # 편심 저널 왼면
+    collar_l = max(COLLAR_L, (ds + 10.0 - LINK_W) / 2.0)    # Body interior length (2 collars + link - 2 shoulders) ≥ slider rod Ø + 6
+    x_c2 = xb1 + bs.B                                      # Left spacer ring start
+    xe0 = x_c2 + collar_l                                  # Eccentric journal left face
     xe1 = xe0 + LINK_W
-    x_c3 = xe1                                             # 간격링(오른)
+    x_c3 = xe1                                             # Right spacer ring
     xb2 = xe1 + collar_l
     x_w2_0 = xb2 - LIP
     x_w2_1 = xb2 + bs.B + SPIGOT
     xg2 = xb2 + bs.B
     x_end = xg2 + ring.m + 1.0
     x_cov2_out = x_w2_1 + COVER_T
-    xe_c = (xe0 + xe1) / 2.0                               # 편심 저널 중심 = 링크, 슬라이더, 상부 커버 중심
+    xe_c = (xe0 + xe1) / 2.0                               # Eccentric journal center = link, slider and top cover center
 
     # Z, Y
-    orbit = e + strap_R                                    # 링크 스트랩 궤도 반지름
+    orbit = e + strap_R                                    # Link strap sweep radius
     z_axis = BASE_T + orbit + CLEAR
     if gs:
         z_axis = max(z_axis, gs.od / 2.0 + 3.0)
@@ -104,12 +106,12 @@ def layout_eccentric(a) -> dict:
     outer_half_y = inner_half_y + WALL_Y
     z_pin_min = z_axis - e + L                             # θ = 270
     z_pin_max = z_axis + e + L                             # θ = 90
-    z_cav_top = z_pin_max + TONGUE_H / 2.0 + 3.0           # 혀 윗면 + 여유 = 부시 바닥
-    z_top = z_cav_top + TOP_T                              # 본체 윗면
+    z_cav_top = z_pin_max + TONGUE_H / 2.0 + 3.0           # Tongue top + clearance = bushing bottom
+    z_top = z_cav_top + TOP_T                              # Body top face
     z_cover_top = z_top + TOPCOVER_T
     bush_z0 = z_cav_top
-    bush_z1 = z_cover_top                                  # 부시 몸통 = 윗벽 + 커버 두께 관통
-    rod_len = (bush_z1 + 8.0) - (z_pin_min + TONGUE_H / 2.0 - 2.0)   # 하사점에서도 부시 위로 8 mm 남게
+    bush_z1 = z_cover_top                                  # Bushing body passes through the top wall + cover thickness
+    rod_len = (bush_z1 + 8.0) - (z_pin_min + TONGUE_H / 2.0 - 2.0)   # Leaves 8 mm above the bushing even at bottom dead center
     base = (x_w1_0 - 8.0, x_w2_1 + 8.0, -(outer_half_y + 8.0), outer_half_y + 8.0)
     tc_w = min(TOPCOVER_W, (x_w2_1 - x_w1_0) - 2.0, 2 * outer_half_y - 2.0)
     return dict(tc_w=tc_w, collar_l=collar_l,
@@ -124,23 +126,23 @@ def layout_eccentric(a) -> dict:
     )
 
 
-# ── 기구학 ──────────────────────────────────────────────────────────
+# ── Kinematics ───────────────────────────────────────────────────
 def kinematics(L: dict, theta_deg: float) -> dict:
     e, Lk, z = L["e"], L["L"], L["z_axis"]
     t = math.radians(theta_deg)
-    yc, zc = e * math.cos(t), z + e * math.sin(t)          # 편심 저널 중심
-    phi = math.asin(max(-1.0, min(1.0, e * math.cos(t) / Lk)))   # 링크 기울기(핀 y = 0 이 되게)
+    yc, zc = e * math.cos(t), z + e * math.sin(t)          # Eccentric journal center
+    phi = math.asin(max(-1.0, min(1.0, e * math.cos(t) / Lk)))   # Link tilt (so the pin stays at y = 0)
     z_pin = zc + Lk * math.cos(phi)
     return {"yc": yc, "zc": zc, "phi_deg": math.degrees(phi), "z_pin": z_pin}
 
 
-# ── 부품 ────────────────────────────────────────────────────────────
+# ── Parts ─────────────────────────────────────────────────────────
 def _shaft(L: dict) -> Part:
     from build123d import Axis
     d, bs, ring, z = L["d"], L["bearing"], L["ring"], L["z_axis"]
     pts = [(L["x0"], 0.0), (L["x0"], d / 2.0), (L["x_end"], d / 2.0), (L["x_end"], 0.0)]
     s = Pos(0, 0, z) * revolve(Plane.XZ * Polygon(*pts, align=None), axis=Axis.X)
-    s = s + cyl_x(L["xe0"], L["xe1"], L["de"] / 2.0, L["e"], z)            # 편심 저널(θ=0: +Y 로 e)
+    s = s + cyl_x(L["xe0"], L["xe1"], L["de"] / 2.0, L["e"], z)            # Eccentric journal (θ=0: offset e toward +Y)
     for xg in (L["xg1"], L["xg2"]):
         s = s - ring_x(xg, xg + ring.m, d / 2.0 + 1.0, ring.d2 / 2.0, 0.0, z)
     if L["has_pulley"]:
@@ -150,23 +152,23 @@ def _shaft(L: dict) -> Part:
 
 
 def _link_local(L: dict) -> Part:
-    """링크(크랭크): 저널 보어 중심 = 원점, 막대 +Z, 두께 X. 윗끝에 핀 구멍과 슬라이더 홈(포크)."""
+    """Link (crank): journal bore center = origin, bar along +Z, thickness in X. Pin hole and slider slot (fork) at the top end."""
     de, R, Lk = L["de"], L["strap_R"], L["L"]
     strap = Rot(0, 90, 0) * Cylinder(radius=R, height=LINK_W)
     rod = Pos(0, 0, Lk / 2.0) * Box(LINK_W, ROD_W, Lk)
     boss = Pos(0, 0, Lk) * Rot(0, 90, 0) * Cylinder(radius=ROD_W / 2.0, height=LINK_W)
     body = strap + rod + boss
-    body = body - Rot(0, 90, 0) * Cylinder(radius=de / 2.0, height=LINK_W + 2)                        # 저널 보어(막대 융합 뒤에 뚫는다)
-    body = body - Pos(0, 0, Lk) * Rot(0, 90, 0) * Cylinder(radius=PIN_D / 2.0, height=LINK_W + 2)      # 핀 구멍
+    body = body - Rot(0, 90, 0) * Cylinder(radius=de / 2.0, height=LINK_W + 2)                        # Journal bore (cut after fusing the bar)
+    body = body - Pos(0, 0, Lk) * Rot(0, 90, 0) * Cylinder(radius=PIN_D / 2.0, height=LINK_W + 2)      # Pin hole
     slot_h = ROD_W / 2.0 + TONGUE_H / 2.0 + 2.0
-    body = body - Pos(0, 0, Lk - TONGUE_H / 2.0 + slot_h / 2.0) * Box(TONGUE_T + 0.4, ROD_W + 2, slot_h)   # 슬라이더 홈(포크)
+    body = body - Pos(0, 0, Lk - TONGUE_H / 2.0 + slot_h / 2.0) * Box(TONGUE_T + 0.4, ROD_W + 2, slot_h)   # Slider slot (fork)
     return body
 
 
 def _slider_local(L: dict) -> Part:
-    """슬라이더: 핀 중심 = 원점. 혀(8×24×30) + 위로 봉 Ø ds."""
+    """Slider: pin center = origin. Tongue (8×24×30) plus rod Ø ds upward."""
     ds = L["ds"]
-    # 혀 = 핀 둘레 둥근 눈(반지름 ROD_W/2) + 위쪽 네모: 링크가 기울어도 홈 바닥에 닿지 않는다(클레비스 눈)
+    # Tongue = round eye around the pin (radius ROD_W/2) + square top, so it clears the slot bottom when the link tilts (clevis eye)
     eye = Rot(0, 90, 0) * Cylinder(radius=ROD_W / 2.0, height=TONGUE_T)
     upper = Pos(0, 0, TONGUE_H / 4.0) * Box(TONGUE_T, ROD_W, TONGUE_H / 2.0)
     tongue = eye + upper
@@ -200,22 +202,22 @@ def _housing(L: dict) -> Part:
     ca, cb = L["x_w1_1"], L["x_w2_0"]
     cav_h = L["z_cav_top"] - BASE_T
     body = body - Pos((ca + cb) / 2.0, 0, BASE_T + cav_h / 2.0) * Box(cb - ca, 2 * ihy, cav_h)
-    # 베어링 구멍 + 턱
+    # Bearing bore + shoulder
     body = body - cyl_x(xa - 1, L["xb1"] + bs.B, bs.D / 2.0, 0.0, z)
     body = body - cyl_x(xa - 1, L["x_w1_1"] + 1, bs.Da_max / 2.0, 0.0, z)
     body = body - cyl_x(L["xb2"], xb + 1, bs.D / 2.0, 0.0, z)
     body = body - cyl_x(L["x_w2_0"] - 1, xb + 1, bs.Da_max / 2.0, 0.0, z)
-    # 윗벽: 부시 구멍 Ø(ds+2 wall) 관통 + 커버 끼움 Ø50 깊이 3
+    # Top wall: bushing hole Ø(ds+2 wall) through + cover spigot recess Ø50, depth 3
     bush_od = L["ds"] + 2 * BUSH_WALL
     xc = L["xe_c"]
     body = body - Pos(xc, 0, L["z_top"]) * Cylinder(radius=bush_od / 2.0, height=2 * TOP_T + 2)
     body = body - Pos(xc, 0, L["z_top"] - SPIGOT / 2.0 + 0.5) * Cylinder(radius=25.0, height=SPIGOT + 1.0)
     from ..fasteners.standards import resolve
     f = resolve(L["bolt"])[0]
-    for (yc, zc) in _cover_bolt_points(L):                 # 끝 커버 볼트 탭 구멍
+    for (yc, zc) in _cover_bolt_points(L):                 # End cover bolt tapped holes
         body = body - cyl_x(xa - 1, xa + 12.0, f.nominal_dia_mm / 2.0, yc, zc)
         body = body - cyl_x(xb - 12.0, xb + 1, f.nominal_dia_mm / 2.0, yc, zc)
-    for (px, py) in _top_bolt_points(L):                   # 상부 커버 볼트 탭 구멍
+    for (px, py) in _top_bolt_points(L):                   # Top cover bolt tapped holes
         body = body - Pos(px, py, L["z_top"] - 6.0 + 0.5) * Cylinder(radius=f.nominal_dia_mm / 2.0, height=13.0)
     for sx in (bx0 + 10.0, bx1 - 10.0):
         for sy in (by0 + 10.0, by1 - 10.0):
@@ -224,7 +226,7 @@ def _housing(L: dict) -> Part:
 
 
 def _top_bolt_points(L: dict):
-    xc = L["xe_c"]; o = L["tc_w"] / 2.0 - 7.0            # Ø50 끼움부 가장자리(r 25)에서 ≥ 3 mm 떨어지게
+    xc = L["xe_c"]; o = L["tc_w"] / 2.0 - 7.0            # At least 3 mm from the edge of the Ø50 spigot (r 25)
     return [(xc + sx * o, sy * o) for sx in (-1, 1) for sy in (-1, 1)]
 
 
@@ -270,7 +272,7 @@ def build_eccentric(a) -> Assembly:
     add("핀", place_pin(L, 0.0), f"Ø{PIN_D:g} × {LINK_W + 2:g}", 1, "SM45C", (1.5, 0, 1.0), "키")
     cb = L["collar_big"]; cl = L["collar_l"]
     for (xs, ex) in ((L["x_c2"], -1.0), (L["x_c3"], 1.0)):
-        if ex < 0:   # 베어링 쪽 Ø da min(3 mm) → 링크 쪽 Ø(de+4)
+        if ex < 0:   # Bearing side Ø da min (3 mm) → link side Ø(de+4)
             sp = ring_x(xs, xs + 3.0, dsh / 2.0, d / 2.0, 0.0, z) + ring_x(xs + 3.0 - 0.01, xs + cl, cb / 2.0, d / 2.0, 0.0, z)
         else:
             sp = ring_x(xs, xs + cl - 3.0 + 0.01, cb / 2.0, d / 2.0, 0.0, z) + ring_x(xs + cl - 3.0, xs + cl, dsh / 2.0, d / 2.0, 0.0, z)
@@ -321,7 +323,7 @@ def build_eccentric(a) -> Assembly:
 
     def motion(theta_deg: float) -> dict:
         out = {"링크(크랭크)": place_link(L, theta_deg, link_local), "슬라이더": place_slider(L, theta_deg, slider_local), "핀": place_pin(L, theta_deg)}
-        if shaft is not None:    # 축도 같이 돌려 저널 ↔ 스트랩 관계를 그 각도에서 본다
+        if shaft is not None:    # Rotate the shaft too, to see the journal/strap relationship at that angle
             out["편심축"] = Pos(0, 0, z) * Rot(theta_deg, 0, 0) * Pos(0, 0, -z) * shaft.solid
         return out
     asm.motion = motion

@@ -1,11 +1,12 @@
-"""임포트 메시(STL/OBJ/3MF 등) 대형 모델을 프린터 빌드볼륨에 맞춰 3D 그리드로 분할한다.
+"""Split large imported meshes (STL/OBJ/3MF etc.) into a 3D grid that fits the printer build volume.
 
-split.py(OCC 솔리드·단일축)와 달리 여기서는:
-- trimesh 메시를 직접 받아 X·Y·Z 어느 축이든 넘치는 만큼 n등분(그리드)한다.
-- 각 내부 절단면의 단면 중심(항상 살 안쪽)에 정렬핀(다월) 구멍을 내서 조립되게 한다.
-- 조각 각각이 빌드볼륨에 들어가는지, watertight 인지, 부피가 보존되는지 검증한다.
+Unlike split.py (OCC solids, single axis):
+- Takes a trimesh mesh directly and splits any of X, Y, Z into n parts (grid) as needed.
+- Puts alignment pin (dowel) holes at the section centroid of each inner cut plane (always inside
+  material) so the pieces assemble.
+- Verifies each piece fits the build volume, is watertight, and that volume is preserved.
 
-필요 패키지: trimesh, shapely, rtree, manifold3d(불리언).
+Requires: trimesh, shapely, rtree, manifold3d (booleans).
 """
 from __future__ import annotations
 import math
@@ -14,7 +15,7 @@ import trimesh
 
 
 def _clip(mesh, axis, lo, hi):
-    """axis 방향으로 [lo,hi] 슬래브만 남긴다(양쪽 면 캡)."""
+    """Keep only the [lo,hi] slab along axis (both faces capped)."""
     o = [0.0, 0.0, 0.0]; o[axis] = lo
     n = [0.0, 0.0, 0.0]; n[axis] = 1.0
     out = mesh.slice_plane(o, n, cap=True)
@@ -29,7 +30,7 @@ def _clip(mesh, axis, lo, hi):
 
 
 def _dowel_sites(mesh, axis, pos, max_pins=2):
-    """절단면(axis=pos)에서 핀을 박을 3D 좌표들. 단면 폴리곤의 대표점(항상 내부)."""
+    """3D points for pins on the cut plane (axis=pos): representative points of the section polygons (always inside)."""
     o = [0.0, 0.0, 0.0]; o[axis] = pos
     n = [0.0, 0.0, 0.0]; n[axis] = 1.0
     try:
@@ -42,7 +43,7 @@ def _dowel_sites(mesh, axis, pos, max_pins=2):
         return []
     sites = []
     for poly in polys[:max_pins]:
-        rp = poly.representative_point()        # 폴리곤 내부 보장
+        rp = poly.representative_point()        # guaranteed inside the polygon
         p3 = trimesh.transformations.transform_points([[rp.x, rp.y, 0.0]], to_3d)[0]
         p3[axis] = pos
         sites.append(p3)
@@ -62,14 +63,14 @@ def _pin_cyl(axis, center, dia, length):
 def grid_split(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
                target_max: float | None = None, dowel_dia: float = 6.0,
                clearance: float = 0.3, dowels: bool = True):
-    """대형 메시를 빌드볼륨 그리드로 분할.
+    """Split a large mesh into a build-volume grid.
 
-    return dict(fits, n(축별), pieces:[Trimesh], pins:[Trimesh], size, over, findings...)
+    return dict(fits, n (per axis), pieces:[Trimesh], pins:[Trimesh], size, over, findings...)
     """
     m = mesh.copy()
     if target_max:
         m.apply_scale(target_max / float(max(m.extents)))
-    m.apply_translation(-m.bounds[0])          # 양수 좌표
+    m.apply_translation(-m.bounds[0])          # positive coordinates
     size = tuple(float(x) for x in m.extents)
 
     n = [max(1, math.ceil(size[a] / build[a])) for a in range(3)]
@@ -80,23 +81,23 @@ def grid_split(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
     mn = m.bounds[0]
     edges = [[mn[a] + (size[a] / n[a]) * k for k in range(n[a] + 1)] for a in range(3)]
 
-    # 1) 다월 구멍: 분할 전 전체 메시에서 빼두면 각 조각이 반쪽씩 가진다
+    # 1) Dowel holes: subtract from the whole mesh before splitting so each piece gets half
     pins = []
     pin_len = max(dowel_dia * 4.0, 24.0)
     drilled = m
     if dowels and manifold_ok():
         for a in range(3):
-            for k in range(1, n[a]):                    # 내부 절단면만
+            for k in range(1, n[a]):                    # inner cut planes only
                 for site in _dowel_sites(m, a, edges[a][k]):
                     hole = _pin_cyl(a, site, dowel_dia + 2 * clearance, pin_len)
                     try:
                         drilled = drilled.difference(hole)
                     except Exception:
                         continue
-                    pin = _pin_cyl(a, site, dowel_dia, pin_len - 1.0)   # 끼울 핀(여유만큼 얇게)
+                    pin = _pin_cyl(a, site, dowel_dia, pin_len - 1.0)   # pin to insert (thinner by the clearance)
                     pins.append(pin)
 
-    # 2) 그리드 절단
+    # 2) Grid cut
     pieces = []
     for i in range(n[0]):
         for j in range(n[1]):
@@ -125,7 +126,7 @@ def manifold_ok() -> bool:
 
 
 def verify(result, build=(256.0, 256.0, 256.0)):
-    """조각 검증: 전부 빌드볼륨에 들어가나 / watertight / 부피 보존."""
+    """Verify pieces: all fit the build volume, watertight, volume preserved."""
     pieces = result["pieces"]
     rows = []
     allfit = True

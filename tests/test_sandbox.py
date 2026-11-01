@@ -1,4 +1,4 @@
-"""샌드박스 회귀 — 공격은 막히고 정상 build123d 코드는 돈다. (Meta API 미사용)"""
+"""Sandbox regression: attacks are blocked and normal build123d code runs. (No Meta API)"""
 import tempfile, pytest
 from realcad.agent import sandbox
 

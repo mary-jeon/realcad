@@ -1,13 +1,13 @@
-"""Chopper식 재귀 평면 분할 (Luo et al., SIGGRAPH Asia 2012 아이디어의 실용 축약판).
+"""Chopper-style recursive plane splitting (a practical reduction of Luo et al., SIGGRAPH Asia 2012).
 
-격자(mesh_split.grid_split)와 달리:
-- 넘치는 조각을 재귀로 '한 평면씩' 자른다(BSP).
-- 각 단계에서 후보 절단면을 여러 위치로 생성하고, "빌드볼륨 쪽으로 진행 + 절단 단면이
-  가장 좁은(=솔기가 자연스럽고 눈에 덜 띄는) 평면"을 고른다. → 머리/목/허리 같은 잘록한
-  곳에서 끊긴다.
-- 절단면 단면 중심에 다월 핀 구멍(+핀)으로 강도·정렬 보강.
+Unlike the grid (mesh_split.grid_split):
+- Oversized pieces are cut recursively, one plane at a time (BSP).
+- Each step generates candidate cut planes at several positions and picks the one that makes
+  progress toward the build volume with the narrowest cross-section (a less visible seam), so
+  cuts land at narrow spots like head, neck or waist.
+- Dowel pin holes (plus pins) at the section centroid add strength and alignment.
 
-반환 구조는 mesh_split 과 호환(verify() 그대로 사용).
+Return structure is compatible with mesh_split (verify() works as is).
 """
 from __future__ import annotations
 import math
@@ -18,7 +18,7 @@ from .mesh_split import _clip, _dowel_sites, _pin_cyl, manifold_ok
 
 
 def _section_area(mesh, axis, pos):
-    """절단면(axis=pos)의 단면 넓이(mm^2). 못 구하면 큰 값."""
+    """Cross-section area (mm^2) at the cut plane (axis=pos). Large value if it cannot be computed."""
     o = [0.0, 0.0, 0.0]; o[axis] = pos
     n = [0.0, 0.0, 0.0]; n[axis] = 1.0
     try:
@@ -36,7 +36,7 @@ def _fits(ext, build):
 
 
 def _candidates(p, build):
-    """진행 가능한 후보 평면 (axis, pos). 넘치는 축을 build 크기로 당겨 자르거나 중앙."""
+    """Candidate planes (axis, pos) that make progress: cut an oversized axis at build size, or at the center."""
     mn, mx = p.bounds[0], p.bounds[1]
     ext = p.extents
     out = []
@@ -53,7 +53,7 @@ def _candidates(p, build):
 def partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
               target_max: float | None = None, dowel_dia: float = 6.0,
               clearance: float = 0.3, dowels: bool = True, max_parts: int = 64):
-    """Chopper식 재귀 분할. return dict(fits,n_pieces,pieces,pins,size,cuts,orig_volume)."""
+    """Chopper-style recursive split. return dict(fits,n_pieces,pieces,pins,size,cuts,orig_volume)."""
     m = mesh.copy()
     if target_max:
         m.apply_scale(target_max / float(max(m.extents)))
@@ -79,9 +79,9 @@ def partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
             continue
         cands = _candidates(p, build)
         if not cands:
-            parts.append(p)       # 더 못 자르면 그대로(안전)
+            parts.append(p)       # cannot cut further: keep as is (safe)
             continue
-        # 솔기(단면 넓이) 최소 평면 선택 — 잘록한 곳에서 끊김
+        # Pick the plane with the smallest seam (section area): cuts at narrow spots
         best = None
         for a, pos in cands:
             area = _section_area(p, a, pos)
@@ -93,7 +93,7 @@ def partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
             parts.append(p); continue
         _area, a, pos = best
 
-        # 다월 구멍/핀 (분할 전 p 에서 빼서 양쪽이 반반씩)
+        # Dowel holes/pins (subtracted from p before splitting so each side gets half)
         drilled = p
         if use_dowel:
             for site in _dowel_sites(p, a, pos):
@@ -110,14 +110,14 @@ def partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
         for part in (A, B):
             if part is not None and len(part.faces) > 0:
                 stack.append(part)
-    parts.extend(stack)       # max_parts 도달 시 남은 것 포함
+    parts.extend(stack)       # include the rest when max_parts is reached
 
     return {"fits": False, "n_pieces": len(parts), "pieces": parts, "pins": pins,
             "size": size, "cuts": cuts, "orig_volume": orig_vol, "build": build}
 
 
 # ---------------------------------------------------------------------------
-# 의미 기반 분할: 잘록한 목(neck)에서 돌출부(꼬리·팔다리·머리)를 먼저 떼어냄
+# Semantic split: detach protrusions (tail, limbs, head) at narrow necks first
 # ---------------------------------------------------------------------------
 
 def _area_profile(mesh, axis, n=48):
@@ -127,9 +127,9 @@ def _area_profile(mesh, axis, n=48):
 
 
 def _best_neck(mesh, min_frac=0.03, max_frac=0.4, deep=0.28):
-    """가장 잘록한 '목' (axis,pos,area). 없으면 None.
-    - 단면적이 그 축 중앙값의 deep 배 미만인 국소 최소
-    - 그 위치에서 자르면 작은 쪽 부피가 전체의 min_frac~max_frac (=돌출부)
+    """Narrowest 'neck' (axis, pos, area), or None.
+    - a local minimum whose section area is below deep times the axis median
+    - cutting there leaves the smaller side between min_frac and max_frac of the total volume (a protrusion)
     """
     vol = float(mesh.volume) or 1.0
     best = None
@@ -142,9 +142,9 @@ def _best_neck(mesh, min_frac=0.03, max_frac=0.4, deep=0.28):
         for i in range(1, len(ar) - 1):
             if not math.isfinite(ar[i]):
                 continue
-            if ar[i] >= ar[i - 1] or ar[i] > ar[i + 1]:   # 국소 최소
+            if ar[i] >= ar[i - 1] or ar[i] > ar[i + 1]:   # local minimum
                 continue
-            if ar[i] > deep * med:                         # 충분히 잘록?
+            if ar[i] > deep * med:                         # narrow enough?
                 continue
             lo = _clip(mesh, a, mesh.bounds[0][a], float(xs[i]))
             if lo is None:
@@ -161,8 +161,8 @@ def _best_neck(mesh, min_frac=0.03, max_frac=0.4, deep=0.28):
 def smart_partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
                     target_max: float | None = None, dowel_dia: float = 6.0,
                     clearance: float = 0.3, dowels: bool = True, max_necks: int = 8):
-    """1단계: 잘록한 목에서 돌출부 선분리 → 2단계: 남은 조각 크기분할(chopper).
-    cuts 에 kind='neck'|'size' 표기."""
+    """Stage 1: detach protrusions at narrow necks. Stage 2: size-split the remaining pieces (chopper).
+    cuts are tagged kind='neck'|'size'."""
     m = mesh.copy()
     if target_max:
         m.apply_scale(target_max / float(max(m.extents)))
@@ -187,7 +187,7 @@ def smart_partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
                 pins.append(_pin_cyl(a, site, dowel_dia, pin_len - 1.0))
         return d
 
-    # 1단계: 몸통에서 돌출부(작은 쪽)만 하나씩 떼어낸다. 몸통은 보존(과분할 방지).
+    # Stage 1: detach protrusions (the smaller side) from the body one at a time. Keep the body (avoid oversplitting).
     body = m
     appendages = []
     for _ in range(max_necks):
@@ -207,7 +207,7 @@ def smart_partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
         cuts.append({"kind": "neck", "axis": "XYZ"[a], "pos": round(pos, 1), "seam_mm2": round(area, 0)})
     phase1 = appendages + [body]
 
-    # 2단계: 아직 큰 조각만 크기분할. 끝나고도 넘치면 격자로 강제 분할(안전).
+    # Stage 2: size-split only pieces that are still too big. If still oversized, force a grid split (safe).
     from .mesh_split import grid_split
     pieces = []
     for p in phase1:
@@ -221,7 +221,7 @@ def smart_partition(mesh: trimesh.Trimesh, build=(256.0, 256.0, 256.0),
         for q in sub["pieces"]:
             if _fits(q.extents, build):
                 pieces.append(q)
-            else:                                   # 그래도 넘치면 격자
+            else:                                   # still oversized: grid
                 g = grid_split(q, build=build, dowels=dowels, dowel_dia=dowel_dia, clearance=clearance)
                 pieces.extend(g["pieces"]); pins.extend(g.get("pins", []))
 

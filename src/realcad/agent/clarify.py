@@ -1,4 +1,4 @@
-"""역질문 — 비전문가가 빠뜨린 '꼭 필요한' 정보만 되묻는다(ProCAD식). Meta 호출."""
+"""Clarifying questions: ask only for the essential details a non-expert left out. Calls the Meta model."""
 from __future__ import annotations
 from .meta_client import chat
 from .planner import _extract_json
@@ -15,8 +15,8 @@ features, "what goes inside") — the designer picks reasonable defaults for tho
 
 If the request is an organic / freeform / sculpted shape that this tool cannot build from
 parametric primitives (a computer mouse, a shoe, a figurine, an animal, a helmet, a handle
-grip, a character, a vehicle body, etc.), return an EMPTY list — it is handled elsewhere by
-3D-model retrieval, not by questions.
+grip, a character, a vehicle body, etc.), return an EMPTY list — the code path builds it
+without questions.
 
 Ask in Korean, short and plain, with a sensible suggested default. Return JSON only:
 {"questions": [{"key": "size", "question": "...", "suggestion": "..."}]}"""
@@ -34,7 +34,7 @@ def clarify(prompt: str) -> tuple[list[dict], dict]:
 
 
 def augment(prompt: str, answers: dict | None) -> str:
-    """사용자 답을 프롬프트에 붙여 planner 가 쓰게 한다."""
+    """Append the user's answers to the prompt for the planner to use."""
     if not answers:
         return prompt
     lines = [f"- {k}: {v}" for k, v in answers.items() if str(v).strip()]

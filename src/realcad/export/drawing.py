@@ -1,16 +1,16 @@
-"""치수 기입된 2D 도면 DXF — AutoCAD 사용자가 바로 여는 '제작 도면'.
+"""Dimensioned 2D drawing DXF that AutoCAD users can open as a shop drawing.
 
-커뮤니티 니즈(Autodesk 포럼 "Fusion already knows the dimensions", "I always miss something"):
-3D 가 아는 치수를 자동으로 도면에 적는다. 단위 mm 를 헤더($INSUNITS=4)에 명시해 10배 축소 사고를 막는다.
-계약(plate) 경로는 치수를 정확히 알므로 전체 L×W·두께·구멍 지름·구멍 위치·체결 규격을 기입하고,
-그 외는 윤곽(+구멍)과 전체 크기만 기입한다.
+Writes the dimensions the 3D model already knows onto the drawing. Units are declared as mm in
+the header ($INSUNITS=4) to avoid 10x scale mistakes. The contract (plate) path knows exact
+dimensions, so it adds overall L x W, thickness, hole diameters, hole positions and fastener
+spec; other parts get the outline (plus holes) and overall size only.
 """
 from __future__ import annotations
 from pathlib import Path
 
 
 def _outline_entities(part, z: float):
-    """수평 단면 → (outer wires, inner wires) 의 점 목록(mm). build123d 와이어를 폴리라인 점으로."""
+    """Horizontal section -> point lists (mm) for (outer wires, inner wires). Converts build123d wires to polyline points."""
     from build123d import Plane, section, Pos
     sec = section(part, section_by=Plane.XY.offset(z), height=0.0)
     sec = Pos(0, 0, -z) * sec
@@ -34,7 +34,7 @@ def _wire_pts(w, n: int = 120):
 
 
 def _circle_of(wire):
-    """와이어가 원이면 (cx, cy, d) 아니면 None."""
+    """(cx, cy, d) if the wire is a circle, else None."""
     try:
         from OCP.BRepAdaptor import BRepAdaptor_Curve
         edges = wire.edges()
@@ -49,7 +49,7 @@ def _circle_of(wire):
 
 def write_drawing(part, path: str | Path, z: float | None = None, contract=None, fastener=None,
                   title: str = "RealCAD") -> Path | None:
-    """치수 기입 DXF. 실패해도 None 만 돌려주고 예외를 올리지 않는다."""
+    """Dimensioned DXF. Returns None on failure instead of raising."""
     try:
         import ezdxf
         from ezdxf.enums import TextEntityAlignment
@@ -60,7 +60,7 @@ def write_drawing(part, path: str | Path, z: float | None = None, contract=None,
         if not outs:
             return None
         doc = ezdxf.new("R2010", setup=True)
-        doc.header["$INSUNITS"] = 4            # 4 = millimeters (AutoCAD 단위 사고 방지)
+        doc.header["$INSUNITS"] = 4            # 4 = millimeters (avoids AutoCAD unit mistakes)
         doc.header["$MEASUREMENT"] = 1         # metric
         doc.layers.add("OUTLINE", color=7); doc.layers.add("HOLES", color=1)
         doc.layers.add("DIM", color=3); doc.layers.add("NOTES", color=4)
@@ -74,20 +74,20 @@ def write_drawing(part, path: str | Path, z: float | None = None, contract=None,
                 msp.add_circle((c[0], c[1]), c[2] / 2, dxfattribs={"layer": "HOLES"}); holes.append(c)
             else:
                 msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": "HOLES"})
-        # 전체 치수(바운딩) — 아래/왼쪽
+        # Overall (bounding) dimensions: bottom and left
         xmin, xmax = min(p[0] for o in outs for p in o), max(p[0] for o in outs for p in o)
         ymin, ymax = min(p[1] for o in outs for p in o), max(p[1] for o in outs for p in o)
         off = max(8.0, 0.08 * max(xmax - xmin, ymax - ymin))
         d1 = msp.add_linear_dim(base=(xmin, ymin - off), p1=(xmin, ymin), p2=(xmax, ymin), dxfattribs={"layer": "DIM"}); d1.render()
         d2 = msp.add_linear_dim(base=(xmin - off, ymin), p1=(xmin, ymin), p2=(xmin, ymax), angle=90, dxfattribs={"layer": "DIM"}); d2.render()
-        # 구멍 치수: 지름 + 위치(좌하단 기준)
+        # Hole dimensions: diameter + position (from lower left)
         for i, (cx, cy, d) in enumerate(sorted(holes)):
             dd = msp.add_diameter_dim(center=(cx, cy), radius=d / 2, angle=45, dxfattribs={"layer": "DIM"}); dd.render()
-            if i < 4:                                        # 위치 치수는 4개까지(도면 과밀 방지)
+            if i < 4:                                        # At most 4 position dimensions (avoid clutter)
                 k = off * (1.6 + 0.5 * i)
                 dx = msp.add_linear_dim(base=(xmin, ymax + k), p1=(xmin, ymax), p2=(cx, ymax), dxfattribs={"layer": "DIM"}); dx.render()
                 dy = msp.add_linear_dim(base=(xmax + k, ymin), p1=(xmax, ymin), p2=(xmax, cy), angle=90, dxfattribs={"layer": "DIM"}); dy.render()
-        # 노트 블록
+        # Notes block
         notes = [f"{title}  (units: mm, scale 1:1)", f"OVERALL {xmax - xmin:.2f} x {ymax - ymin:.2f} x {bb.size.Z:.2f} mm"]
         if contract is not None and getattr(contract, "kind", "") == "plate" and fastener is not None:
             f = fastener; c = contract

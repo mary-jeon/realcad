@@ -1,11 +1,11 @@
-"""설계 계약(DesignContract) — 메타(Muse Spark)가 자연어 요구를 이걸로 번역한다.
-우리 커널은 이 계약만 신뢰해 부품을 만들고 검증한다(모델이 뱉은 코드를 직접 exec 안 함).
+"""Design contract (DesignContract): Meta (Muse Spark) translates natural-language requests into this.
+The kernel trusts only this contract to build and verify parts (it never execs model-generated code).
 
-kind: plate(판/브래킷+볼트구멍) · container(통/컵/박스, 벽+바닥) · gear(스퍼 기어)
-    · enclosure(보드 케이스) · profile(평면 커스텀 실루엣 돌출) · clamp(봉 무는 C클립)
-    · ball(속 빈 구 쉘, 달 조명)
-    · assembly(조립: power_train 동력전달장치, eccentric_slider 편심왕복장치. 규격표로 치수 유도)
-    · retrieve(파라메트릭 기본형으로 못 만드는 유기적 자유곡면 — 외부 3D 라이브러리 검색으로 넘김).
+kind: plate (plate/bracket + bolt holes), container (tub/cup/box, walls + floor), gear (spur gear),
+    enclosure (board case), profile (custom flat silhouette extrusion), clamp (C-clip that grips a rod),
+    ball (hollow sphere shell, moon lamp),
+    assembly (power_train power transmission, eccentric_slider eccentric reciprocating mechanism; dimensions from standards tables),
+    retrieve (organic freeform shapes parametric primitives cannot make; handed off to an external 3D library search).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -34,13 +34,13 @@ class Hole:
 @dataclass
 class Container:
     shape: str = "round"          # "round" | "box"
-    outer_d: float = 60.0         # round 바깥지름
-    length: float = 60.0          # box 가로
-    width: float = 60.0           # box 세로
+    outer_d: float = 60.0         # round: outer diameter
+    length: float = 60.0          # box: length
+    width: float = 60.0           # box: width
     height: float = 90.0
     wall: float = 2.4
     base: float = 2.4
-    dividers: int = 0             # 내부 칸막이 개수(0=없음)
+    dividers: int = 0             # Number of internal dividers (0 = none)
 
 
 @dataclass
@@ -48,108 +48,108 @@ class Gear:
     teeth: int = 20
     module: float = 2.0
     thickness: float = 6.0
-    bore: float = 6.0             # 가운데 축 구멍 지름
+    bore: float = 6.0             # Center bore diameter
 
 
 @dataclass
 class Enclosure:
-    board: str = "raspberry_pi_4"   # 보드 프리셋
-    clearance: float = 2.0          # 보드 가장자리 ↔ 안쪽 벽
+    board: str = "raspberry_pi_4"   # Board preset
+    clearance: float = 2.0          # Board edge to inner wall
     wall: float = 2.0
     base: float = 2.0
-    standoff_h: float = 4.0         # 바닥에서 보드를 띄우는 기둥 높이
-    inner_h: float = 22.0           # 보드 위 부품 공간
-    open_ports: bool = True         # 포트 쪽(긴 벽) 열기
-    board_l: float = 0.0            # board="custom" 일 때 보드 길이
-    board_w: float = 0.0            # board="custom" 일 때 보드 폭
-    board_holes: list = field(default_factory=list)   # custom: [[x,y],...] 보드 왼쪽아래 원점 mm
-    board_screw: str = "M3"         # custom: 기둥 나사
+    standoff_h: float = 4.0         # Standoff height lifting the board off the floor
+    inner_h: float = 22.0           # Component space above the board
+    open_ports: bool = True         # Open the port side (long wall)
+    board_l: float = 0.0            # Board length when board="custom"
+    board_w: float = 0.0            # Board width when board="custom"
+    board_holes: list = field(default_factory=list)   # custom: [[x,y],...] in mm, origin at the board lower-left corner
+    board_screw: str = "M3"         # custom: standoff screw
 
 
 @dataclass
 class Profile:
-    """평면 윤곽을 두께만큼 돌출한 부품(코스터·로고 태그류)."""
+    """Part made by extruding a flat outline by a thickness (coasters, logo tags, etc.)."""
     shape: str = "asterisk"       # asterisk | star | disc | polygon | rounded_rect
-    outer_d: float = 100.0        # 바깥지름/크기(mm)
+    outer_d: float = 100.0        # Outer diameter/size (mm)
     thickness: float = 5.0
-    arms: int = 6                 # asterisk 갈래 수
-    points: int = 6               # star 꼭짓점 수 / polygon 변 수
-    arm_width: float = 0.0        # asterisk 막대 폭(0=자동 outer_d*0.12)
-    corner_radius: float = 0.0    # rounded_rect 모서리 R(0=자동 outer_d*0.1)
+    arms: int = 6                 # Number of asterisk arms
+    points: int = 6               # Star points / polygon sides
+    arm_width: float = 0.0        # Asterisk bar width (0 = auto outer_d*0.12)
+    corner_radius: float = 0.0    # rounded_rect corner radius (0 = auto outer_d*0.1)
 
 
 @dataclass
 class Clamp:
-    """봉(원통)을 무는 C자 클립 + 선택적 부착물."""
-    rod_d: float = 16.0           # 무는 봉 지름
-    clearance: float = 0.3        # 봉과 틈
-    wall: float = 3.0             # 클립 살두께
-    gap_deg: float = 120.0        # 입 벌어진 각도(끼울 수 있게)
-    height: float = 20.0          # 클립 높이
+    """C-shaped clip that grips a rod (cylinder), plus an optional attachment."""
+    rod_d: float = 16.0           # Gripped rod diameter
+    clearance: float = 0.3        # Gap to the rod
+    wall: float = 3.0             # Clip wall thickness
+    gap_deg: float = 120.0        # Mouth opening angle (so it can snap on)
+    height: float = 20.0          # Clip height
     attach: str = "none"          # none | pocket | plate
-    pocket_w: float = 80.0        # pocket: 폭(Y)
-    pocket_d: float = 15.0        # pocket: 깊이(X, 돌출)
-    pocket_h: float = 100.0       # pocket: 높이(Z)
-    tab_l: float = 30.0           # plate: 탭 길이(X, 돌출)
-    tab_w: float = 20.0           # plate: 탭 폭(Y)
-    tab_t: float = 4.0            # plate: 탭 두께(Z)
+    pocket_w: float = 80.0        # pocket: width (Y)
+    pocket_d: float = 15.0        # pocket: depth (X, protrusion)
+    pocket_h: float = 100.0       # pocket: height (Z)
+    tab_l: float = 30.0           # plate: tab length (X, protrusion)
+    tab_w: float = 20.0           # plate: tab width (Y)
+    tab_t: float = 4.0            # plate: tab thickness (Z)
 
 
 @dataclass
 class Ball:
-    """속 빈 구 쉘(달 조명) — 바닥에 전구 소켓 구멍."""
-    outer_d: float = 150.0        # 구 지름
-    wall: float = 2.0             # 껍데기 두께(슬라이서가 비움)
-    socket_d: float = 30.0        # 바닥 소켓 구멍 지름(0=구멍 없음)
-    socket_h: float = 0.0         # 소켓 구멍 깊이(0=자동 wall+3)
+    """Hollow sphere shell (moon lamp) with a bulb socket hole in the bottom."""
+    outer_d: float = 150.0        # Sphere diameter
+    wall: float = 2.0             # Shell thickness (the slicer hollows it)
+    socket_d: float = 30.0        # Bottom socket hole diameter (0 = no hole)
+    socket_h: float = 0.0         # Socket hole depth (0 = auto wall+3)
 
 
 @dataclass
 class Assembly:
-    """동력전달장치(power_train) 조립. 결정 입력 4개(베어링 호칭, 기어 m·z, 풀리 형·피치지름, 피니언 잇수)에서
-    나머지 치수는 KS 규격표(mech/standards.py)로 유도한다. 메이트 M1~M9 는 빌더가 좌표로 고정한다."""
+    """Power transmission (power_train) assembly. The remaining dimensions are derived from a few key inputs (bearing size, gear m and z,
+    pulley type and pitch diameter, pinion tooth count) via the KS tables (mech/standards.py). The builder fixes mates M1 to M9 by coordinates."""
     preset: str = "power_train"
-    bearing: str = "6204"         # 깊은 홈 볼베어링 호칭 → 축 베어링 자리 지름 = 내경
-    shaft_d: float = 0.0          # 0 이면 베어링 내경
+    bearing: str = "6204"         # Deep groove ball bearing size → shaft bearing seat diameter = bore
+    shaft_d: float = 0.0          # 0 means the bearing bore
     gear_module: float = 2.0
     gear_teeth: int = 30
-    gear_width: float = 0.0       # 0 이면 10m
-    pinion_teeth: int = 0         # 0 이면 피니언(두번째 축) 없음
-    pulley_type: str = "A"        # V벨트 형 A B C D, "none" 이면 풀리 없음
-    pulley_dp: float = 100.0      # 풀리 피치(호칭) 지름
+    gear_width: float = 0.0       # 0 means 10m
+    pinion_teeth: int = 0         # 0 means no pinion (second shaft)
+    pulley_type: str = "A"        # V-belt type A B C D, "none" for no pulley
+    pulley_dp: float = 100.0      # Pulley pitch (nominal) diameter
     pulley_grooves: int = 1
-    pulley_hub_w: float = 0.0     # 0 이면 자동(홈 수·축 지름)
+    pulley_hub_w: float = 0.0     # 0 means auto (groove count, shaft diameter)
     housing: bool = True
     covers: bool = True
     bolts: bool = True
     oil_seal: bool = True
-    rings: bool = True            # 멈춤링
-    exploded: float = 0.0         # 분해도 간격(mm), 0 = 조립 상태
-    # preset "eccentric_slider"(편심왕복장치) 전용
-    eccentricity: float = 8.0     # 편심량 e (행정 = 2e)
-    link_length: float = 50.0     # 링크 중심 간 길이(편심 저널 중심 ↔ 핀)
-    slider_d: float = 20.0        # 슬라이더 봉 지름(= 가이드부시 보어)
-    # preset "drill_jig"(드릴지그) 전용: 공작물과 구멍 패턴
+    rings: bool = True            # Retaining ring
+    exploded: float = 0.0         # Exploded view gap (mm), 0 = assembled
+    # Only for preset "eccentric_slider" (eccentric reciprocating mechanism)
+    eccentricity: float = 8.0     # Eccentricity e (stroke = 2e)
+    link_length: float = 50.0     # Link center distance (eccentric journal center to pin)
+    slider_d: float = 20.0        # Slider rod diameter (= guide bushing bore)
+    # Only for preset "drill_jig": workpiece and hole pattern
     work_l: float = 80.0
     work_w: float = 50.0
     work_t: float = 15.0
     drill_d: float = 10.0
-    holes: list = field(default_factory=lambda: [[-20.0, 0.0], [20.0, 0.0]])   # 공작물 중심 기준 (x, y)
-    # preset "vise"(탁상 바이스) 전용
-    jaw_w: float = 80.0           # 조 폭(Y)
-    open_max: float = 60.0        # 최대 벌림
-    screw_d: float = 16.0         # 리드나사 호칭 지름
-    # preset "cam_clamp"(캠 클램프) 전용
-    work_d: float = 30.0          # 원통 공작물 지름
-    cam_lift: float = 4.0         # 캠 편심(리프트)
+    holes: list = field(default_factory=lambda: [[-20.0, 0.0], [20.0, 0.0]])   # (x, y) relative to the workpiece center
+    # Only for preset "vise" (bench vise)
+    jaw_w: float = 80.0           # Jaw width (Y)
+    open_max: float = 60.0        # Maximum opening
+    screw_d: float = 16.0         # Lead screw nominal diameter
+    # Only for preset "cam_clamp"
+    work_d: float = 30.0          # Cylindrical workpiece diameter
+    cam_lift: float = 4.0         # Cam eccentricity (lift)
 
 
 @dataclass
 class Retrieve:
-    """파라메트릭 기본형으로 표현 불가 → 외부 3D 모델 라이브러리에서 검색해 불러온다."""
-    query: str = ""               # 외부 라이브러리 검색어(영문)
-    note: str = ""                # 왜 파라메트릭 생성이 불가한지 한 줄
-    parts: list = field(default_factory=list)   # 복합물을 부품 분해 요청 시: [{name, query}]
+    """Cannot be expressed with parametric primitives, so search and import from an external 3D model library."""
+    query: str = ""               # External library search query (English)
+    note: str = ""                # One line on why parametric generation is impossible
+    parts: list = field(default_factory=list)   # When asked to split a compound object into parts: [{name, query}]
 
 
 @dataclass
@@ -158,14 +158,14 @@ class DesignContract:
     plate: Plate | None = None
     fastener: str = "1/4-20"
     fit: str = "normal"
-    hole_dia: float | None = None      # 명시 구멍 지름(mm). None 이면 규격 공차구멍. 커널이 H2 로 실측 검증
-    hole_type: str = "through"         # through(관통+너트) | tapped(판에 직접 나사) | insert(히트세트 인서트) 
-    hole_style: str = "plain"          # plain | counterbore(머리 묻힘) | countersink(접시머리)
-    hole_comp: float = 0.2             # FDM 구멍 수축 보정(mm, 지름에 더함). 커뮤니티 실측 0.1~0.3 작게 나옴. 0 이면 보정 없음
-    material: str = "pla"              # 판 재질: pla/petg/abs/plastic(k=2.0) aluminum(1.5) brass(1.3) steel(1.0)
-    mate_thickness: float = 0.0        # 관통 체결 시 상대 부재 두께(mm). 볼트 길이 산정용(0=모름→판 두께만)
-    washer: bool = False               # 평와셔 포함(길이 산정)
-    nut: bool = True                   # 관통이면 너트 포함(길이 산정)
+    hole_dia: float | None = None      # Explicit hole diameter (mm). None means a standard clearance hole. The kernel verifies it by measurement (H2)
+    hole_type: str = "through"         # through (through + nut) | tapped (threads directly in the plate) | insert (heat-set insert)
+    hole_style: str = "plain"          # plain | counterbore (recessed head) | countersink (flat head)
+    hole_comp: float = 0.2             # FDM hole shrink compensation (mm, added to the diameter). Community measurements show holes 0.1 to 0.3 undersize. 0 means none
+    material: str = "pla"              # Plate material: pla/petg/abs/plastic(k=2.0) aluminum(1.5) brass(1.3) steel(1.0)
+    mate_thickness: float = 0.0        # Mating part thickness for through fastening (mm), for bolt length (0 = unknown, plate thickness only)
+    washer: bool = False               # Include a flat washer (for length)
+    nut: bool = True                   # Include a nut for through fastening (for length)
     wall: Wall | None = None
     holes: list[Hole] = field(default_factory=list)
     container: Container | None = None
@@ -176,12 +176,12 @@ class DesignContract:
     ball: Ball | None = None
     assembly: Assembly | None = None
     retrieve: Retrieve | None = None
-    fastener_exact: bool = True        # builder 가 채움: 요청 규격을 정확히 보유했는가
-    fastener_note: str = ""            # 미보유 시 치환 설명(F0 메시지)
+    fastener_exact: bool = True        # Set by the builder: whether the requested spec exists exactly
+    fastener_note: str = ""            # Substitution note when missing (F0 message)
 
     @classmethod
     def from_dict(cls, d: dict) -> "DesignContract":
-        """LLM/사용자 입력 dict → 계약. 수치는 _sanitize 로 안전 범위에 가둔다(DoS·OCC 폭주 방지)."""
+        """LLM/user input dict → contract. Numbers are clamped to safe ranges by _sanitize (prevents DoS and OCC blowups)."""
         return _sanitize(cls._from_dict_raw(d))
 
     @classmethod
@@ -277,7 +277,7 @@ class DesignContract:
             return cls(kind="ball", ball=Ball(
                 outer_d=float(bd.get("outer_d", 150)), wall=float(bd.get("wall", 2)),
                 socket_d=float(bd.get("socket_d", 30)), socket_h=float(bd.get("socket_h", 0))))
-        # plate / bracket (기본)
+        # plate / bracket (default)
         p = d["plate"]; w = d.get("wall")
         return cls(
             kind="plate",
@@ -361,8 +361,8 @@ class DesignContract:
         }
 
 
-# ── 입력 범위 가드 ──────────────────────────────────────────────
-MAX_DIM_MM = 1000.0        # 한 변 최대(일반 프린터 빌드볼륨의 수 배)
+# ── Input range guards ────────────────────────────────────
+MAX_DIM_MM = 1000.0        # Max side length (several times a typical printer build volume)
 MIN_DIM_MM = 0.2
 _INT_LIMITS = {"teeth": (4, 200), "dividers": (0, 50), "arms": (2, 64), "points": (3, 64),
                "gear_teeth": (8, 200), "pinion_teeth": (0, 200), "pulley_grooves": (1, 6)}
@@ -380,7 +380,7 @@ def _clampf(v, lo=MIN_DIM_MM, hi=MAX_DIM_MM):
 
 
 def _sanitize(c: "DesignContract") -> "DesignContract":
-    """음수·NaN·10^6 같은 값으로 커널이 멈추지 않게 모든 수치를 가둔다."""
+    """Clamp every number so values like negatives, NaN or 10^6 cannot hang the kernel."""
     for obj in (c.plate, c.wall, c.container, c.gear, c.enclosure, c.profile, c.clamp, c.ball, c.assembly):
         if obj is None:
             continue
@@ -398,13 +398,13 @@ def _sanitize(c: "DesignContract") -> "DesignContract":
                 setattr(obj, k, _clampf(v, 10.0, 300.0))
             elif k in ("clearance", "socket_h", "arm_width", "corner_radius", "socket_d"):
                 setattr(obj, k, _clampf(v, 0.0, MAX_DIM_MM))
-            elif obj is c.wall and k == "x":                 # 벽 위치는 음수 가능(판 중심 기준)
+            elif obj is c.wall and k == "x":                 # Wall position may be negative (relative to the plate center)
                 setattr(obj, k, _clampf(v, -MAX_DIM_MM, MAX_DIM_MM))
             elif isinstance(v, (int, float)):
                 setattr(obj, k, _clampf(v))
     if c.assembly is not None:
         a = c.assembly
-        # 0 = 자동 인 필드는 일반 루프가 0.2 로 올려놓으므로 되돌린다
+        # Fields where 0 means auto were raised to 0.2 by the generic loop, so restore them
         a.shaft_d = 0.0 if a.shaft_d < 5.0 else _clampf(a.shaft_d, 5.0, 75.0)
         a.gear_module = _clampf(a.gear_module, 0.5, 10.0)
         a.gear_width = 0.0 if a.gear_width < 1.0 else _clampf(a.gear_width, 1.0, 200.0)

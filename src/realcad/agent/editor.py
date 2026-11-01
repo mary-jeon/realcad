@@ -1,13 +1,13 @@
-"""대화형 편집 — 이미 만든 설계를 후속 지시로 '수정'한다(전체 재생성 아님).
+"""Conversational editing: modify an existing design with a follow-up instruction (not a full regeneration).
 
-Phase 0 (프롬프트캐드 로드맵). 두 경로 모두 지원:
-  - 파라메트릭 경로: 현재 DesignContract(JSON)를 받아 바뀐 필드만 고친 새 계약을 낸다.
-    (예: "텀블러 만들어줘" → "더 크게, 뚜껑 빼줘")
-  - 코드 경로(AnyCAD): 현재 build123d 코드를 받아 최소 수정한 새 코드를 낸다.
-    (예: "리모컨 만들어줘" → "버튼 5개 추가해줘")
+Two paths:
+  - Parametric: take the current DesignContract (JSON) and return a new contract with only the changed fields.
+    (e.g. "make a tumbler" -> "make it bigger, remove the lid")
+  - Code (AnyCAD): take the current build123d code and return minimally edited code.
+    (e.g. "make a remote" -> "add 5 buttons")
 
-핵심 원칙(연구 §7.1-3): LLM이 밑바닥부터 다시 그리지 않고 **현재 상태를 시드로** 받아
-필요한 부분만 바꾸게 한다. 바뀐 것은 diff 로 뽑아 사용자에게 보고한다.
+Key idea: the LLM does not redraw from scratch; it gets the current state as a seed
+and changes only what is needed. Changes are extracted as a diff and reported to the user.
 """
 from __future__ import annotations
 import json
@@ -18,7 +18,7 @@ from ..contract.schema import DesignContract
 from ..agent.planner import SYSTEM as PLAN_SYSTEM, _extract_json
 
 
-# ──────────────────────────── 파라메트릭 계약 편집 ────────────────────────────
+# ──────────────────────────── Parametric contract editing ────────────────────────────
 
 _CONTRACT_EDIT = """You are editing an EXISTING design, not creating a new one.
 
@@ -34,7 +34,7 @@ another kind. Output the COMPLETE updated contract JSON (same schema as above), 
 
 
 def edit_contract(prior: dict, instruction: str) -> tuple[DesignContract, dict, str]:
-    """현재 계약(dict) + 수정 지시 → 새 DesignContract. 바꾸라는 것만 바꾸게 유도."""
+    """Current contract (dict) + edit instruction -> new DesignContract, changing only what was asked."""
     content, usage = chat(
         [{"role": "system", "content": PLAN_SYSTEM},
          {"role": "user", "content": _CONTRACT_EDIT.format(
@@ -45,7 +45,7 @@ def edit_contract(prior: dict, instruction: str) -> tuple[DesignContract, dict, 
 
 
 def _flatten(d: dict) -> dict:
-    """계약 dict → {필드경로: 값}. kind 하위 1단계까지 펼친다(비교·diff용)."""
+    """Contract dict -> {field path: value}, flattened one level below kind (for comparison and diff)."""
     out = {"kind": d.get("kind")}
     for k, v in d.items():
         if k == "kind":
@@ -54,14 +54,14 @@ def _flatten(d: dict) -> dict:
             for kk, vv in v.items():
                 out[f"{k}.{kk}"] = vv
         elif isinstance(v, list):
-            out[k] = f"[{len(v)}]"          # 리스트는 개수로(구멍 개수 등)
+            out[k] = f"[{len(v)}]"          # lists compare by count (e.g. number of holes)
         else:
             out[k] = v
     return out
 
 
 def diff_contract(old: dict, new: dict) -> list[dict]:
-    """두 계약의 바뀐 필드만 '사람이 읽는' 목록으로. [{field, from, to}]"""
+    """Changed fields between two contracts as a human-readable list: [{field, from, to}]."""
     fo, fn = _flatten(old), _flatten(new)
     changes = []
     for key in sorted(set(fo) | set(fn)):
@@ -71,7 +71,7 @@ def diff_contract(old: dict, new: dict) -> list[dict]:
     return changes
 
 
-# ──────────────────────────── 코드(AnyCAD) 편집 ────────────────────────────
+# ──────────────────────────── Code (AnyCAD) editing ────────────────────────────
 
 _CODE_EDIT = r"""You are EDITING existing, working build123d code — not writing a new part.
 
@@ -89,7 +89,7 @@ Return the COMPLETE updated code, code only — no fences, no prose."""
 
 
 def edit_code(prior_code: str, instruction: str) -> tuple[str, dict]:
-    """현재 build123d 코드 + 수정 지시 → 최소 수정한 새 코드."""
+    """Current build123d code + edit instruction -> minimally edited new code."""
     content, usage = chat(
         [{"role": "system", "content": codegen.SYSTEM},
          {"role": "user", "content": _CODE_EDIT.format(
@@ -101,15 +101,15 @@ def edit_code(prior_code: str, instruction: str) -> tuple[str, dict]:
 
 def design_edit_code(prior_code: str, instruction: str, stl_path, step_path,
                      max_iters: int = 3) -> dict:
-    """코드 편집 + 격리실행 + 자동수정 루프. design_code 와 같은 반환 모양.
+    """Code edit + isolated run + auto-repair loop. Same return shape as design_code.
 
-    it0: 현재 코드를 시드로 수정. 실패하면 codegen 의 repair(에러 되먹임)로 고친다.
+    it0 edits the current code as a seed; on failure, codegen's repair (error feedback) fixes it.
     """
     code = edit_code(prior_code, instruction)[0]
     last_code = code
     error = None
     for it in range(max_iters + 1):
-        if it > 0:          # 재시도는 에러 되먹임 수선
+        if it > 0:          # retries repair using the error feedback
             code, _u = codegen.generate_code(instruction, last_code, error)
             last_code = code
         try:

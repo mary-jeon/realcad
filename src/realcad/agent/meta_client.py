@@ -1,7 +1,7 @@
-"""Meta Model API 클라이언트 (Muse Spark). OpenAI 호환 /chat/completions.
+"""Meta Model API client: /chat/completions style endpoint.
 
-Base URL https://api.meta.ai/v1, 모델 muse-spark-1.3, Bearer 인증.
-키는 realcad/.env 의 META_API_KEY 에서 읽는다(절대 커밋 안 함).
+Base URL https://api.meta.ai/v1, model muse-spark-1.3, Bearer auth.
+The key is read from META_API_KEY in realcad/.env (never commit it).
 """
 from __future__ import annotations
 import json
@@ -50,8 +50,8 @@ def _call(messages, model, temperature, max_tokens, json_mode):
     return ch["message"].get("content"), ch.get("finish_reason"), resp.get("usage", {})
 
 
-# 호출마다 토큰 사용량을 로그에 적는다(크레딧 잔액은 API 로 못 보니 우리가 센다).
-# 단가: dev.meta.ai/docs/pricing-rate-limits (2026-10-31) muse-spark-1.3 입력 $1.25 / 출력 $4.25 / 캐시 입력 $0.15 per 1M
+# Log token usage per call (the API does not expose the credit balance, so we count it ourselves).
+# Price in USD per 1M tokens: (input, output, cached input).
 _PRICE = {"muse-spark-1.3": (1.25, 4.25, 0.15), "muse-spark-1.3-contributor": (0.10, 0.20, 0.002)}
 USAGE_LOG = Path(os.environ.get("REALCAD_USAGE_LOG", Path.home() / "Library" / "Logs" / "realcad.meta_usage.jsonl"))
 
@@ -70,22 +70,11 @@ def _log_usage(model: str, usage: dict) -> None:
         pass
 
 
-def usage_summary() -> dict:
-    """누적 호출 수, 토큰, 추정 비용(USD). 로그가 시작된 시점부터만."""
-    n = ti = to = 0; usd = 0.0
-    try:
-        for line in USAGE_LOG.read_text(encoding="utf-8").splitlines():
-            d = json.loads(line); n += 1; ti += d.get("in", 0); to += d.get("out", 0); usd += d.get("usd", 0.0)
-    except Exception:
-        pass
-    return {"calls": n, "in": ti, "out": to, "usd": round(usd, 3)}
-
-
 def chat(messages: list[dict], model: str = MODEL,
          temperature: float = 0.0, max_tokens: int = 6000,
          json_mode: bool = False) -> tuple[str, dict]:
-    """메시지 → (응답 텍스트, usage). Muse Spark는 reasoning 모델이라
-    content=None(finish_reason=length)이면 토큰을 2배로 한 번 더 시도한다."""
+    """Messages -> (response text, usage). This is a reasoning model, so if content is None
+    (finish_reason=length), retry once with double the token budget."""
     content, finish, usage = _call(messages, model, temperature, max_tokens, json_mode)
     if content is None and finish == "length":
         content, finish, usage = _call(messages, model, temperature, max_tokens * 2, json_mode)

@@ -1,10 +1,10 @@
-"""가져온 STEP 모델에서 나사구멍(작은 수직 원통)을 자동 감지한다."""
+"""Auto-detect screw holes (small vertical cylinders) in an imported STEP model."""
 from __future__ import annotations
 
 
 def detect_mount_holes(part, r_min: float = 1.0, r_max: float = 2.2):
-    """part 의 면 중 반지름 r_min~r_max, 축이 z 인 원통(=관통 나사구멍) 중심 (x,y,r) 목록.
-    같은 구멍의 중복 면은 (x,y) 반올림으로 합친다."""
+    """List of (x,y,r) centers of z-axis cylindrical faces (= through screw holes) on `part` with radius r_min to r_max.
+    Duplicate faces of the same hole are merged by rounding (x,y)."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     try:
         from build123d import GeomType
@@ -22,7 +22,7 @@ def detect_mount_holes(part, r_min: float = 1.0, r_max: float = 2.2):
             ax = cyl.Axis()
             if not (r_min < r < r_max):
                 continue
-            if abs(ax.Direction().Z()) < 0.9:      # z축 방향만(수직 관통)
+            if abs(ax.Direction().Z()) < 0.9:      # Z axis only (vertical through holes)
                 continue
             loc = ax.Location()
             key = (round(loc.X(), 1), round(loc.Y(), 1))
@@ -33,8 +33,8 @@ def detect_mount_holes(part, r_min: float = 1.0, r_max: float = 2.2):
 
 
 def measure_hole_dia(part, x: float, y: float, tol: float = 0.5) -> float | None:
-    """완성 솔리드에서 (x,y) 위치의 z축 원통면 반지름을 실측해 구멍 지름(mm)을 돌려준다.
-    H2 는 '우리가 뚫은 값'이 아니라 이 실측값으로 판정한다. 없으면 None."""
+    """Measure the radius of the z-axis cylindrical face at (x,y) on the finished solid and return the hole diameter (mm).
+    H2 judges by this measurement, not by the value we cut. None if not found."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     try:
         from build123d import GeomType

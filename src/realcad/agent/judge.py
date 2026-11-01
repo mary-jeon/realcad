@@ -1,4 +1,4 @@
-"""판정자 — 검증 실패를 보고 계약의 '파라미터'를 고친다(그림 재생성 아님). Meta 호출."""
+"""Judge: read verification failures and fix the contract's parameters (not a redraw). Calls the Meta model."""
 from __future__ import annotations
 import json
 from .meta_client import chat

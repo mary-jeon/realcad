@@ -1,10 +1,10 @@
-"""실전 평가 — 프롬프트 묶음을 실제 Meta 파이프라인에 넣어 통과율·반복횟수·시간·토큰을 기록한다.
+"""Live evaluation: run a prompt set through the real Meta pipeline and record pass rate, iterations, time and tokens.
 
-실행: PYTHONPATH=src .venv/bin/python examples/eval_smoke.py [--set basic|wide]
-결과: out/eval/eval_<timestamp>.jsonl + 요약 표 stdout. (Meta API 크레딧 사용)
+Run: PYTHONPATH=src .venv/bin/python examples/eval_smoke.py [--set basic|wide]
+Results: out/eval/eval_<timestamp>.jsonl + summary table on stdout. (Uses Meta API credits)
 """
 from __future__ import annotations
-import json, sys, time, traceback
+import json, sys, time
 from pathlib import Path
 from realcad.agent import codegen, sandbox
 from realcad.agent.planner import plan
@@ -75,10 +75,7 @@ def main():
 
 
 def update_readme(rows, which):
-    """README 의 EVAL_TABLE 마커 사이에 최신 결과 표를 써 넣는다."""
-    rd = ROOT / "README.md"
-    if not rd.exists():
-        return
+    """Print the result summary and a per-prompt table to the console (does not modify files)."""
     n = len(rows); p = sum(1 for r in rows if r.get("ok"))
     first = sum(1 for r in rows if r.get("ok") and not r.get("fixed"))
     lines = [f"Set `{which}` · {time.strftime('%Y-%m-%d')} · **{p}/{n} passed** ({first} on the first attempt, "
@@ -86,12 +83,7 @@ def update_readme(rows, which):
              "| # | path | result | tries | s | prompt |", "|---|---|---|---|---|---|"]
     for r in rows:
         lines.append(f"| {r['i']} | {r['mode']} | {'✅' if r.get('ok') else '❌'} | {1 + (r.get('iters') or 0)} | {r['sec']:.0f} | {r['prompt']} |")
-    txt = rd.read_text(encoding="utf-8")
-    a, b = txt.find("<!-- EVAL_TABLE_START -->"), txt.find("<!-- EVAL_TABLE_END -->")
-    if a >= 0 and b > a:
-        txt = txt[:a + len("<!-- EVAL_TABLE_START -->")] + "\n" + "\n".join(lines) + "\n" + txt[b:]
-        rd.write_text(txt, encoding="utf-8")
-        print("README eval table updated")
+    print("\n".join(lines))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""생성→검증→판정 루프. 실패하면 메타(judge)가 파라미터를 고쳐 재검증한다."""
+"""Generate -> verify -> judge loop. On failure the judge fixes parameters and re-verifies."""
 from __future__ import annotations
 from ..pipeline import build_and_verify
 from .judge import fix
@@ -16,7 +16,7 @@ def run(contract, max_iters: int = 3, verbose: bool = True) -> dict:
             return {"contract": c, "part": part, "findings": findings,
                     "summary": summ, "iters": it, "fixed": it > 0}
         if it == max_iters or c.kind != "plate":
-            break   # 판정 자동수정은 plate(볼트 배치)만
+            break   # judge auto-fix only applies to plate (bolt layout)
         failed = [fd for fd in findings if fd.severity == "HARD" and not fd.ok]
         c, _usage, _raw = fix(c.to_dict(), failed)
     return {"contract": c, "part": part, "findings": findings,

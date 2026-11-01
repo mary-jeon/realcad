@@ -1,8 +1,8 @@
-"""기어펌프 조립 빌더(preset gear_pump) : CAD 실기 과제 3.
+"""Gear pump assembly builder (preset gear_pump): CAD practical exam task 3.
 
-근거: 01_리서치/CAD실기과제_4종_조사_20261031.md §1 (153LAB 2026년 2회 유사문제 구조 분석: 기어 m1.5 z24 외경 Ø39 폭 29,
-안착 홈 Ø39 G7 깊이 28, 부시 Ø18 p6 / Ø12 H7, 축 Ø12 g6 / 기어 자리 Ø15 h6, 개스킷 1.0, 오일실 Ø22, 커버 탭 6-M6).
-좌표: 축 = X, 구동 기어 y = 0, 종동 기어 y = a = m(z1+z2)/2, z = Z_AXIS. 커버는 +X 쪽. 본체 바닥 z = 0.
+Reference: 153LAB 2026 round 2 similar problem structure analysis: gear m1.5 z24, OD Ø39, width 29,
+gear pocket Ø39 G7 depth 28, bushing Ø18 p6 / Ø12 H7, shaft Ø12 g6 / gear seat Ø15 h6, gasket 1.0, oil seal Ø22, cover taps 6-M6.
+Coordinates: shaft = X, drive gear y = 0, driven gear y = a = m(z1+z2)/2, z = Z_AXIS. Cover on the +X side. Body bottom z = 0.
 """
 from __future__ import annotations
 import math
@@ -13,37 +13,37 @@ from . import standards as S
 from .power_train import (PartInfo, Assembly, cyl_x, ring_x, shaft_keyway_cutter, hub_keyway_cutter, key_solid,
                           gear_solid, fit, BASE_T)
 
-BACK_T = 14.0        # 본체 뒷벽(부시 자리 12 + 2)
+BACK_T = 14.0        # Body back wall (bushing seat 12 + 2)
 BUSH_L = 12.0
 GASKET_T = 1.0
-COVER_T = 22.0       # 부시 12 + 오일실 7 + 3
-MARGIN = 12.0        # 포켓 가장자리 ↔ 본체 바깥
-SHAFT_EXT = 30.0     # 구동축이 커버 밖으로 나온 길이
-PORT_D = 11.4        # G1/4 골지름(나사산 미모델)
+COVER_T = 22.0       # Bushing 12 + oil seal 7 + 3
+MARGIN = 12.0        # Pocket edge to body outside
+SHAFT_EXT = 30.0     # Drive shaft protrusion beyond the cover
+PORT_D = 11.4        # G1/4 minor diameter (threads not modeled)
 
 
 def layout_gear_pump(a) -> dict:
     m, z = float(a.gear_module), int(a.gear_teeth)
     gd = S.gear_dims(m, z)
-    bw = float(a.gear_width) if a.gear_width > 0 else round(gd.d * 0.8, 1)        # 해설 예: PCD 36 → 폭 29
+    bw = float(a.gear_width) if a.gear_width > 0 else round(gd.d * 0.8, 1)        # Reference example: PCD 36 → width 29
     cd = S.center_distance(m, z, z)
-    dj = max(10.0, round(gd.d / 3.0))                 # 저널 Ø (PCD 36 → 12)
-    dj = max([d for d in (10, 12, 15, 17, 20, 25, 30) if d <= dj] or [10])   # 오일실 표 호칭에 맞춤
-    ds = dj + 3.0                                     # 기어 자리 Ø (15)
+    dj = max(10.0, round(gd.d / 3.0))                 # Journal Ø (PCD 36 → 12)
+    dj = max([d for d in (10, 12, 15, 17, 20, 25, 30) if d <= dj] or [10])   # Matched to oil seal table sizes
+    ds = dj + 3.0                                     # Gear seat Ø (15)
     key = S.parallel_key(ds)
     bush_od = round(dj * 1.5)                         # 18
     seal = S.oil_seal(dj)
-    pocket_r = gd.da / 2.0                            # 안착 홈 반지름(G7)
+    pocket_r = gd.da / 2.0                            # Gear pocket radius (G7)
     pocket_depth = bw - GASKET_T                      # 28
     half_y = pocket_r + MARGIN
     y0, y1 = -half_y, cd + half_y
     half_z = half_y
     z_axis = BASE_T + half_z
     xb0 = 0.0
-    x_pb = xb0 + BACK_T                               # 포켓 바닥 = 뒷벽 안쪽 면
-    x_face = x_pb + pocket_depth                      # 본체 커버 면
-    x_c0 = x_face + GASKET_T                          # 커버 안면
-    x_c1 = x_c0 + COVER_T                             # 커버 바깥면
+    x_pb = xb0 + BACK_T                               # Pocket bottom = back wall inner face
+    x_face = x_pb + pocket_depth                      # Body cover face
+    x_c0 = x_face + GASKET_T                          # Cover inner face
+    x_c1 = x_c0 + COVER_T                             # Cover outer face
     bolt = "M6"; pcd_pts = [(-half_y + 7.0, z_axis - half_z + 7.0), (-half_y + 7.0, z_axis + half_z - 7.0),
                             (cd + half_y - 7.0, z_axis - half_z + 7.0), (cd + half_y - 7.0, z_axis + half_z - 7.0),
                             (cd / 2.0, z_axis - half_z + 7.0), (cd / 2.0, z_axis + half_z - 7.0)]
@@ -60,17 +60,17 @@ def _body(L: dict) -> Part:
     base = Pos((xa + xb) / 2.0, L["cd"] / 2.0, BASE_T / 2.0) * Box(xb - xa, L["y1"] - L["y0"] + 16.0, BASE_T)
     body = body + base
     for y in L["ys"]:
-        body = body - cyl_x(L["x_pb"], xb + 1.0, L["pocket_r"], y, z)                       # 기어 안착 홈 Ø da G7
-        body = body - cyl_x(L["x_pb"] - BUSH_L, L["x_pb"] + 0.5, L["bush_od"] / 2.0, y, z)   # 부시 구멍 Ø18 H7(뒷벽)
-    # 흡입/토출 포트: 두 기어 맞물림 선(y = a/2) 위아래
+        body = body - cyl_x(L["x_pb"], xb + 1.0, L["pocket_r"], y, z)                       # Gear pocket Ø da G7
+        body = body - cyl_x(L["x_pb"] - BUSH_L, L["x_pb"] + 0.5, L["bush_od"] / 2.0, y, z)   # Bushing bore Ø18 H7 (back wall)
+    # Inlet/outlet ports: above and below the gear mesh line (y = a/2)
     xm = (L["x_pb"] + xb) / 2.0
     body = body - Pos(xm, L["cd"] / 2.0, z + hz / 2.0) * Cylinder(radius=PORT_D / 2.0, height=hz + 2.0)
     body = body - Pos(xm, L["cd"] / 2.0, (z - hz) / 2.0) * Cylinder(radius=PORT_D / 2.0, height=z - hz + 2.0 + BASE_T)
     from ..fasteners.standards import resolve
     f = resolve(L["bolt"])[0]
-    for (py, pz) in L["bolt_pts"]:                                                           # 커버 탭 6-M6 깊이 12
+    for (py, pz) in L["bolt_pts"]:                                                           # Cover tapped holes 6-M6, depth 12
         body = body - cyl_x(xb - 12.0, xb + 1.0, f.nominal_dia_mm / 2.0, py, pz)
-    for sy in (L["y0"] - 8.0 + 5.0, L["y1"] + 8.0 - 5.0):                                   # 장착 구멍 4-M4 공차구멍
+    for sy in (L["y0"] - 8.0 + 5.0, L["y1"] + 8.0 - 5.0):                                   # Mounting holes 4-M4 clearance
         for sx in (xa + 6.0, xb - 6.0):
             body = body - Pos(sx, sy, BASE_T / 2.0) * Cylinder(radius=2.25, height=BASE_T + 2)
     return body
@@ -95,8 +95,8 @@ def _cover(L: dict) -> Part:
     z = L["z_axis"]; x0, x1 = L["x_c0"], L["x_c1"]
     c = _plate_outline(L, x0, x1)
     for i, y in enumerate(L["ys"]):
-        c = c - cyl_x(x0 - 0.5, x0 + BUSH_L, L["bush_od"] / 2.0, y, z)                     # 부시 구멍
-        if i == 0:                                                                            # 구동축: 관통 + 오일실 자리
+        c = c - cyl_x(x0 - 0.5, x0 + BUSH_L, L["bush_od"] / 2.0, y, z)                     # Bushing bore
+        if i == 0:                                                                            # Drive shaft: through + oil seal seat
             c = c - cyl_x(x0 - 1, x1 + 1, (L["dj"] + 2.0) / 2.0, y, z)
             c = c - cyl_x(x1 - L["seal"].b, x1 + 1, L["seal"].D / 2.0, y, z)
     from ..fasteners.standards import resolve
@@ -111,10 +111,10 @@ def _shaft(L: dict, y: float, drive: bool) -> Part:
     x0 = L["x_pb"] - BUSH_L + 1.0
     x1 = L["x_shaft_end"] if drive else (L["x_c0"] + BUSH_L - 1.0)
     s = cyl_x(x0, x1, dj / 2.0, y, z)
-    s = s + cyl_x(L["x_pb"], L["x_c0"], ds / 2.0, y, z)                                      # 기어 자리 Ø15 = 포켓 + 개스킷 폭
+    s = s + cyl_x(L["x_pb"], L["x_c0"], ds / 2.0, y, z)                                      # Gear seat Ø15 = pocket + gasket width
     k = L["key"]
     s = s - shaft_keyway_cutter((L["x_pb"] + L["x_c0"]) / 2.0, L["bw"] - 4.0, k.b, z + ds / 2.0 - k.t1, y)
-    if drive:                                                                                 # 커플링용 끝단 키홈(축 Ø12 → 4x4)
+    if drive:                                                                                 # Coupling keyway at the shaft end (shaft Ø12 → 4x4)
         ke = S.parallel_key(dj)
         s = s - shaft_keyway_cutter(x1 - 12.0, 16.0, ke.b, z + dj / 2.0 - ke.t1, y)
     return s
@@ -196,7 +196,7 @@ def build_gear_pump(a) -> Assembly:
         return Pos(0, y, z) * Rot(th, 0, 0) * Pos(0, -y, -z) * solid
 
     def motion(theta_deg: float) -> dict:
-        t1, t2 = theta_deg, -theta_deg          # 같은 잇수 → 1:1 반대 회전
+        t1, t2 = theta_deg, -theta_deg          # Same tooth count → 1:1, opposite rotation
         out = {"스퍼기어(구동)": rotx(g1p.solid, 0.0, t1), "스퍼기어(종동)": rotx(g2p.solid, cd, t2),
                "구동축": rotx(s1.solid, 0.0, t1), "종동축": rotx(s2.solid, cd, t2),
                "평행키(구동)": rotx(k1.solid, 0.0, t1), "평행키(종동)": rotx(k2.solid, cd, t2)}

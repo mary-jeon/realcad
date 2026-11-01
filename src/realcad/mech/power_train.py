@@ -1,13 +1,14 @@
-"""동력전달장치 조립 빌더: 축, 평행키, 스퍼기어, V풀리, 깊은 홈 볼베어링, 본체, 커버, 오일실, 멈춤링, 볼트.
+"""Power transmission assembly builder: shaft, parallel key, spur gear, V-pulley, deep groove ball bearing, body, cover, oil seal, retaining ring, bolts.
 
-입력 4개(베어링 호칭, 기어 m, z, 풀리 형, 피치지름, 피니언 잇수)에서 나머지 치수를 규격표(standards.py)로 유도하고,
-모든 부품을 **조립 상태 좌표**로 만든다(메이트 M1~M9 를 좌표로 고정). 축은 X 방향, 본체 바닥 z=0.
+Derives the remaining dimensions from a few inputs (bearing size, gear m and z, pulley type and pitch diameter, pinion tooth count)
+via the standards tables (standards.py), and builds every part **in assembled coordinates** (mates M1 to M9 fixed by coordinates).
+Shaft along X, body bottom z=0.
 
-좌표 약속
-- 축 중심선: y = 0 (주축), y = a (피니언 축, 중심거리 a = m(z1+z2)/2), z = Z_AXIS.
-- 키홈은 전부 +Z(위쪽). 허브(기어, 풀리) 키홈은 허브를 자리에 놓은 뒤 월드 좌표에서 깎는다 → 축 키홈과 각도 정렬(M3, M5).
-- 축 방향 고정 체인(왼→오): 멈춤링 → 풀리 허브 → 칼라 → 베어링1 내륜 → 축 턱(Ø da) → 스페이서 → 기어 → 스페이서 → 베어링2 내륜 → 멈춤링.
-  외륜: 커버 스피곳 턱 ↔ 본체 턱(Ø Da).
+Coordinate conventions
+- Shaft centerlines: y = 0 (main shaft), y = a (pinion shaft, center distance a = m(z1+z2)/2), z = Z_AXIS.
+- All keyways at +Z (top). Hub keyways (gear, pulley) are cut in world coordinates after placing the hub, so they line up with the shaft keyways (M3, M5).
+- Axial retention chain (left to right): retaining ring → pulley hub → collar → bearing 1 inner ring → shaft shoulder (Ø da) → spacer → gear → spacer → bearing 2 inner ring → retaining ring.
+  Outer rings: between the cover spigot shoulder and the body shoulder (Ø Da).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -19,13 +20,13 @@ from build123d import (Part, Compound, Box, Cylinder, Pos, Rot, Polygon, Plane, 
 from . import standards as S
 from ..geometry.builder import involute_gear_outline, _wedge_cutter
 
-Z_AXIS_MIN_CLEAR = 4.0      # 기어 이끝과 본체 바닥 사이 최소 여유
-BASE_T = 10.0               # 본체 바닥 두께
-COVER_T = 10.0              # 커버 플랜지 두께
-SPIGOT = 3.0                # 커버 끼움부 깊이
-LIP = 2.0                   # 본체 안쪽 턱(외륜 멈춤) 두께
-SPACER_L = 6.0              # 기어 양옆 스페이서 길이
-HUB_GAP = 3.0               # 풀리 허브 ↔ 커버 바깥면 틈
+Z_AXIS_MIN_CLEAR = 4.0      # Minimum clearance between gear tip and body floor
+BASE_T = 10.0               # Body floor thickness
+COVER_T = 10.0              # Cover flange thickness
+SPIGOT = 3.0                # Cover spigot depth
+LIP = 2.0                   # Body inner shoulder (outer ring stop) thickness
+SPACER_L = 6.0              # Spacer length on each side of the gear
+HUB_GAP = 3.0               # Gap between pulley hub and cover outer face
 
 COLORS = {"축": "#b8bfc8", "기어": "#6fa8dc", "피니언": "#8ab4e0", "풀리": "#5c6670", "베어링": "#d9dde2",
           "키": "#e8a33c", "본체": "#7d9b86", "커버": "#9aa7b2", "오일실": "#2b2f35", "멈춤링": "#c94c4c",
@@ -34,14 +35,14 @@ COLORS = {"축": "#b8bfc8", "기어": "#6fa8dc", "피니언": "#8ab4e0", "풀리
 
 @dataclass
 class PartInfo:
-    name: str                 # 품명(한글)
-    solid: Part               # 조립 상태 좌표
-    spec: str = ""            # 규격/치수 문자열(BOM)
+    name: str                 # Part name (Korean)
+    solid: Part               # Assembled coordinates
+    spec: str = ""            # Spec/dimension string (BOM)
     qty: int = 1
     material: str = ""
-    explode: tuple = (0.0, 0.0, 0.0)   # 분해도 방향(단위: gap 배수) (dx, dy, dz)
-    group: str = ""           # 색 그룹(COLORS 키)
-    no: int = 0               # 품번
+    explode: tuple = (0.0, 0.0, 0.0)   # Exploded view direction in multiples of gap (dx, dy, dz)
+    group: str = ""           # Color group (COLORS key)
+    no: int = 0               # Part number
 
     @property
     def color(self) -> str:
@@ -51,10 +52,10 @@ class PartInfo:
 @dataclass
 class Assembly:
     parts: list[PartInfo]
-    layout: dict              # 치수, 위치(검사, 보고용). layout["fits"] = 끼워맞춤 쌍(A2 가 실측)
-    mates: list[dict]         # M1~M9 충족 내역
+    layout: dict              # Dimensions and positions (for checks and reports). layout["fits"] = fit pairs (measured by A2)
+    mates: list[dict]         # How M1 to M9 are satisfied
     bom: list[dict]
-    motion: object = None     # 기구가 움직이면: callable(theta_deg) -> {품명: 그 각도의 솔리드} (A7 운동 간섭)
+    motion: object = None     # For moving mechanisms: callable(theta_deg) -> {part name: solid at that angle} (A7 motion interference)
 
     def by_name(self, name: str, idx: int = 0):
         ps = [p for p in self.parts if p.name == name]
@@ -93,9 +94,9 @@ def _compound(parts: list[PartInfo], gap: float) -> Compound:
     return comp
 
 
-# ── 기본 형상 도우미(모두 월드 좌표, 축 = X) ──────────────────────────────
+# ── Basic shape helpers (all world coordinates, shaft = X) ───
 def cyl_x(x0: float, x1: float, r: float, y: float = 0.0, z: float = 0.0) -> Part:
-    """X 방향 원기둥 x0..x1."""
+    """Cylinder along X from x0 to x1."""
     return Pos((x0 + x1) / 2.0, y, z) * Rot(0, 90, 0) * Cylinder(radius=r, height=(x1 - x0))
 
 
@@ -104,27 +105,27 @@ def ring_x(x0: float, x1: float, r_out: float, r_in: float, y: float = 0.0, z: f
 
 
 def shaft_keyway_cutter(xc: float, L: float, b: float, z_bottom: float, y: float = 0.0, up: float = 6.0) -> Part:
-    """엔드밀 둥근 끝 키홈 커터: 바닥 z_bottom, 위로 up 만큼(축 표면 밖까지)."""
+    """Round-end (end mill) keyway cutter: bottom at z_bottom, extending up by `up` (past the shaft surface)."""
     return Pos(xc, y, z_bottom) * extrude(SlotOverall(L, b), amount=up)
 
 
 def hub_keyway_cutter(xc: float, L: float, b: float, z_top: float, y: float = 0.0, down: float = 6.0) -> Part:
-    """허브 키홈(관통 네모 홈): 윗면 z_top(= 보어 반지름 + t2), 아래로 down 만큼. 보어 원호가 홈 가장자리에서
-    처지는 양(sag) 때문에 t2 보다 충분히 깊게 내려 보어 안까지 뚫는다."""
+    """Hub keyway (through rectangular slot): top at z_top (= bore radius + t2), extending down by `down`. Cut well
+    below t2 into the bore, because the bore arc sags below the slot edges."""
     return Pos(xc, y, z_top - down / 2.0) * Box(L, b, down)
 
 
 def key_solid(xc: float, L: float, b: float, h: float, z_bottom: float, y: float = 0.0) -> Part:
-    """평행키(양 끝 둥근형): 바닥 z_bottom."""
+    """Parallel key (round ends): bottom at z_bottom."""
     return Pos(xc, y, z_bottom) * extrude(SlotOverall(L, b), amount=h)
 
 
 def bearing_solid(bs: S.BearingSpec, x0: float, y: float, z: float, n_balls: int = 8) -> Part:
-    """내륜 + 외륜 + 볼(간략형, 홈 없이 볼이 링에 조금 파묻힘) → 융합 1 솔리드."""
+    """Inner ring + outer ring + balls (simplified, no raceway; balls slightly embedded in the rings), fused into 1 solid."""
     pr = bs.pitch_d / 2.0
     br = bs.ball_d / 2.0
-    ri_o = pr - br * 0.9           # 내륜 바깥 반지름(볼이 10% 파묻힘)
-    ro_i = pr + br * 0.9           # 외륜 안 반지름
+    ri_o = pr - br * 0.9           # Inner ring outer radius (balls embedded 10%)
+    ro_i = pr + br * 0.9           # Outer ring inner radius
     inner = ring_x(x0, x0 + bs.B, ri_o, bs.d / 2.0, y, z)
     outer = ring_x(x0, x0 + bs.B, bs.D / 2.0, ro_i, y, z)
     body = inner + outer
@@ -137,16 +138,16 @@ def bearing_solid(bs: S.BearingSpec, x0: float, y: float, z: float, n_balls: int
 
 
 def retaining_ring_solid(rs: S.RingSpec, x0: float, y: float, z: float) -> Part:
-    """C형 멈춤링(장착 상태: 안지름 = 홈 지름 d2, 두께 t), 입은 아래(-Z)."""
+    """C-type retaining ring (installed: inner diameter = groove diameter d2, thickness t), opening facing down (-Z)."""
     r_in = rs.d2 / 2.0
     r_out = r_in + rs.b
     body = Cylinder(radius=r_out, height=rs.t) - Cylinder(radius=r_in, height=rs.t + 1)
-    body = body - Pos(0, 0, -rs.t / 2.0 - 0.1) * Rot(0, 0, -90) * _wedge_cutter(r_out + 1, rs.t + 0.2, 50)   # 입 벌어진 C 자(아래쪽)
+    body = body - Pos(0, 0, -rs.t / 2.0 - 0.1) * Rot(0, 0, -90) * _wedge_cutter(r_out + 1, rs.t + 0.2, 50)   # C shape with the opening at the bottom
     return Pos(x0 + rs.t / 2.0, y, z) * Rot(0, 90, 0) * body
 
 
 def gear_solid(z: int, m: float, width: float, bore: float, xc: float, y: float, zc: float, rot_deg: float) -> Part:
-    """인벌류트 스퍼기어, 축 = X, 이 하나가 rot_deg 방향(90 = +Y)을 향하게."""
+    """Involute spur gear, axis = X, with one tooth pointing toward rot_deg (90 = +Y)."""
     pts = involute_gear_outline(z, m, n_flank=(8 if z <= 60 else 5 if z <= 120 else 3))
     body = extrude(Polygon(*pts, align=None), amount=width)
     body = body - Pos(0, 0, width / 2.0) * Cylinder(radius=bore / 2.0, height=width + 2)
@@ -155,7 +156,7 @@ def gear_solid(z: int, m: float, width: float, bore: float, xc: float, y: float,
 
 
 def pulley_solid(gs: S.GrooveSpec, grooves: int, width: float, bore: float, xc: float, y: float, zc: float) -> Part:
-    """V벨트 풀리(통짜 디스크 + 사다리꼴 홈 n개, 홈 간격 e), 축 = X."""
+    """V-belt pulley (solid disc + n trapezoidal grooves at pitch e), axis = X."""
     R = gs.od / 2.0
     body = Cylinder(radius=R, height=width)
     depth = gs.depth
@@ -177,25 +178,25 @@ def Axis_Z():
 
 
 def hex_bolt_x(f, x_head: float, y: float, z: float, grip: float, direction: int) -> Part:
-    """육각 볼트, 머리 바닥면이 x_head, 축이 direction(+1: +X 로 들어감, -1: -X) 방향으로 grip 만큼."""
+    """Hex bolt: head bearing face at x_head, shank extending grip along direction (+1: into +X, -1: into -X)."""
     shaft = Pos(0, 0, -grip / 2.0) * Cylinder(radius=f.nominal_dia_mm / 2.0, height=grip)
     head = extrude(RegularPolygon(radius=f.head_across_corners_mm / 2.0, side_count=6), amount=f.head_height_mm)
-    bolt = shaft + head                    # 머리 z 0..hh, 축 -grip..0 (로컬 Z)
-    rot = Rot(0, -90, 0) if direction > 0 else Rot(0, 90, 0)   # 로컬 -Z(축) → +X 또는 -X
+    bolt = shaft + head                    # Head z 0..hh, shank -grip..0 (local Z)
+    rot = Rot(0, -90, 0) if direction > 0 else Rot(0, 90, 0)   # Local -Z (shank) → +X or -X
     return Pos(x_head, y, z) * rot * bolt
 
 
-# ── 레이아웃 계산 ─────────────────────────────────────────────────────
+# ── Layout ──────────────────────────────────────────────────────
 def layout_power_train(a) -> dict:
-    """Assembly 계약 → 모든 치수, x 좌표(mm). 규격표 조회는 여기서만."""
+    """Assembly contract → all dimensions and x coordinates (mm). The only place that queries the standards tables."""
     bs = S.bearing(a.bearing)
-    d = bs.d                                            # 베어링 자리 = 축 기준 지름
+    d = bs.d                                            # Bearing seat = shaft reference diameter
     if a.shaft_d and abs(a.shaft_d - d) > 1e-6:
-        bs = S.bearing_for_shaft(a.shaft_d)             # 사용자가 축 지름을 줬으면 그 내경의 62xx
+        bs = S.bearing_for_shaft(a.shaft_d)             # If the user gave a shaft diameter, use the 62xx with that bore
         d = bs.d
-    dsh = bs.da_min                                     # 축 턱 = 기어 자리 지름(da 범위 안)
-    key_p = S.parallel_key(d)                           # 풀리 키
-    key_g = S.parallel_key(dsh)                         # 기어 키
+    dsh = bs.da_min                                     # Shaft shoulder = gear seat diameter (within the da range)
+    key_p = S.parallel_key(d)                           # Pulley key
+    key_g = S.parallel_key(dsh)                         # Gear key
     ring = S.retaining_ring(d)
     m, z1 = float(a.gear_module), int(a.gear_teeth)
     gd = S.gear_dims(m, z1)
@@ -207,48 +208,48 @@ def layout_power_train(a) -> dict:
     gs = S.vpulley_groove(a.pulley_type, a.pulley_dp) if has_pulley else None
     Wp = (float(a.pulley_hub_w) if a.pulley_hub_w > 0 else
           (round(max(1.6 * d, gs.e * (a.pulley_grooves - 1) + 2 * gs.f), 1) if gs else 0.0))
-    seal_d = dsh                                        # 오일실은 칼라(Ø dsh) 위를 돈다
+    seal_d = dsh                                        # Oil seal runs on the collar (Ø dsh)
     seal = S.oil_seal(seal_d) if (has_pulley and a.oil_seal) else None
     bolt_name = S.cover_bolt_size(bs.D)
     pcd = S.cover_bolt_pcd(bs.D)
     from ..fasteners.standards import resolve as _resolve
-    hub_gap = _resolve(bolt_name)[0].head_height_mm + 2.0      # 커버 볼트 머리가 풀리 허브에 닿지 않게
-    Wy = pcd + 14.0                                     # 본체 벽(페디스털) 폭 = 커버 플랜지 지름
-    Tw = bs.B + LIP + SPIGOT                            # 벽 두께 = 베어링 폭 + 턱 + 커버 끼움부
+    hub_gap = _resolve(bolt_name)[0].head_height_mm + 2.0      # Keep cover bolt heads clear of the pulley hub
+    Wy = pcd + 14.0                                     # Body wall (pedestal) width = cover flange diameter
+    Tw = bs.B + LIP + SPIGOT                            # Wall thickness = bearing width + shoulder + cover spigot
 
-    # X 좌표(왼 → 오). 축 왼끝 x=0.
+    # X coordinates (left to right). Shaft left end x=0.
     x = 0.0
     stub = ring.n + 0.5
-    xg1 = x + stub                                      # 멈춤링 홈1 [xg1, xg1+m]
-    xp0 = xg1 + ring.m if has_pulley else None          # 풀리 허브 왼면
+    xg1 = x + stub                                      # Retaining ring groove 1 [xg1, xg1+m]
+    xp0 = xg1 + ring.m if has_pulley else None          # Pulley hub left face
     if has_pulley:
         x_hub_end = xp0 + Wp
-        x_cov1_out = x_hub_end + hub_gap                # 커버1 바깥면(볼트 머리 + 2 여유)
-        x_w1_0 = x_cov1_out + COVER_T                   # 벽1 바깥면 = 커버 플랜지 안면
-        xb1 = x_w1_0 + SPIGOT                           # 베어링1 왼면
-        collar = (x_hub_end, xb1)                       # 칼라(Ø d / Ø dsh)
+        x_cov1_out = x_hub_end + hub_gap                # Cover 1 outer face (bolt head + 2 clearance)
+        x_w1_0 = x_cov1_out + COVER_T                   # Wall 1 outer face = cover flange inner face
+        xb1 = x_w1_0 + SPIGOT                           # Bearing 1 left face
+        collar = (x_hub_end, xb1)                       # Collar (Ø d / Ø dsh)
     else:
-        x_cov1_out = xg1 + ring.m + 0.5 - COVER_T       # 풀리 없으면 왼쪽도 블라인드 커버, 축 끝은 스피곳 안
+        x_cov1_out = xg1 + ring.m + 0.5 - COVER_T       # Without a pulley the left side also gets a blind cover; the shaft end stays inside the spigot
         x_w1_0 = x_cov1_out + COVER_T
         xb1 = x_w1_0 + SPIGOT
         collar = None
-        # 멈춤링은 베어링1 왼면 바로 바깥
+        # Retaining ring just outside the bearing 1 left face
         xg1 = xb1 - ring.m
         x = xg1 - stub
-    x_w1_1 = xb1 + bs.B + LIP                           # 벽1 안면
-    x_sp1 = xb1 + bs.B                                  # 스페이서1
-    x_gear = x_sp1 + SPACER_L                           # 기어 왼면
+    x_w1_1 = xb1 + bs.B + LIP                           # Wall 1 inner face
+    x_sp1 = xb1 + bs.B                                  # Spacer 1
+    x_gear = x_sp1 + SPACER_L                           # Gear left face
     x_sp2 = x_gear + bg
-    xb2 = x_sp2 + SPACER_L                              # 베어링2 왼면
-    x_w2_0 = xb2 - LIP                                  # 벽2 안면
-    x_w2_1 = xb2 + bs.B + SPIGOT                        # 벽2 바깥면
-    xg2 = xb2 + bs.B                                    # 멈춤링 홈2
-    x_end = xg2 + ring.m + 1.0                          # 축 오른끝(스피곳 안쪽 공간에 머묾)
+    xb2 = x_sp2 + SPACER_L                              # Bearing 2 left face
+    x_w2_0 = xb2 - LIP                                  # Wall 2 inner face
+    x_w2_1 = xb2 + bs.B + SPIGOT                        # Wall 2 outer face
+    xg2 = xb2 + bs.B                                    # Retaining ring groove 2
+    x_end = xg2 + ring.m + 1.0                          # Shaft right end (stays inside the spigot recess)
     x_cov2_out = x_w2_1 + COVER_T
 
     z_axis = BASE_T + max(gd.da / 2.0 + Z_AXIS_MIN_CLEAR, Wy / 2.0 + 2.0, (pd.da / 2.0 + Z_AXIS_MIN_CLEAR) if pd else 0)
     if gs:
-        z_axis = max(z_axis, gs.od / 2.0 + 3.0)         # 풀리가 설치면(z=0) 아래로 내려가지 않게
+        z_axis = max(z_axis, gs.od / 2.0 + 3.0)         # Keep the pulley above the mounting surface (z=0)
     ys = [0.0] + ([cd] if pd else [])
     base_x0 = x_w1_0 - 8.0
     base_x1 = x_w2_1 + 8.0
@@ -264,9 +265,9 @@ def layout_power_train(a) -> dict:
     )
 
 
-# ── 부품 생성 ─────────────────────────────────────────────────────────
+# ── Part generation ───────────────────────────────────────────────
 def _shaft_x(L: dict, with_pulley: bool) -> tuple[float, float]:
-    """(축 왼끝 x0, 멈춤링 홈1 시작 xg1). 풀리 없는 축은 홈이 베어링1 바로 왼쪽."""
+    """(shaft left end x0, retaining ring groove 1 start xg1). Without a pulley the groove sits just left of bearing 1."""
     ring = L["ring"]
     if with_pulley:
         return L["x0"], L["xg1"]
@@ -275,19 +276,19 @@ def _shaft_x(L: dict, with_pulley: bool) -> tuple[float, float]:
 
 
 def _shaft(L: dict, y: float, with_pulley: bool) -> Part:
-    """단차 축: 반단면 폴리라인을 X 축 중심으로 회전(한 번에 1 솔리드) → 멈춤링 홈, 키홈 컷."""
+    """Stepped shaft: revolve a half-section polyline about the X axis (1 solid in one go), then cut retaining ring grooves and keyways."""
     from build123d import Axis
     d, dsh, bs, ring = L["d"], L["dsh"], L["bearing"], L["ring"]
     z = L["z_axis"]
     x0, xg1 = _shaft_x(L, with_pulley)
-    xa, xb = L["xb1"] + bs.B, L["xb2"]                    # 턱(Ø dsh) 구간 = 베어링1 오른면 ~ 베어링2 왼면
+    xa, xb = L["xb1"] + bs.B, L["xb2"]                    # Shoulder (Ø dsh) section = bearing 1 right face to bearing 2 left face
     pts = [(x0, 0.0), (x0, d / 2.0), (xa, d / 2.0), (xa, dsh / 2.0), (xb, dsh / 2.0), (xb, d / 2.0),
            (L["x_end"], d / 2.0), (L["x_end"], 0.0)]
     s = revolve(Plane.XZ * Polygon(*pts, align=None), axis=Axis.X)
     s = Pos(0, y, z) * s
-    for xg in (xg1, L["xg2"]):                             # 멈춤링 홈 2개
+    for xg in (xg1, L["xg2"]):                             # 2 retaining ring grooves
         s = s - ring_x(xg, xg + ring.m, d / 2.0 + 1.0, ring.d2 / 2.0, y, z)
-    kg = L["key_g"]; bg = L["gear_w"]                      # 기어 키홈(+Z)
+    kg = L["key_g"]; bg = L["gear_w"]                      # Gear keyway (+Z)
     s = s - shaft_keyway_cutter(L["x_gear"] + bg / 2.0, bg - 4.0, kg.b, z + dsh / 2.0 - kg.t1, y)
     if with_pulley:
         kp = L["key_p"]; Wp = L["pulley_w"]
@@ -304,24 +305,24 @@ def _housing(L: dict) -> Part:
     body = base
     for (xa, xb) in ((L["x_w1_0"], L["x_w1_1"]), (L["x_w2_0"], L["x_w2_1"])):
         wall = Pos((xa + xb) / 2.0, (y_lo + y_hi) / 2.0, z / 2.0) * Box(xb - xa, y_hi - y_lo, z)
-        for yc in ys:                                   # 둥근 머리(플러머 블록)
+        for yc in ys:                                   # Rounded top (plummer block)
             wall = wall + cyl_x(xa, xb, Wy / 2.0, yc, z)
-        if len(ys) > 1:                                 # 두 축이면 사이를 평평하게 채움
+        if len(ys) > 1:                                 # With two shafts, fill the space between them flat
             wall = wall + Pos((xa + xb) / 2.0, (ys[0] + ys[1]) / 2.0, z + Wy / 4.0) * Box(xb - xa, ys[1] - ys[0], Wy / 2.0)
         body = body + wall
-    # 베어링 구멍(Ø D) + 안쪽 턱(Ø Da_max)
+    # Bearing bore (Ø D) + inner shoulder (Ø Da_max)
     for yc in ys:
         body = body - cyl_x(L["x_w1_0"] - 1, L["xb1"] + bs.B, bs.D / 2.0, yc, z)
         body = body - cyl_x(L["x_w1_0"] - 1, L["x_w1_1"] + 1, bs.Da_max / 2.0, yc, z)
         body = body - cyl_x(L["xb2"], L["x_w2_1"] + 1, bs.D / 2.0, yc, z)
         body = body - cyl_x(L["x_w2_0"] - 1, L["x_w2_1"] + 1, bs.Da_max / 2.0, yc, z)
-    # 커버 볼트 탭 구멍(호칭 지름으로 모델링, 나사산 생략) 깊이 12
+    # Cover bolt tapped holes, depth 12 (modeled at nominal diameter, no threads)
     from ..fasteners.standards import resolve
     f = resolve(L["bolt"])[0]
     for (yc, zc) in _cover_bolt_points(L):
         body = body - cyl_x(L["x_w1_0"] - 1, L["x_w1_0"] + 12.0, f.nominal_dia_mm / 2.0, yc, zc)
         body = body - cyl_x(L["x_w2_1"] - 12.0, L["x_w2_1"] + 1, f.nominal_dia_mm / 2.0, yc, zc)
-    # 바닥 고정 볼트 구멍 4개(M8 공차구멍 Ø9)
+    # 4 base mounting bolt holes (M8 clearance Ø9)
     for sx in (bx0 + 10.0, bx1 - 10.0):
         for sy in (by0 + 10.0, by1 - 10.0):
             body = body - Pos(sx, sy, BASE_T / 2.0) * Cylinder(radius=4.5, height=BASE_T + 2)
@@ -329,7 +330,7 @@ def _housing(L: dict) -> Part:
 
 
 def _cover_bolt_points(L: dict) -> list[tuple[float, float]]:
-    """커버 볼트 (y, z) 목록. 한 축: PCD 위 4개(45도 간격). 두 축: 둘레 6개."""
+    """List of cover bolt (y, z). One shaft: 4 on the PCD (45 degree spacing). Two shafts: 6 around the perimeter."""
     z = L["z_axis"]; r = L["pcd"] / 2.0; ys = L["ys"]
     if len(ys) == 1:
         return [(r * math.cos(math.radians(a)), z + r * math.sin(math.radians(a))) for a in (45, 135, 225, 315)]
@@ -337,7 +338,7 @@ def _cover_bolt_points(L: dict) -> list[tuple[float, float]]:
     for yc in ys:
         for a in (45, 135, 225, 315):
             pts.append((yc + r * math.cos(math.radians(a)), z + r * math.sin(math.radians(a))))
-    # 두 축 사이 안쪽 4개는 서로 가까우니 바깥쪽 것만 남긴다(각 축 바깥쪽 2개 + 위아래 중간 2개)
+    # The 4 inner holes between the two shafts are too close, so keep only the outer ones (2 outer per shaft + 2 at top/bottom middle)
     out = [p for p in pts if (p[0] < ys[0] + 1 or p[0] > ys[1] - 1)]
     ym = (ys[0] + ys[1]) / 2.0
     out += [(ym, z + r), (ym, z - r)]
@@ -345,7 +346,7 @@ def _cover_bolt_points(L: dict) -> list[tuple[float, float]]:
 
 
 def _cover(L: dict, side: int, y_list: list[float]) -> Part:
-    """커버. side=-1 왼쪽(오일실, 관통), +1 오른쪽(블라인드). 두 축이면 두 구멍을 덮는 한 장."""
+    """Cover. side=-1 left (oil seal, through), +1 right (blind). With two shafts, one plate covers both bores."""
     bs = L["bearing"]; z = L["z_axis"]; Wy = L["Wy"]
     from ..fasteners.standards import resolve
     f = resolve(L["bolt"])[0]
@@ -357,21 +358,21 @@ def _cover(L: dict, side: int, y_list: list[float]) -> Part:
         x_sp0, x_sp1 = L["xb2"] + bs.B, L["x_w2_1"]
     xa, xb = min(x_out, x_in), max(x_out, x_in)
     if len(y_list) == 1:
-        body = cyl_x(xa, xb, Wy / 2.0, y_list[0], z)                      # 원형 플랜지
+        body = cyl_x(xa, xb, Wy / 2.0, y_list[0], z)                      # Round flange
     else:
         y_lo, y_hi = min(y_list) - Wy / 2.0, max(y_list) + Wy / 2.0
         body = Pos((xa + xb) / 2.0, (y_lo + y_hi) / 2.0, (BASE_T + 2.0 + z + Wy / 2.0) / 2.0) * \
             Box(xb - xa, y_hi - y_lo, (z + Wy / 2.0) - (BASE_T + 2.0))
     for yc in y_list:
-        body = body + ring_x(x_sp0, x_sp1, bs.D / 2.0, bs.Da_max / 2.0, yc, z)   # 끼움부(스피곳) + 외륜 멈춤 턱
+        body = body + ring_x(x_sp0, x_sp1, bs.D / 2.0, bs.Da_max / 2.0, yc, z)   # Spigot + outer ring stop shoulder
         if side > 0 or not L["has_pulley"] or yc != 0.0:
-            # 블라인드: 축 끝이 들어올 포켓(Ø d+6, 플랜지 안으로 깊이 3)
+            # Blind: pocket for the shaft end (Ø d+6, depth 3 into the flange)
             if side > 0:
                 body = body - cyl_x(x_in - 1.0, x_in + 3.0, (L["d"] + 6.0) / 2.0, yc, z)
             else:
                 body = body - cyl_x(x_in - 3.0, x_in + 1.0, (L["d"] + 6.0) / 2.0, yc, z)
         else:
-            # 관통 + 오일실 자리
+            # Through + oil seal seat
             body = body - cyl_x(xa - 1, xb + 1, (L["collar_od"] + 1.0) / 2.0, yc, z)
             if L["seal"]:
                 body = body - cyl_x(xa - 1, xa + L["seal"].b, L["seal"].D / 2.0, yc, z)
@@ -391,35 +392,35 @@ def build_power_train(a) -> Assembly:
         no[0] += 1
         parts.append(PartInfo(name, solid, spec, qty, material, explode, group or name.split()[0], no[0]))
 
-    # 1 본체
+    # 1 Body
     if a.housing:
         add("본체", _housing(L), f"베어링 구멍 Ø{bs.D:g} H7 ×{2 * len(L['ys'])}, 턱 Ø{bs.Da_max:g}, 커버 볼트 {L['bolt']}", 1, "GC200", (0, 0, -1.0))
-    # 2 축(주축)
+    # 2 Shaft (main)
     add("축", _shaft(L, 0.0, L["has_pulley"]),
         f"Ø{d:g} 베어링 자리 ×2 (k5), 턱 Ø{dsh:g}, 기어 자리 Ø{dsh:g} h6 키홈 {kg.name}, 멈춤링 홈 Ø{ring.d2:g}×{ring.m:g} ×2"
         + (f", 풀리 자리 Ø{d:g} 키홈 {L['key_p'].name}" if L["has_pulley"] else ""), 1, "SM45C", (0, 0, 0))
-    # 3 스퍼기어 + 키
+    # 3 Spur gear + key
     xgc = L["x_gear"] + bg / 2.0
     gear = gear_solid(gd.z, gd.m, bg, dsh, xgc, 0.0, z, 90.0)
     gear = gear - hub_keyway_cutter(xgc, bg + 2.0, kg.b, z + dsh / 2.0 + kg.t2, 0.0)
     add("스퍼기어", gear, f"m{gd.m:g} z{gd.z} 압력각 20도, PCD Ø{gd.d:g}, 이끝원 Ø{gd.da:g}, 이폭 {bg:g}, 보어 Ø{dsh:g} H7, 키홈 {kg.b:g}×{kg.t2:g}",
         1, "SC49", (0, 0, 1.6), "기어")
     add("평행키(기어)", key_solid(xgc, bg - 4.0, kg.b, kg.h, z + dsh / 2.0 - kg.t1), f"{kg.name}×{bg - 4:g} KS B 1311, t1 {kg.t1:g} t2 {kg.t2:g}", 1, "SM45C", (0, 0, 2.4), "키")
-    # 4 스페이서 2
+    # 4 Spacers (2)
     sp = ring_x(L["x_sp1"], L["x_sp1"] + SPACER_L, L["spacer_od"] / 2.0, dsh / 2.0, 0.0, z) + \
         ring_x(L["x_sp2"], L["x_sp2"] + SPACER_L, L["spacer_od"] / 2.0, dsh / 2.0, 0.0, z)
     add("스페이서", sp, f"Ø{L['spacer_od']:g}/Ø{dsh:g}×{SPACER_L:g} (기어 축 방향 위치)", 2, "SM45C", (0, 0, 1.0), "스페이서")
-    # 5 베어링 2
+    # 5 Bearings (2)
     b1 = bearing_solid(bs, L["xb1"], 0.0, z); b2 = bearing_solid(bs, L["xb2"], 0.0, z)
     add("볼베어링", b1, f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "", (-1.0, 0, 0), "베어링")
     add("볼베어링", b2, f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "", (1.0, 0, 0), "베어링")
-    # 6 멈춤링 2
+    # 6 Retaining rings (2)
     if a.rings:
-        r1 = retaining_ring_solid(ring, L["xg1"] + ring.m - ring.t, 0.0, z)     # 홈 안, 허브 쪽으로 밀착
-        r2 = retaining_ring_solid(ring, L["xg2"], 0.0, z)                        # 홈 안, 베어링2 내륜에 밀착
+        r1 = retaining_ring_solid(ring, L["xg1"] + ring.m - ring.t, 0.0, z)     # In the groove, pressed against the hub side
+        r2 = retaining_ring_solid(ring, L["xg2"], 0.0, z)                        # In the groove, pressed against the bearing 2 inner ring
         add("멈춤링(C형)", r1, f"축용 {ring.d1:g} KS B 1336, 홈 Ø{ring.d2:g}×{ring.m:g}", 1, "SK5", (-4.0, 0, 0), "멈춤링")
         add("멈춤링(C형)", r2, f"축용 {ring.d1:g} KS B 1336, 홈 Ø{ring.d2:g}×{ring.m:g}", 1, "SK5", (1.5, 0, 0), "멈춤링")
-    # 7 풀리 + 키 + 칼라 + 오일실
+    # 7 Pulley + key + collar + oil seal
     if L["has_pulley"]:
         gs, Wp, kp = L["groove"], L["pulley_w"], L["key_p"]
         xpc = L["xp0"] + Wp / 2.0
@@ -433,7 +434,7 @@ def build_power_train(a) -> Assembly:
         if L["seal"]:
             se = L["seal"]
             add("오일실", ring_x(L["x_cov1_out"], L["x_cov1_out"] + se.b, se.D / 2.0, se.d / 2.0, 0.0, z), f"{se.name} TC KS B 2804", 1, "NBR", (-2.5, 0, 0), "오일실")
-    # 8 피니언 축
+    # 8 Pinion shaft
     if L["pinion"]:
         pdm = L["pinion"]; yp = L["center_distance"]
         rot2 = 90.0 + (180.0 / pdm.z if pdm.z % 2 == 0 else 0.0)
@@ -451,7 +452,7 @@ def build_power_train(a) -> Assembly:
             _x0p, _xg1p = _shaft_x(L, False)
             add("멈춤링(C형)", retaining_ring_solid(ring, _xg1p + ring.m - ring.t, yp, z), f"축용 {ring.d1:g}", 1, "SK5", (-1.5, 0, 0), "멈춤링")
             add("멈춤링(C형)", retaining_ring_solid(ring, L["xg2"], yp, z), f"축용 {ring.d1:g}", 1, "SK5", (1.5, 0, 0), "멈춤링")
-    # 9 커버 + 볼트
+    # 9 Covers + bolts
     if a.covers:
         ys = L["ys"]
         add("커버(왼)", _cover(L, -1, ys), f"플랜지 Ø{L['Wy']:g}×{COVER_T:g}, 끼움부 Ø{bs.D:g}×{SPIGOT:g}, 턱 Ø{bs.Da_max:g}" + (f", 오일실 자리 Ø{L['seal'].D:g}×{L['seal'].b:g}" if L["seal"] else ""),
@@ -476,7 +477,7 @@ def build_power_train(a) -> Assembly:
 
 
 def fit(desc, pa, pb, r, lo, hi, c, axis="X"):
-    """A2 용 끼워맞춤 쌍: 부품 번호 두 개, 반지름, 축 방향 구간 [lo,hi], 축선 중심 c(X축이면 (y,z), Z축이면 (x,y))."""
+    """Fit pairs for A2: two part numbers, radius, axial range [lo,hi], axis center c ((y,z) for an X axis, (x,y) for a Z axis)."""
     return {"desc": desc, "a": pa.no, "b": pb.no, "r": float(r), "lo": float(lo), "hi": float(hi), "c": [float(c[0]), float(c[1])], "axis": axis}
 
 

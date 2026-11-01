@@ -1,16 +1,16 @@
-"""상용 제품 규격 조회: "맥미니를 거는 브래킷" 처럼 시판 제품 이름이 들어오면
-그 제품의 실제 외형 치수를 (1) 공식 규격표 → (2) Meta 모델 기억 + 자기 확신도 순으로 구해
-확실 / 추정 / 모름 으로 나눠 보여주고, 상대편 물건(거치대 팔, 책상 상판 등)처럼
-어떤 모델도 알 수 없는 치수만 사용자에게 되묻는다.
+"""Commercial product spec lookup: when a prompt names a retail product (e.g. "a bracket to hang a mini PC"),
+get its real outer dimensions from (1) the official spec table, then (2) the Meta model's memory with
+self-reported confidence, and present them as confirmed / estimated / unknown. Only dimensions no model
+can know (the counterpart, e.g. a stand arm or desk top) are asked of the user.
 
-흐름: lookup_table(무료, 즉시) → extract_with_meta(1회 호출, JSON) → merge → SpecCard
-SpecCard.to_prompt() 가 codegen 에 들어가는 `SPEC —` 블록(권위 치수 + 피해야 할 면)을 만든다.
+Flow: lookup_table (free, instant) -> extract_with_meta (one call, JSON) -> merge -> SpecCard
+SpecCard.to_prompt() builds the SPEC block for codegen (authoritative dimensions + faces to keep clear).
 
-치수 상태 기준 (모델 자기 확신도 c):
-  확실(공식 규격)  표에 있음, 출처 URL 있음
-  확실(모델 기억)  c >= 0.9, 2026-10-31 실측: 맥미니/맥북에어/스위치 OLED 는 공식값과 mm 단위까지 일치
-  추정             0.6 <= c < 0.9, 사용자 확인 권장(라즈베리파이 5 는 0.6 에 보드 85x56 정답, 높이만 흔들림)
-  모름             c < 0.6, 치수 질문으로 돌린다
+Status by model self-confidence c:
+  confirmed (official spec)  in the table, with a source URL
+  confirmed (model memory)   c >= 0.9
+  estimated                  0.6 <= c < 0.9, user confirmation recommended
+  unknown                    c < 0.6, turned into a dimension question
 """
 from __future__ import annotations
 import json
@@ -21,8 +21,8 @@ from .meta_client import chat
 SURE = 0.9
 GUESS = 0.6
 
-# 공식 규격표. 값은 제조사 공개 스펙 또는 국제 규격. (w, d, h) mm, 무게 g.
-# keep_clear: 설계 시 막으면 안 되는 면/부위. 출처는 docs/product-spec-references.md 와 같다.
+# Official spec table: manufacturer published specs or international standards. (w, d, h) mm, weight g.
+# keep_clear: faces/areas the design must not block.
 KNOWN: list[dict] = [
     {"id": "mac_mini_m4", "name": "Apple Mac mini (M4, 2024)",
      "match": r"(맥\s*미니|mac\s*mini)",
@@ -75,7 +75,7 @@ class ProductSpec:
     h: float | None = None
     weight_g: float | None = None
     confidence: float = 0.0
-    status: str = "모름"            # 확실(공식 규격) / 확실(모델 기억) / 추정 / 모름
+    status: str = "모름"            # confirmed (official spec) / confirmed (model memory) / estimated / unknown
     source: str = ""
     keep_clear: list[str] = field(default_factory=list)
 
@@ -88,15 +88,15 @@ class ProductSpec:
 @dataclass
 class SpecCard:
     products: list[ProductSpec] = field(default_factory=list)
-    questions: list[dict] = field(default_factory=list)   # 상대편 물건 치수 질문 {key, question, suggestion}
-    counterpart: str = ""                                   # 이 부품이 붙는 상대편 물건 이름
+    questions: list[dict] = field(default_factory=list)   # dimension questions about the counterpart object {key, question, suggestion}
+    counterpart: str = ""                                   # name of the counterpart object this part attaches to
     usage: dict = field(default_factory=dict)
 
     def rows(self) -> list[dict]:
         return [asdict(p) | {"dims": p.dims_text()} for p in self.products]
 
     def to_prompt(self) -> str:
-        """codegen 에 붙이는 권위 치수 블록. 제품이 하나도 없으면 빈 문자열."""
+        """Authoritative dimension block for codegen. Empty string if there are no products."""
         if not self.products:
             return ""
         out = []
@@ -117,7 +117,7 @@ class SpecCard:
 
 
 def lookup_table(prompt: str) -> list[ProductSpec]:
-    """공식 규격표에서 프롬프트에 나온 제품을 찾는다. 무료, 즉시."""
+    """Find products named in the prompt in the official spec table. Free and instant."""
     hits = []
     for k in KNOWN:
         if re.search(k["match"], prompt, re.I):
@@ -187,7 +187,7 @@ def _dup_of_table(name: str, dims: tuple, table_hits: list[ProductSpec]) -> bool
 
 
 def merge(table_hits: list[ProductSpec], data: dict) -> SpecCard:
-    """표 값이 모델 값보다 우선. 표에 없는 제품은 모델 값 + 확신도 상태."""
+    """Table values take precedence over model values. Products not in the table get model values plus a confidence status."""
     card = SpecCard(products=list(table_hits))
     seen = {p.name.lower() for p in card.products}
     for item in (data.get("products") or []):
@@ -198,7 +198,7 @@ def merge(table_hits: list[ProductSpec], data: dict) -> SpecCard:
             continue
         c = _num(item.get("confidence")) or 0.0
         w, d, h = _num(item.get("w_mm")), _num(item.get("d_mm")), _num(item.get("h_mm"))
-        # 표에서 이미 찾은 제품이면 모델 값은 버린다: 표의 키워드 regex 가 모델이 쓴 이름에 맞거나, 치수가 2% 안에서 같을 때
+        # Drop the model value for a product already found in the table: its keyword regex matches the model's name, or dimensions agree within 2%.
         if _dup_of_table(name, (w, d, h), table_hits):
             continue
         p = ProductSpec(name=name, w=w, d=d, h=h, weight_g=_num(item.get("weight_g")),
@@ -214,7 +214,7 @@ def merge(table_hits: list[ProductSpec], data: dict) -> SpecCard:
         if isinstance(q, dict) and q.get("question"):
             qs.append({"key": str(q.get("key", f"q{len(qs)+1}")), "question": str(q["question"]),
                        "suggestion": str(q.get("suggestion", ""))})
-    # 모르는 제품은 치수 질문으로 돌린다
+    # unknown products become dimension questions
     for p in card.products:
         if p.status == "모름" and len(qs) < 3:
             qs.append({"key": "size_" + re.sub(r"\W+", "_", p.name.lower())[:20],
@@ -225,13 +225,13 @@ def merge(table_hits: list[ProductSpec], data: dict) -> SpecCard:
 
 
 def lookup(prompt: str, use_meta: bool = True) -> SpecCard:
-    """프롬프트 → SpecCard. use_meta=False 면 표만 본다(테스트, 오프라인)."""
+    """Prompt -> SpecCard. With use_meta=False only the table is used (tests, offline)."""
     hits = lookup_table(prompt)
     if not use_meta:
         return merge(hits, {})
     try:
         data, usage = extract_with_meta(prompt)
-    except Exception as e:      # 모델이 죽어도 표만으로 진행
+    except Exception as e:      # if the model call fails, continue with the table only
         card = merge(hits, {})
         card.usage = {"error": str(e)[:200]}
         return card
@@ -241,7 +241,7 @@ def lookup(prompt: str, use_meta: bool = True) -> SpecCard:
 
 
 def answers_text(answers: dict | None) -> str:
-    """사용자가 답한 상대편 치수를 codegen 이 읽는 MEASURED 블록으로."""
+    """Turn the user's counterpart dimensions into the MEASURED block that codegen reads."""
     if not answers:
         return ""
     lines = [f"- {k}: {v}" for k, v in answers.items() if str(v).strip()]

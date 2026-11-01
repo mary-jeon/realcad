@@ -1,12 +1,12 @@
-"""알려진 물체의 '실제 규격 + 구조' 힌트. codegen 프롬프트에 주입해서,
-모델이 치수를 대충 지어내는 대신 우리가 아는 표준 규격으로 짓게 한다.
+"""Real-world spec and structure hints for known objects. Injected into the codegen prompt so the model
+builds to known standard dimensions instead of making them up.
 
-매칭은 한/영 키워드. 해당 없으면 None → 평소대로 프롬프트만 보낸다.
-치수는 '정답'이 아니라 '현실적 기본값'이다(사용자가 숫자를 주면 그게 우선).
+Matching uses Korean/English keywords. No match -> None, and only the prompt is sent.
+Dimensions are realistic defaults, not ground truth (user-given numbers take precedence).
 """
 from __future__ import annotations
 
-# (키워드들, 힌트) — 키워드는 소문자 비교. 구체적인 것부터.
+# (keywords, hint): keywords compare lowercase; most specific first.
 _SPECS: list[tuple[tuple[str, ...], str]] = [
     (("키보드", "keyboard", "키자판", "키 자판", "자판"),
      """SPEC — computer keyboard. Use these REAL standard dimensions, do NOT guess:
@@ -34,7 +34,7 @@ _SPECS: list[tuple[tuple[str, ...], str]] = [
 
 
 def spec_hint(prompt: str) -> str | None:
-    """프롬프트에 알려진 물체가 있으면 규격 힌트 문자열, 없으면 None."""
+    """Spec hint string if the prompt mentions a known object, else None."""
     p = prompt.lower()
     for keys, hint in _SPECS:
         if any(k.lower() in p for k in keys):

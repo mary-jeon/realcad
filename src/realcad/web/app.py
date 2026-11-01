@@ -1,8 +1,9 @@
-"""RealCAD 웹 백엔드 (FastAPI). 프롬프트 → 메타 설계 → 검증·수정 루프 → STEP/STL.
+"""RealCAD web backend (FastAPI). Prompt -> Meta design -> verify/fix loop -> STEP/STL.
 
-실행: PYTHONPATH=src .venv/bin/python -m uvicorn realcad.web.app:app --port 8750
+Run: PYTHONPATH=src .venv/bin/python -m uvicorn realcad.web.app:app --port 8750
 """
 from __future__ import annotations
+import json
 import re
 import uuid
 from pathlib import Path
@@ -19,8 +20,6 @@ from ..agent import codegen
 from ..agent import product_spec
 from ..agent import editor
 from ..contract.schema import DesignContract
-from ..printing.split import plan_split
-from ..retrieval.library import search_models, generate_3d, generation_status
 from ..fasteners.standards import resolve as _resolve_fastener
 from ..geometry import builder as g
 from ..export import exporters as ex
@@ -32,7 +31,7 @@ GEN.mkdir(parents=True, exist_ok=True)
 
 
 def _prune_gen(keep: int = 300) -> None:
-    """생성물 폴더가 끝없이 커지지 않게 시작 시 최근 keep 개(토큰 묶음 기준)만 남긴다."""
+    """On startup keep only the latest keep outputs (grouped by token) so the output folder does not grow forever."""
     try:
         files = sorted(GEN.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
         toks = []
@@ -51,17 +50,17 @@ def _prune_gen(keep: int = 300) -> None:
 _prune_gen()
 
 import os as _os
-# 공개 터널 등에 노출할 때: REALCAD_TOKEN 환경변수를 주면 모든 /api/* 요청에 X-RealCAD-Token 헤더(또는 ?token=)를 요구한다.
+# When exposed via a public tunnel etc.: if REALCAD_TOKEN is set, every /api/* request needs the X-RealCAD-Token header (or ?token=).
 _TOKEN = _os.environ.get("REALCAD_TOKEN", "").strip()
 app = FastAPI(title="RealCAD", docs_url=None, redoc_url=None, openapi_url=None)
 
-MAX_UPLOAD = 60 * 1024 * 1024          # 업로드 60MB 상한
+MAX_UPLOAD = 60 * 1024 * 1024          # 60MB upload limit
 _MESH_EXT = {"stl", "obj", "3mf", "ply", "step", "stp"}
 _IMG_MIME = {"image/jpeg", "image/png", "image/webp"}
 
 
 def _safe_err(e: Exception) -> str:
-    """예외 메시지에서 서버 절대경로를 지운다(클라이언트 노출 최소화)."""
+    """Strip absolute server paths from exception messages (minimize client exposure)."""
     return f"{type(e).__name__}: {e}".replace(str(ROOT), "<realcad>")
 
 
@@ -89,15 +88,40 @@ async def _auth_mw(request, call_next):
             return JSONResponse({"error": "인증 필요(X-RealCAD-Token)"}, status_code=401)
     return await call_next(request)
 
-# 대화형 편집용 세션 상태(프로세스 메모리). sid → {"mode":"code","code":str}
-#                                           또는 {"mode":"param","contract":dict}
+# Interactive edit session state (process memory). sid -> {"mode":"code","code":str}
+#                                           or {"mode":"param","contract":dict}
 SESSIONS: dict[str, dict] = {}
 _SESS_MAX = 200
+# Persist sessions to disk so parts on screen stay editable after a server restart (memory only meant "session expired" and a new design).
+_SESS_FILE = ROOT / "out" / "sessions.json"   # outside web/: not served statically and not subject to output cleanup (out/ is gitignored)
+_SESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _sess_load() -> None:
+    try:
+        import json as _j
+        SESSIONS.update(_j.loads(_SESS_FILE.read_text()))
+    except Exception:
+        pass
+
+
+def _sess_save() -> None:
+    try:
+        import json as _j
+        keep = dict(list(SESSIONS.items())[-_SESS_MAX:])
+        tmp = _SESS_FILE.with_suffix(".tmp")
+        tmp.write_text(_j.dumps(keep, ensure_ascii=False, default=str))
+        tmp.replace(_SESS_FILE)
+    except Exception:
+        pass
+
+
+_sess_load()
 
 
 def _new_sid() -> str:
     sid = uuid.uuid4().hex[:12]
-    if len(SESSIONS) > _SESS_MAX:          # 오래된 것부터 버려 메모리 누수 방지
+    if len(SESSIONS) > _SESS_MAX:          # drop the oldest first to avoid leaking memory
         for k in list(SESSIONS)[: len(SESSIONS) - _SESS_MAX]:
             SESSIONS.pop(k, None)
     return sid
@@ -108,18 +132,18 @@ class ClarifyReq(BaseModel):
 
 
 class PrintSettings(BaseModel):
-    """왼쪽 사이드바(Printer → Filament → Process) 값. 검사 M1(노즐), H3(재료 k), P1(구멍 보정), 빌드볼륨에 들어간다."""
+    """Left sidebar values (Printer -> Filament -> Process). Feed checks M1 (nozzle), H3 (material k), P1 (hole compensation) and the build volume."""
     material: str | None = None       # pla | petg | abs | tpu | steel | aluminum
     nozzle: float | None = None       # mm
     hole_comp: float | None = None    # mm
     build: list[float] | None = None  # [x, y, z] mm
-    iters: int | None = None          # 자동 수정 최대 횟수(0=끄기)
+    iters: int | None = None          # max auto-fix attempts (0 = off)
 
 
 def _apply_settings(c, st: "PrintSettings | None"):
     if not st:
         return c
-    # 재료: 프롬프트가 금속을 명시했으면(기획자가 steel/aluminum 으로 적음) 사이드바 플라스틱 값으로 덮지 않는다
+    # Material: if the prompt names a metal (planner wrote steel/aluminum), do not overwrite it with the sidebar plastic value
     if st.material and str(getattr(c, "material", "pla") or "pla").lower() in ("pla", "petg", "abs", "tpu", "plastic", ""):
         try: c.material = str(st.material).lower()
         except Exception: pass
@@ -133,7 +157,7 @@ def _apply_settings(c, st: "PrintSettings | None"):
 
 
 def _settings_note(st: "PrintSettings | None") -> str:
-    """코드 경로는 계약이 없으니 프롬프트 끝에 제조 조건을 한 줄로 붙인다(모델이 벽두께·구멍에 반영)."""
+    """The code path has no contract, so append manufacturing conditions to the prompt as one line (the model applies them to walls and holes)."""
     if not st:
         return ""
     bits = []
@@ -156,27 +180,7 @@ def clarify_ep(req: ClarifyReq):
     return {"questions": qs}
 
 
-class SplitReq(BaseModel):
-    contract: dict
-    build: list[float] = [220.0, 220.0, 250.0]
-
-
-@app.post("/api/split")
-def split_ep(req: SplitReq):
-    try:
-        c = DesignContract.from_dict(req.contract)
-        part, _f, _d = g.build_from_contract(c)
-        res = plan_split(part, tuple(req.build))
-        tok = uuid.uuid4().hex[:8]
-        urls = []
-        for i, p in enumerate(res["pieces"]):
-            ex.to_stl(p, GEN / f"{tok}_s{i}.stl")
-            urls.append(f"gen/{tok}_s{i}.stl")
-        return {"fits": res["fits"], "axis": res["axis"], "n": res["n"],
-                "dowel": res["dowel"], "size": [round(x, 1) for x in res["size"]],
-                "build": req.build, "pieces": urls}
-    except Exception as e:
-        return {"error": _safe_err(e)}
+FREEFORM_MSG = "이 모양은 아직 바로 만들지 못했어요. 크기나 생김새를 조금 더 자세히 말해 주세요."
 
 
 def _finding(f) -> dict:
@@ -197,29 +201,29 @@ def _design(req: DesignReq):
     contract, _usage, _raw = plan(augment(req.prompt, req.answers))
     _apply_settings(contract, getattr(req, "settings", None))
     if contract.kind == "retrieve":
-        # 유기형(자유곡면) → 외부 API 없이 로컬 코드생성으로 곡면 제작(loft/타원체/스윕/필렛).
-        # 실패하면 그때만 리트리벌 안내. 박스로 억지 변환이 아니라 '유기형 기법'으로 생성.
+        # Organic (freeform) shapes: build surfaces with local code generation (loft/ellipsoid/sweep/fillet), no external API.
+        # Only on failure suggest retrieval. Generated with organic techniques, not forced into a box.
         r = contract.retrieve
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
         cr = codegen.design_code(req.prompt + _settings_note(getattr(req, "settings", None)), stl_path, step_path, max_iters=3)
         if cr["ok"]:
             out = _emit_code(tok, stl_path, step_path, cr, _new_sid())
-            out["organic"] = True
+            if str(r.note or "").startswith("code:"):
+                out["route"] = "code"            # did not fit a template, so built via code
+                out["route_note"] = str(r.note)[5:].strip()
+            else:
+                out["organic"] = True
             return out
-        hint = ("자유곡면을 로컬로 못 만들었어요 — 외부 모델 검색(/api/retrieve)으로 받으세요." if not r.parts
-                else f"{len(r.parts)}개 부품으로 분해했어요. 각 부품을 /api/retrieve 또는 /api/generate3d 로.")
-        return {"kind": "retrieve", "query": r.query, "note": r.note,
-                "parts": r.parts, "hint": hint}
+        return {"error": cr.get("error") or FREEFORM_MSG, "diag": cr.get("diag") or [], "mode": "code"}
     _it = getattr(req, "settings", None) and req.settings.iters
     return _respond(run(contract, max_iters=(3 if _it is None else max(0, min(int(_it), 5)))))
 
 
 def _mesh_stats(tm) -> dict:
-    """화면 상단 요약용: 치수(mm)·부피(cm³)·표면적(cm²)·PLA 무게 추정(100% 채움, 1.24 g/cm³)·슬라이서 전 대략치.
-    슬라이싱 없이 계산 가능한 값만 준다(출력 시간은 슬라이서가 정한다)."""
+    """For the summary at the top of the screen: dimensions (mm), volume (cm^3), surface area (cm^2), PLA weight estimate (100% infill, 1.24 g/cm^3), rough pre-slicer figures.
+    Only values computable without slicing (the slicer decides print time)."""
     try:
-        import numpy as _np
         ext = tm.bounding_box.extents
         vol = float(abs(tm.volume)) / 1000.0            # mm³ → cm³
         area = float(tm.area) / 100.0                   # mm² → cm²
@@ -227,8 +231,8 @@ def _mesh_stats(tm) -> dict:
             "bbox_mm": [round(float(x), 1) for x in ext],
             "volume_cm3": round(vol, 2),
             "area_cm2": round(area, 1),
-            "pla_g_solid": round(vol * 1.24, 1),        # 100% 채움
-            "pla_g_20pct": round((min(area * 0.12, vol) + max(vol - area * 0.12, 0) * 0.2) * 1.24, 1),  # 벽 1.2mm 두 겹 가정 + 내부 20%
+            "pla_g_solid": round(vol * 1.24, 1),        # 100% infill
+            "pla_g_20pct": round((min(area * 0.12, vol) + max(vol - area * 0.12, 0) * 0.2) * 1.24, 1),  # assume two 1.2mm walls + 20% infill
             "faces": int(len(tm.faces)),
             "watertight": bool(tm.is_watertight),
         }
@@ -249,14 +253,14 @@ def _respond(r, sid: str | None = None):
             hole_dia = round(c.hole_dia or (f.nominal_dia_mm - 1.0825 * f.pitch_mm), 2)
         else:
             hole_dia = round(c.hole_dia or f.clearance(c.fit), 2)
-        grip = c.plate.thickness + 5          # 판을 관통해 살짝만 나오게(렌더 깔끔)
+        grip = c.plate.thickness + 5          # pass through the plate and stick out slightly (clean render)
         for h in c.holes:
             b = g.place(g.hex_bolt_solid(f, grip), h.x, h.y)
             bolts = b if bolts is None else bolts + b
 
     tok = uuid.uuid4().hex[:8]
     stl_path = GEN / f"{tok}_part.stl"
-    # 조립(assembly): 분해도 간격이 있으면 표시·내보내기는 벌린 상태, 검사·도면은 조립 상태
+    # Assembly: with exploded spacing, display and export use the spread state; checks and drawings use the assembled state
     asm = getattr(part, "_rc_asm", None) if c.kind == "assembly" else None
     disp = part
     parts_out, mates, layout, asm_bom = None, None, None, None
@@ -275,7 +279,7 @@ def _respond(r, sid: str | None = None):
             for row in asm_bom: w.writerow(row)
     ex.to_stl(disp, stl_path)
     ex.to_step(disp, GEN / f"{tok}.step")
-    # 내보내기 포맷: STL(엔진), 3MF·OBJ(trimesh 변환), STEP
+    # Export formats: STL (engine), 3MF and OBJ (trimesh conversion), STEP
     import trimesh
     tm = trimesh.load(str(stl_path))
     (GEN / f"{tok}.obj").write_text(tm.export(file_type="obj"))
@@ -287,11 +291,25 @@ def _respond(r, sid: str | None = None):
         bolts_url = f"gen/{tok}_bolts.stl"
     dxf_url = None
     from ..export.drawing import write_drawing
-    _z = (-c.plate.thickness / 2 if c.kind == "plate" else (layout["z_axis"] if layout else None))   # 조립은 축 중심 단면(조립도)
+    _z = (-c.plate.thickness / 2 if c.kind == "plate" else (layout["z_axis"] if layout else None))   # assemblies: section through the axis (assembly drawing)
     if write_drawing(part, GEN / f"{tok}.dxf", z=_z, contract=c, fastener=(f if c.kind == "plate" else None),
                      title=(f"RealCAD {c.kind}" if c.kind != "assembly" else "RealCAD power train assembly, section through shaft axis")) \
             or ex.to_dxf(part, GEN / f"{tok}.dxf", z=_z):
         dxf_url = f"gen/{tok}.dxf"
+    pdf_url = None                                        # three-view + isometric shop drawing (PDF)
+    try:
+        from ..export.views import write_views_pdf
+        if write_views_pdf(part, GEN / f"{tok}.pdf", title=f"RealCAD {c.kind}",
+                           part_number=tok[:8].upper(), material=getattr(c, "material", "")):
+            pdf_url = f"gen/{tok}.pdf"
+    except Exception:
+        pdf_url = None
+    dfam = None                                          # measured wall thickness + orientation recommendation
+    try:
+        from ..verify import dfam as _dfam
+        dfam = _dfam.measure(part)
+    except Exception:
+        dfam = None
     if asm_bom:
         bom = asm_bom
     if c.kind == "plate":
@@ -300,9 +318,10 @@ def _respond(r, sid: str | None = None):
         bom = make_bom(c, f, r["hole_dia"] if r.get("hole_dia") else hole_dia or 0.0, _eng)
         write_bom_csv(bom, GEN / f"{tok}_bom.csv")
 
-    # 대화형 편집 세션에 현재 계약 저장(후속 "더 크게/구멍 추가" 수정의 시드)
+    # Store the current contract in the edit session (seed for follow-up edits like "bigger" or "add a hole")
     sid = sid or _new_sid()
     SESSIONS[sid] = {"mode": "param", "contract": c.to_dict()}
+    _sess_save()
 
     return {
         "passed": r["summary"]["passed"],
@@ -319,6 +338,7 @@ def _respond(r, sid: str | None = None):
         "bom": bom,
         **({"parts": parts_out, "mates": mates, "layout": layout} if parts_out else {}),
         "stats": _mesh_stats(tm),
+        **({"dfam": dfam} if dfam else {}),
         "downloads": {
             "STL": f"gen/{tok}_part.stl",
             "3MF": f"gen/{tok}.3mf",
@@ -326,6 +346,7 @@ def _respond(r, sid: str | None = None):
             "OBJ": f"gen/{tok}.obj",
             **({"BOM": f"gen/{tok}_bom.csv"} if bom else {}),
             **({"DXF": dxf_url} if dxf_url else {}),
+            **({"PDF": pdf_url} if pdf_url else {}),
         },
     }
 
@@ -334,7 +355,7 @@ class DesignCodeReq(BaseModel):
     prompt: str
     answers: dict | None = None
     settings: PrintSettings | None = None
-    spec_text: str | None = None      # /api/spec_lookup 이 돌려준 권위 치수 블록(SPEC, KEEP CLEAR)
+    spec_text: str | None = None      # authoritative dimension block returned by /api/spec_lookup (SPEC, KEEP CLEAR)
 
 
 class SpecLookupReq(BaseModel):
@@ -343,8 +364,8 @@ class SpecLookupReq(BaseModel):
 
 @app.post("/api/spec_lookup")
 def spec_lookup_ep(req: SpecLookupReq):
-    """상용 제품 규격 조회: 프롬프트에 나온 시판 제품의 외형 치수를 공식 규격표, 그다음 Meta 기억(확신도)으로 찾아
-    확실 / 추정 / 모름 표와, 어떤 모델도 모르는 상대편 물건 치수 질문(최대 3개)을 돌려준다. 만능 CAD 앞단."""
+    """Commercial product spec lookup: find outer dimensions of off-the-shelf products named in the prompt, first in official spec tables, then from Meta's memory (with confidence),
+    and return a confirmed / estimated / unknown table plus up to 3 questions about mating object dimensions no model knows. Front end of the general CAD path."""
     try:
         card = product_spec.lookup(req.prompt)
         d = card.to_dict()
@@ -355,18 +376,28 @@ def spec_lookup_ep(req: SpecLookupReq):
 
 
 def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> dict:
-    """코드생성/편집 성공 결과(r) → 웹 응답. STL/STEP 은 sandbox 가 이미 썼고 OBJ/3MF 변환."""
-    ex._clean_degenerate(stl_path)              # 극점 퇴화면 정리(watertight)
+    """Successful code generation/edit result (r) -> web response. sandbox already wrote STL/STEP; convert to OBJ/3MF."""
+    ex._clean_degenerate(stl_path)              # clean pole degenerate faces (watertight)
     import trimesh
     tm = trimesh.load(str(stl_path))
     (GEN / f"{tok}.obj").write_text(tm.export(file_type="obj"))
     (GEN / f"{tok}.3mf").write_bytes(tm.export(file_type="3mf"))
-    # 후속 편집 시드로 코드 보관 + 되돌리기용 히스토리 적립(직전 성공본을 쌓음, 최근 20개)
+    # Keep code as the seed for follow-up edits + push undo history (previous success, last 20)
     _prev = SESSIONS.get(sid)
     _hist = (_prev.get("hist") if _prev else None) or []
     if _prev and _prev.get("mode") == "code" and _prev.get("code") and not r.get("_norecord"):
         _hist = (_hist + [_prev["code"]])[-20:]
-    SESSIONS[sid] = {"mode": "code", "code": r["code"], "hist": _hist}
+    # Amount of change: compare volume and size with the previous version, to confirm something actually changed before saying "fixed".
+    _vol = float(tm.volume) if tm.is_volume else None
+    _ext = [round(float(x), 2) for x in tm.extents]
+    _change = None
+    if _prev and _prev.get("vol") is not None and _vol is not None:
+        _dv = _vol - _prev["vol"]
+        _change = {"dv_mm3": round(_dv, 1), "dv_pct": round(100 * _dv / max(_prev["vol"], 1e-6), 2),
+                   "size_from": _prev.get("ext"), "size_to": _ext}
+        _change["visible"] = abs(_dv) >= 1.0 or any(abs(a - b) >= 0.2 for a, b in zip(_prev.get("ext") or _ext, _ext))
+    SESSIONS[sid] = {"mode": "code", "code": r["code"], "hist": _hist, "step": str(step_path), "vol": _vol, "ext": _ext}
+    _sess_save()
     _hard = [f for f in (r.get("findings") or []) if f.get("severity") == "HARD"]
     _dxf = None
     try:
@@ -377,7 +408,37 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
             _dxf = f"gen/{tok}.dxf"
     except Exception:
         _dxf = None
+    _pdf = None                                          # three-view + isometric shop drawing (PDF)
+    try:
+        from build123d import import_step as _imp
+        from ..export.views import write_views_pdf
+        if write_views_pdf(_imp(str(step_path)), GEN / f"{tok}.pdf",
+                           title="RealCAD part", part_number=tok[:8].upper()):
+            _pdf = f"gen/{tok}.pdf"
+    except Exception:
+        _pdf = None
+    _dfam = None                                         # measured wall thickness + orientation recommendation
+    try:
+        from build123d import import_step as _imp2
+        from ..verify import dfam as _dfammod
+        _dfam = _dfammod.measure(_imp2(str(step_path)))
+    except Exception:
+        _dfam = None
+    _faces_url = _view_url = None
+    try:                                         # B-rep face map so the screen can pick real faces
+        from ..export import facemap
+        if facemap.build(step_path, GEN / f"{tok}_view.stl", GEN / f"{tok}_faces.json"):
+            _faces_url, _view_url = f"gen/{tok}_faces.json", f"gen/{tok}_view.stl"
+    except Exception as _e:
+        print(f"[facemap] skipped: {type(_e).__name__}: {_e}", flush=True)
+    _rv = r.get("review")
+    if isinstance(_rv, dict):                         # so the image Meta saw can be opened on screen too
+        _rv = {**_rv, "images": [f"gen/{n}" for n in _rv.get("images") or []]}
     return {
+        "review": _rv,
+        "diag": r.get("diag") or [],
+        "faces_url": _faces_url,
+        "view_url": _view_url,
         "passed": all(f.get("ok") for f in _hard),
         "iters": r["iters"],
         "fixed": r["fixed"],
@@ -390,6 +451,8 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
         "info": r["info"],
         "measure": r.get("measure"),
         "stats": _mesh_stats(tm),
+        **({"dfam": _dfam} if _dfam else {}),
+        "change": _change,
         "session": sid,
         "part_url": f"gen/{tok}_part.stl",
         "bolts_url": None,
@@ -399,15 +462,16 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
             "STEP": f"gen/{tok}.step",
             "OBJ": f"gen/{tok}.obj",
             **({"DXF": _dxf} if _dxf else {}),
+            **({"PDF": _pdf} if _pdf else {}),
         },
     }
 
 
 @app.post("/api/design_code")
 def design_code_ep(req: DesignCodeReq):
-    """코드생성 CAD — AI가 build123d 코드를 직접 짜서 임의 기계부품 생성(격리 실행·자동수정).
+    """Code-generation CAD: the AI writes build123d code directly to make arbitrary mechanical parts (sandboxed, auto-fix).
 
-    기본형 메뉴로 못 하는 "뭐든 다" 경로. 유기적 조각 형상은 여전히 불가(retrieve/Meshy).
+    The "anything" path for what the template menu cannot do.
     """
     try:
         prompt = req.prompt + _settings_note(getattr(req, "settings", None))
@@ -420,25 +484,95 @@ def design_code_ep(req: DesignCodeReq):
         step_path = GEN / f"{tok}.step"
         r = codegen.design_code(prompt, stl_path, step_path, max_iters=3)
         if not r["ok"]:
-            return {"error": r["error"], "code": r.get("code", ""),
+            return {"error": r["error"], "code": r.get("code", ""), "diag": r.get("diag") or [],
                     "iters": r.get("iters", 0), "mode": "code"}
         return _emit_code(tok, stl_path, step_path, r, _new_sid())
     except Exception as e:
         return {"error": _safe_err(e), "mode": "code"}
 
 
+class RegisterCodeReq(BaseModel):
+    code: str
+
+
+@app.post("/api/register_code")
+def register_code_ep(req: RegisterCodeReq):
+    """Run externally written build123d code in the sandbox and register it as a session (editable/undoable afterwards).
+    The UI calls it via URL ?code=gen/file.py. The code must pass the same AST/sandbox rules as design_code."""
+    try:
+        tok = uuid.uuid4().hex[:8]
+        stl_path = GEN / f"{tok}_part.stl"
+        step_path = GEN / f"{tok}.step"
+        from ..agent import sandbox
+        info = sandbox.execute_to_files(req.code, stl_path, step_path)
+        r = {"ok": True, "code": req.code, "info": info, "findings": codegen._findings(info), "iters": 0, "fixed": False}
+        return _emit_code(tok, stl_path, step_path, r, _new_sid())
+    except Exception as e:
+        return {"error": _safe_err(e), "mode": "code"}
+
+
+_WHISPER_MODEL = _os.environ.get("REALCAD_WHISPER_MODEL", str(Path.home() / ".cache/whisper/ggml-small.bin"))
+# Giving whisper an example sentence (--prompt) makes it emit that sentence verbatim on noise or unclear audio (it once auto-ran
+# "set the hole diameter to 5mm"). So no example sentence is used, and old example sentences are discarded if they show up.
+# Descriptive sentence, not a command (cannot execute if it leaks, and is filtered by the list below). A word list would invite comma-list transcription.
+_WHISPER_PROMPT = {"ko": "부품의 턱과 홀이 몇 밀리미터로 뚫려 있는지, 옆 벽 높이와 두께에 관한 대화입니다.",
+                   "en": "A conversation about a part's ledges, holes, wall height and thickness in millimeters."}
+_WHISPER_PROMPT_LEAK = ("부품의 턱과 홀이 몇 밀리미터로 뚫려 있는지", "옆 벽 높이와 두께에 관한 대화입니다", "관한 대화", "대화입니다", "엔터라고 하면", "바로 보냅니다",
+                        "A conversation about a part", "구멍 지름을 5mm로 해줘", "홀이 몇 mm로 뚫려 있어", "이 턱 두 면을 옆 벽 높이까지 올려줘",
+                        "부품 설계 프로그램에 말하는 명령입니다", "RealCAD 설계 명령", "face, wall, floor")
+# Common sentences whisper hallucinates on silence or noise (artifacts of YouTube caption training)
+_WHISPER_JUNK = re.compile(r"(이 영상은|영상의 정보|정보를 포함하고|시청해\s*주셔서|구독|좋아요\s*(와|,)\s*구독|알림\s*설정|MBC|KBS|자막|thank(s| you) for watching|subscribe)", re.I)
+
+
+@app.post("/api/transcribe")
+async def transcribe_ep(audio: UploadFile = File(...), lang: str = Form("ko")):
+    """Conversation mode speech -> text. The browser sends each utterance as 16 kHz WAV and local whisper.cpp transcribes it.
+    Does not rely on the browser's built-in speech recognition (external servers), so it behaves the same in Safari and Chrome."""
+    import shutil, subprocess, tempfile
+    try:
+        data = await _read_limited(audio, 8 * 1024 * 1024)
+        if len(data) < 3200:                      # under 0.1 s
+            return {"text": ""}
+        exe = shutil.which("whisper-cli")
+        if not exe or not Path(_WHISPER_MODEL).exists():
+            return {"error": "whisper-cli 또는 모델이 없어요(brew install whisper-cpp, ~/.cache/whisper/ggml-small.bin)"}
+        lg = "en" if str(lang).lower().startswith("en") else "ko"
+        with tempfile.TemporaryDirectory() as td:
+            wav = Path(td) / "a.wav"
+            wav.write_bytes(data)
+            out = subprocess.run([exe, "-m", _WHISPER_MODEL, "-l", lg, "-nt", "-np", "-t", "6", "-sns",
+                                  "--prompt", _WHISPER_PROMPT[lg], "-f", str(wav)],
+                                 capture_output=True, text=True, timeout=60)
+        text = " ".join(out.stdout.split()).strip().lstrip("-–~ ").strip()
+        core = re.sub(r"[\W_]+", "", text)
+        short_ok = core in ("응", "네", "예", "아니", "아뇨", "좋아", "그래", "ok", "OK", "yes", "no")
+        _flat = re.sub(r"[\W_]+", "", text)
+        if any(re.sub(r"[\W_]+", "", k) in _flat or (len(_flat) >= 8 and _flat in re.sub(r"[\W_]+", "", k)) for k in _WHISPER_PROMPT_LEAK):
+            print(f"[voice] dropped prompt leak: {text!r}", flush=True)
+            return {"text": "", "dropped": text}
+        if _WHISPER_JUNK.search(text) or (len(core) < 2 and not short_ok) or core in ("끝", "음", "어", "감사합니다", "고맙습니다", "안녕하세요"):
+            print(f"[voice] dropped: {text!r} ({len(data)} B)", flush=True)
+            return {"text": "", "dropped": text}
+        print(f"[voice] heard: {text!r} ({len(data)} B)", flush=True)
+        return {"text": text}
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
 class EditReq(BaseModel):
     session: str
     instruction: str
     settings: PrintSettings | None = None
+    faces: list[dict] | None = None     # faces picked on screen [{point, normal, center, area}] -> push/pull
+    face_text: str | None = None        # face description for the model when it is not a push/pull
 
 
 @app.post("/api/edit")
 def edit_ep(req: EditReq):
-    """대화형 편집 — 세션의 현재 설계(코드 또는 계약)를 후속 지시로 최소 수정(전체 재생성 아님).
+    """Interactive edit: minimally modify the session's current design (code or contract) per a follow-up instruction (not a full regeneration).
 
-    예) 코드: "리모컨 만들어줘"(design_code) → "버튼 5개 추가해줘"(edit)
-        계약: "텀블러 만들어줘"(design) → "더 크게, 두께 3mm로"(edit)
+    e.g. code: "make a remote" (design_code) -> "add 5 buttons" (edit)
+         contract: "make a tumbler" (design) -> "bigger, 3mm thick" (edit)
     """
     inst = (req.instruction or "").strip()
     if not inst:
@@ -448,27 +582,42 @@ def edit_ep(req: EditReq):
         return {"error": "세션이 만료됐어요. 먼저 설계를 새로 생성한 뒤 수정하세요.",
                 "expired": True}
     try:
+        if st["mode"] == "code" and req.faces:
+            fo = _face_op(st, req, inst)
+            if fo is not None:
+                return fo
+        if req.face_text:
+            measured = ""
+            if st.get("mode") == "code" and req.faces:
+                try:
+                    measured = _face_dims_text(st, req.faces)
+                except Exception as _e:
+                    print(f"[face dims] {type(_e).__name__}: {_e}", flush=True)
+            inst = (req.face_text.strip() + measured +
+                    " Change the design PARAMETERS that define these faces (not a patch on top), so features attached to them "
+                    "(walls, ledges, rims around them) move and resize with them, like a parametric CAD history. "
+                    "Do not change anything else: same hole sizes, same feet, same fillets. ") + inst
         if st["mode"] == "code":
             tok = uuid.uuid4().hex[:8]
             stl_path = GEN / f"{tok}_part.stl"
             step_path = GEN / f"{tok}.step"
-            r = editor.design_edit_code(st["code"], inst + _settings_note(getattr(req, "settings", None)), stl_path, step_path, max_iters=3)
+            # Do not append sidebar manufacturing conditions (hole +0.2 etc.) on edits: otherwise holes grew by 0.2 on every edit
+            r = editor.design_edit_code(st["code"], inst, stl_path, step_path, max_iters=3)
             if not r["ok"]:
-                # 수정 실패 — 세션 코드는 직전 성공본 유지(되돌릴 수 있게)
+                # Edit failed: session code keeps the previous success (so it can be undone)
                 return {"error": r["error"], "code": r.get("code", ""),
                         "iters": r.get("iters", 0), "mode": "code",
                         "session": req.session, "edited": True}
             out = _emit_code(tok, stl_path, step_path, r, req.session)
             out["edited"] = True
             return out
-        # 파라메트릭 계약 편집
+        # Parametric contract edit
         prior = st["contract"]
         new_c, _u, _raw = editor.edit_contract(prior, inst)
         _apply_settings(new_c, getattr(req, "settings", None))
         if new_c.kind == "retrieve":
-            return {"kind": "retrieve", "query": new_c.retrieve.query,
-                    "note": new_c.retrieve.note, "session": req.session, "edited": True,
-                    "hint": "이 수정은 파라메트릭으로 표현 불가 — 자유곡면은 생성/리트리벌 경로예요."}
+            return {"error": "이 수정은 치수만 바꿔서는 할 수 없어요. 원하는 모양을 새로 말해 주세요.",
+                    "session": req.session, "edited": True}
         out = _respond(run(new_c, max_iters=3), sid=req.session)
         out["edited"] = True
         out["diff"] = editor.diff_contract(prior, new_c.to_dict())
@@ -477,15 +626,216 @@ def edit_ep(req: EditReq):
         return {"error": _safe_err(e), "session": req.session}
 
 
+def _face_dims_text(st: dict, faces: list[dict]) -> str:
+    """Real dimensions (kernel) of the picked face: width x height for planes, diameter for cylinders. Helps the model find which variable to change."""
+    from build123d import import_step
+    from ..agent import faceops
+    step = st.get("step")
+    if not step or not Path(step).exists():
+        return ""
+    shape = import_step(step)
+    out = []
+    for k, fd in enumerate(faces[:8]):
+        pt, nm = fd.get("point") or fd.get("center"), fd.get("normal")
+        f = faceops._match(shape, pt, nm) if pt and nm else None
+        if f is None:
+            continue
+        bb = f.bounding_box()
+        out.append(f"face {k+1}: plane at level {round(faceops._vec(nm).normalized().dot(f.center()), 2)} mm, "
+                   f"extent X {bb.min.X:.1f}..{bb.max.X:.1f} ({bb.size.X:.1f} mm), Y {bb.min.Y:.1f}..{bb.max.Y:.1f} ({bb.size.Y:.1f} mm), "
+                   f"Z {bb.min.Z:.1f}..{bb.max.Z:.1f}, area {f.area:.0f} mm2")
+    return (" Measured by the CAD kernel: " + "; ".join(out) + ".") if out else ""
+
+
+def _face_op(st: dict, req: "EditReq", inst: str):
+    """Push/pull the picked face. The kernel finds the face and rules (Meta if ambiguous) set only the distance. None if not applicable (falls back to a normal edit)."""
+    from ..agent import faceops, sandbox
+    import tempfile
+    step = st.get("step")
+    if not step or not Path(step).exists():
+        td = Path(tempfile.mkdtemp())
+        sandbox.execute_to_files(st["code"], td / "p.stl", td / "p.step")
+        step = str(td / "p.step")
+    info = faceops.analyze(step, req.faces[:8])
+    p = faceops.plan(inst, info)
+    if p.get("op") == "ask":
+        return {"ask": p["question"], "session": req.session, "mode": "code"}
+    if p.get("op") == "noop":
+        return {"error": p["how"] + ". 몇 mm 올릴지 말해 주세요(예: 3mm 올려).", "session": req.session, "edited": True, "mode": "code"}
+    if p.get("op") not in ("push", "cut"):
+        return None
+    dists = faceops.distances(p, info)
+    if not any(abs(d) > 1e-3 for d in dists):
+        return {"error": f"이미 그 높이예요({p.get('how', '')}). 바뀔 게 없어요.", "session": req.session, "edited": True, "mode": "code"}
+    code = faceops.append_code(st["code"], info, dists, p.get("how", ""), flush="to_level" in p)
+    tok = uuid.uuid4().hex[:8]
+    stl_path = GEN / f"{tok}_part.stl"
+    step_path = GEN / f"{tok}.step"
+    try:
+        sinfo = sandbox.execute_to_files(code, stl_path, step_path)
+    except sandbox.SandboxError as e:
+        return {"error": "면 밀고 당기기 실패: " + _safe_err(e), "session": req.session, "edited": True, "mode": "code"}
+    r = {"ok": True, "code": code, "info": sinfo, "findings": codegen._findings(sinfo), "iters": 0, "fixed": False}
+    out = _emit_code(tok, stl_path, step_path, r, req.session)
+    n_ok = sum(1 for i in info if i.get("ok"))
+    out["edited"] = True
+    out["face_op"] = {"op": p["op"], "how": p.get("how", ""), "faces": n_ok, "missed": len(info) - n_ok,
+                      "moves": [round(d, 2) for d in dists],
+                      "from": [i["level"] for i in info if i.get("ok")]}
+    return out
+
+
+class BriefReq(BaseModel):
+    history: list[dict]                 # [{"role":"user"|"assistant","text":...}]
+    mode: str | None = None             # "cad" | "printer"
+    spec_text: str | None = None        # off-the-shelf product dimensions found by /api/spec_lookup (use as is, do not ask)
+
+
+_BRIEF = """You are RealCAD's design consultant (a CAD tool that builds real, printable mechanical parts).
+The user describes what they want, often loosely. Your job: talk with them BEFORE anything is built, until the
+request is clear enough to build exactly what they mean. Speak Korean, short and friendly, like to a high-school student.
+
+Rules:
+- Ask ONE question at a time, at most 3 questions in the whole conversation. Ask only what truly changes the shape
+  (what it is for, the key size the user cares about, how it attaches or what fits into it). Never ask about things
+  you can choose sensibly yourself (wall thickness, fillets, bottom thickness): choose them and list them as defaults.
+- If a number is ambiguous (for example "길이 40센치" on a cup holder could be total height or an arm length), ask which.
+- Give 2 to 4 short answer options the user can tap. Include one option that lets you decide (예: "알아서 정해줘").
+- If the user says 알아서, 아무거나, 그냥 만들어, 바로, or the request is already clear, stop asking and finish.
+- When finishing, write a complete build prompt in Korean that contains EVERY dimension in mm and every feature,
+  plus the sensible defaults you chose, so a CAD model can build it without guessing.
+- Units: 파이/Ø/지름 = diameter in mm, 센치/cm = x10 mm.
+
+Reply JSON only, one of:
+{"type":"ask","question":"<one short Korean question>","options":["..","..",".."]}
+{"type":"ready","summary":"<1-3 short Korean lines: what will be built with key numbers>","defaults":["<chosen default 1>","..."],"prompt":"<complete Korean build prompt with all mm values>"}
+"""
+
+
+@app.post("/api/brief")
+def brief_ep(req: BriefReq):
+    """Pre-build consultation: Meta asks one question at a time to narrow things down, and when enough is known returns a summary and a finished design sentence (built once the user OKs it)."""
+    from ..agent.meta_client import chat
+    hist = [h for h in (req.history or []) if isinstance(h, dict) and h.get("text")][-14:]
+    if not hist:
+        return {"type": "ask", "question": "무엇을 만들어 드릴까요?", "options": []}
+    asked = sum(1 for h in hist if h.get("role") == "assistant")
+    convo = "\n".join(("사용자: " if h.get("role") == "user" else "RealCAD: ") + str(h["text"])[:600] for h in hist)
+    extra = f"\n(Questions already asked: {asked}. " + ("You MUST finish now with type ready." if asked >= 3 else "") + ")"
+    if req.spec_text:
+        extra += ("\n(Known product dimensions, already looked up. Do NOT ask the user for these; use them as given. "
+                  "Ask only about the other object the part attaches to, how it attaches, and orientation if it matters.)\n" + req.spec_text[:1500])
+    if req.mode == "printer":
+        extra += "\n(The user prints on an FDM 3D printer: keep walls >= 1.2 mm and avoid unsupported overhangs.)"
+    try:
+        content, _u = chat([{"role": "system", "content": _BRIEF}, {"role": "user", "content": convo + extra}],
+                           json_mode=True, temperature=0.2, max_tokens=3000)
+        d = json.loads(re.search(r"\{.*\}", content, re.S).group(0))
+    except Exception as e:
+        return {"type": "error", "error": _safe_err(e)}
+    if d.get("type") == "ready" and d.get("prompt"):
+        return {"type": "ready", "summary": str(d.get("summary") or "")[:600], "defaults": [str(x)[:120] for x in (d.get("defaults") or [])][:8],
+                "prompt": str(d["prompt"])[:2000]}
+    return {"type": "ask", "question": str(d.get("question") or "어떤 걸 만들까요?")[:300],
+            "options": [str(x)[:60] for x in (d.get("options") or [])][:4]}
+
+
+class AskReq(BaseModel):
+    question: str
+    session: str | None = None
+    face_text: str | None = None
+
+
+@app.post("/api/ask")
+def ask_ep(req: AskReq):
+    """Answer a question only (the part is not changed). e.g. "how big is that circle?", "what is the total height?".
+    Gives the Meta model the current part code, kernel measurements (size, volume) and the picked face description, and asks for a short answer."""
+    from ..agent.meta_client import chat
+    q = (req.question or "").strip()
+    if not q:
+        return {"error": "질문이 비었어요."}
+    st = SESSIONS.get(req.session or "") or {}
+    ctx = []
+    if st.get("ext"):
+        ctx.append(f"Measured bounding box (mm, X x Y x Z): {st['ext']}; volume mm3: {round(st.get('vol') or 0)}")
+    if st.get("mode") == "code" and st.get("code"):
+        ctx.append("Current build123d source of the part (numbers here are the true dimensions):\n" + st["code"][:9000])
+    elif st.get("contract"):
+        ctx.append("Current design contract JSON:\n" + json.dumps(st["contract"], ensure_ascii=False)[:6000])
+    if req.face_text:
+        ctx.append("Faces the user has selected on screen: " + req.face_text[:1500])
+    msg = ("You are RealCAD's assistant. The user is asking a QUESTION about the current part; do NOT design or change anything.\n"
+           + ("\n\n".join(ctx) if ctx else "There is no part on screen yet.")
+           + f"\n\nQuestion: {q}\n\nAnswer ONLY what was asked, in Korean, as short as possible (usually one sentence). "
+           "Do not add any other dimensions, areas, volumes, tips or follow-up offers that were not asked for. "
+           "If the question is not about the part (small talk, checking you are listening), reply in a few words and mention no numbers. "
+           "For a size question give the exact mm number from the source or measurements (say diameter or radius). "
+           "If 'that circle' is ambiguous, list only the circles with their diameters in one sentence. If you cannot tell, say so. "
+           "No markdown, no middle dots, no dashes.")
+    try:
+        content, _u = chat([{"role": "user", "content": msg}], temperature=0.0, max_tokens=2500)
+        return {"answer": content.strip()}
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
+class SketchReq(BaseModel):
+    session: str | None = None
+    plane: dict                         # {origin:[x,y,z], x_dir:[..], normal:[..]}
+    loops: list[dict]                   # [{type:rect,cx,cy,w,h} | {type:circle,cx,cy,r} | {type:poly,pts:[[u,v],..]}]
+    op: str = "boss"                    # boss | cut
+    depth: float = 10.0
+    end: str = "blind"                  # blind | mid | through
+    reverse: bool = False
+    base_step: str | None = None        # for parts without code (built from a template), use the current shape's STEP (gen/xxx.step) as the starting shape
+
+
+@app.post("/api/sketch_feature")
+def sketch_ep(req: SketchReq):
+    """SolidWorks style: sketch on a plane/face -> extrude or cut. Appended to the part code, so undo works as usual."""
+    import shutil
+    from ..agent import sketchops, sandbox
+    try:
+        st = SESSIONS.get(req.session or "")
+        code, base = None, None
+        if st and st.get("mode") == "code":
+            code = st["code"]
+        elif req.base_step:
+            if not re.fullmatch(r"gen/[A-Za-z0-9_.-]{1,80}\.step", req.base_step):
+                return {"error": "시작 형상 경로가 이상해요"}
+            src = (WEB / req.base_step).resolve()
+            if src.parent != GEN.resolve() or not src.exists():
+                return {"error": "시작 형상 파일을 못 찾았어요"}
+            base = uuid.uuid4().hex[:12] + ".step"
+            shutil.copyfile(src, sandbox.BASES_DIR / base)
+        new = sketchops.apply(code, req.model_dump(), base)
+        tok = uuid.uuid4().hex[:8]
+        stl_path, step_path = GEN / f"{tok}_part.stl", GEN / f"{tok}.step"
+        try:
+            sinfo = sandbox.execute_to_files(new, stl_path, step_path)
+        except sandbox.SandboxError as e:
+            return {"error": "스케치로 만들기 실패: " + _safe_err(e), "mode": "code", "session": req.session}
+        r = {"ok": True, "code": new, "info": sinfo, "findings": codegen._findings(sinfo), "iters": 0, "fixed": False}
+        sid = req.session if st else _new_sid()
+        out = _emit_code(tok, stl_path, step_path, r, sid)
+        out["edited"] = bool(st)
+        out["sketch"] = {"op": req.op, "end": req.end, "depth": req.depth, "loops": len(req.loops)}
+        return out
+    except ValueError as e:
+        return {"error": str(e), "mode": "code", "session": req.session}
+    except Exception as e:
+        return {"error": _safe_err(e), "mode": "code", "session": req.session}
+
+
 class UndoReq(BaseModel):
     session: str
 
 
 @app.post("/api/undo")
 def undo_ep(req: UndoReq):
-    """되돌리기 — 세션의 직전 버전(코드)으로 복원. '안 맞으면 고쳐'의 되감기.
+    """Undo: restore the session's previous version (code).
 
-    plain undo(브랜칭): 되돌린 뒤 다시 수정하면 이후 버전은 버려진다. 코드 모드 전용.
+    Plain undo (branching): editing after an undo discards later versions. Code mode only.
     """
     from ..agent import sandbox
     st = SESSIONS.get(req.session)
@@ -495,8 +845,8 @@ def undo_ep(req: UndoReq):
         return {"no_history": True, "msg": "이 설계는 되돌리기를 지원하지 않아요(코드 생성/수정만 가능)."}
     hist = list(st.get("hist") or [])
     if not hist:
-        return {"no_history": True, "msg": "더 되돌릴 게 없어요 — 첫 버전이에요."}
-    prev_code = hist.pop()                       # 직전 버전을 현재로
+        return {"no_history": True, "msg": "더 되돌릴 게 없어요. 첫 버전이에요."}
+    prev_code = hist.pop()                       # make the previous version current
     try:
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"
@@ -505,86 +855,14 @@ def undo_ep(req: UndoReq):
         r = {"code": prev_code, "info": info, "findings": codegen._findings(info),
              "iters": 0, "fixed": False, "_norecord": True}
         out = _emit_code(tok, stl_path, step_path, r, req.session)
-        SESSIONS[req.session]["hist"] = hist     # 되돌린 버전은 히스토리에서 제거(한 칸 뒤로)
+        SESSIONS[req.session]["hist"] = hist     # remove the undone version from history (one step back)
+        _sess_save()
         out["edited"] = True
         out["undone"] = True
         out["remaining"] = len(hist)
         return out
     except Exception as e:
         return {"error": f"되돌리기 실패: {_safe_err(e)}", "session": req.session}
-
-
-class RetrieveReq(BaseModel):
-    prompt: str
-    source: str = "thingiverse"
-    limit: int = 5
-
-
-@app.post("/api/retrieve")
-def retrieve_ep(req: RetrieveReq):
-    """자유곡면(마우스·신발 등) → 플래너가 kind='retrieve'로 판정하면 외부 3D 라이브러리 검색.
-
-    파라메트릭 생성 가능(plate/container/...)하면 /api/design 을 쓰라는 힌트만 돌려준다.
-    TODO(후속): 후보 선택 → download_url에서 STL 내려받기 → watertight 검증 → 빌드볼륨 분할.
-    """
-    try:
-        contract, _usage, _raw = plan(req.prompt)
-        if contract.kind != "retrieve":
-            return {"kind": contract.kind,
-                    "hint": "파라메트릭 생성 가능 — /api/design 사용",
-                    "contract": contract.to_dict()}
-        r = contract.retrieve
-        candidates = search_models(r.query, source=req.source, limit=req.limit)
-        return {"kind": "retrieve", "query": r.query, "note": r.note,
-                "candidates": candidates}
-    except Exception as e:
-        return {"error": _safe_err(e)}
-
-
-class Generate3DReq(BaseModel):
-    prompt: str
-    art_style: str = "realistic"
-
-
-_EXTERNAL = _os.environ.get("REALCAD_ENABLE_EXTERNAL", "").strip() == "1"
-
-
-@app.post("/api/generate3d")
-def generate3d_ep(req: Generate3DReq):
-    if not _EXTERNAL:   # 해커톤 제출 빌드: 런타임 AI 모델은 Meta 만. 외부 텍스트→3D(Meshy)는 옵트인
-        return {"error": "외부 3D 생성 모델은 이 빌드에서 꺼져 있어요 (REALCAD_ENABLE_EXTERNAL=1 로 켤 수 있음). "
-                         "RealCAD 의 런타임 AI 는 Meta Muse Spark 만 사용합니다."}
-    return _generate3d(req)
-
-
-def _generate3d(req: Generate3DReq):
-    """자유곡면 '생성'(텍스트→3D, Meshy). 플래너가 kind='retrieve'(자유곡면)로 보면 생성 작업 제출.
-
-    바로 메시가 나오지 않고 task_id를 돌려준다 → /api/generate3d/status 로 폴링.
-    파라메트릭 생성 가능하면 /api/design 힌트만 돌려준다.
-    """
-    try:
-        contract, _usage, _raw = plan(req.prompt)
-        query = contract.retrieve.query if contract.kind == "retrieve" else req.prompt
-        if contract.kind != "retrieve":
-            # 파라메트릭으로 되는 건 굳이 생성 안 하고 안내(원하면 그래도 생성 가능)
-            job = generate_3d(req.prompt, art_style=req.art_style)
-            return {"kind": contract.kind,
-                    "hint": "파라메트릭 생성 가능 — 더 정밀하려면 /api/design 사용",
-                    "generation": job}
-        return {"kind": "retrieve", "query": query, "note": contract.retrieve.note,
-                "generation": generate_3d(query, art_style=req.art_style)}
-    except Exception as e:
-        return {"error": _safe_err(e)}
-
-
-@app.get("/api/generate3d/status")
-def generate3d_status_ep(task_id: str):
-    """텍스트→3D 생성 작업 상태·결과(메시 URL) 조회."""
-    try:
-        return generation_status(task_id)
-    except Exception as e:
-        return {"error": _safe_err(e)}
 
 
 @app.post("/api/design_photo")
@@ -597,28 +875,15 @@ async def design_photo(image: UploadFile = File(...), note: str = Form("")):
         url = f"data:{mime};base64," + base64.b64encode(data).decode()
         contract, _u, _r = plan_photo(url, note)
         r = contract.retrieve if contract.kind == "retrieve" else None
-        blob = (f"{r.query} {r.note}" if r else note).lower()
-        # 단어 경계로만 — "mecha"가 "mechanical"에, "body"가 "nobody"에 걸리면 안 됨
-        organic = bool(re.search(
-            r"\b(figure|figurine|character|mech|mecha|gundam|robot|animal|person|people|human|"
-            r"humanoid|body|torso|bust|statue|sculpture|creature|doll|mascot|anatomical|skull|"
-            r"face|dragon|dog|cat|bird|fish|flower|tree)\b", blob))
-        # 유기형(피규어·동물·사람) → 리트리벌/부품분해. 나머지는 전부 사진 코드생성
-        # (고정 프리미티브 8종보다 코드생성이 훨씬 유능 — 키보드를 '통'으로 환원하는 오분류 방지).
-        if contract.kind == "retrieve" and organic:
-            hint = ("사진 속 물체가 자유곡면이라 파라메트릭/코드로 못 만들어 — 리트리벌/생성으로." if not r.parts
-                    else f"사진 속 물체를 {len(r.parts)}개 부품으로 분해했어요. 각 부품을 리트리벌/생성으로 받으세요.")
-            return {"kind": "retrieve", "query": r.query, "note": r.note, "parts": r.parts, "hint": hint}
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
         cr = codegen.design_code_photo(url, note or (r.query if r else ""), stl_path, step_path, max_iters=3)
         if cr["ok"]:
             return _emit_code(tok, stl_path, step_path, cr, _new_sid())
-        # 코드생성 실패 시: 플래너가 기본형을 골랐으면 그걸로, 아니면 리트리벌 안내
+        # if code generation fails, build with the template the planner chose
         if contract.kind != "retrieve":
             return _respond(run(contract, max_iters=3))
-        return {"kind": "retrieve", "query": r.query, "note": r.note, "parts": r.parts,
-                "hint": "사진 속 물체를 코드로 못 만들었어요 — 리트리벌/생성으로 받으세요."}
+        return {"error": cr.get("error") or FREEFORM_MSG, "diag": cr.get("diag") or [], "mode": "code"}
     except Exception as e:
         return {"error": _safe_err(e)}
 
@@ -626,7 +891,7 @@ async def design_photo(image: UploadFile = File(...), note: str = Form("")):
 @app.post("/api/wrap")
 async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
                   wall: float = Form(2.0), base: float = Form(2.0), top_gap: float = Form(5.0)):
-    """외부참조(STEP/STL 등)를 받아 치수를 재고 그 주변에 케이스를 만든다(어셈블리)."""
+    """Take an external reference (STEP/STL etc.), measure it and build an enclosure around it (assembly)."""
     try:
         import trimesh
         from ..verify import checks as v
@@ -649,7 +914,7 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
             holes = detect_mount_holes(part)
             mounts = [(hx - cx, hy - cy) for (hx, hy, _r) in holes]
             standoff_h = 4.0 if mounts else 0.0
-            # 보드를 기둥 위에 앉힌다
+            # Seat the board on the bosses
             export_stl(_Pos(-cx, -cy, base + standoff_h - b.min.Z) * part, str(ref_stl))
         else:
             m = trimesh.load(str(raw), force="mesh")
@@ -660,8 +925,8 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
             m.export(str(ref_stl))
 
         lid_url = None
-        if mounts:   # 보드 구멍 감지 → 밀폐형(바디+뚜껑+모서리나사+가스켓+포트맵)
-            is_pi = len(mounts) == 4  # 파이류(58×49 패턴) → 포트맵 적용
+        if mounts:   # board holes detected -> sealed type (body + lid + corner screws + gasket + port map)
+            is_pi = len(mounts) == 4  # Pi-like boards (58x49 pattern) -> apply port map
             pcuts = g.pi_port_cuts(mounts, size, base, standoff_h, size[2], clearance, wall) if is_pi else None
             case, lid = g.build_case_with_lid(
                 size[0], size[1], size[2], clearance=clearance, wall=wall, base=base,
@@ -708,9 +973,9 @@ async def split_upload(model: UploadFile = File(...),
                        bx: float = Form(256.0), by: float = Form(256.0), bz: float = Form(256.0),
                        target_max: float = Form(0.0), method: str = Form("smart"),
                        dowels: bool = Form(True)):
-    """임포트한 대형 메시(STL/OBJ/3MF/PLY)를 빌드볼륨에 맞춰 분할 + 정렬핀 + 검증.
+    """Split a large imported mesh (STL/OBJ/3MF/PLY) to fit the build volume, plus alignment pins and verification.
 
-    method="smart"(기본, 관절·돌출부 선분리 후 크기분할) / "chopper"(최소 조각) / "grid"(축격자).
+    method="smart" (default: detach joints and protrusions first, then size-split) / "chopper" (fewest pieces) / "grid" (axis grid).
     """
     try:
         import trimesh
@@ -724,7 +989,7 @@ async def split_upload(model: UploadFile = File(...),
         m = trimesh.load(str(raw), force="mesh")
         build = (bx, by, bz)
         tm = (target_max or None)
-        # smart=관절·돌출부 선분리(자연 솔기) / chopper=최소 조각 / grid=축정렬 격자
+        # smart = detach joints/protrusions first (natural seams) / chopper = fewest pieces / grid = axis-aligned grid
         if method == "grid":
             r = grid_split(m, build=build, target_max=tm, dowels=dowels)
         elif method == "chopper":
@@ -735,14 +1000,35 @@ async def split_upload(model: UploadFile = File(...),
 
         urls = []
         for i, p in enumerate(r["pieces"]):
-            p.export(str(GEN / f"{tok}_p{i}.stl"))      # trimesh 메시 직접 출력
+            p.export(str(GEN / f"{tok}_p{i}.stl"))      # write trimesh meshes directly
             urls.append(f"gen/{tok}_p{i}.stl")
         pin_url = None
         if r["pins"]:
             allpins = trimesh.util.concatenate(r["pins"])
             allpins.export(str(GEN / f"{tok}_pins.stl"))
             pin_url = f"gen/{tok}_pins.stl"
+        zip_url = None                                       # ZIP with all piece files at once
+        if len(urls) > 1:
+            import zipfile
+            zp = GEN / f"{tok}_pieces.zip"
+            with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
+                for i in range(len(urls)):
+                    z.write(GEN / f"{tok}_p{i}.stl", f"piece_{i + 1}.stl")
+                if pin_url:
+                    z.write(GEN / f"{tok}_pins.stl", "pins.stl")
+                n_pins = int(v.get("pins") or 0)
+                note = [f"RealCAD 조각 {len(urls)}개 / {len(urls)} pieces, 판 크기 / bed {bx:g} x {by:g} x {bz:g} mm", ""]
+                for i, pc in enumerate(v.get("pieces") or []):
+                    sz = pc.get("size") if isinstance(pc, dict) else None
+                    note.append(f"piece_{i + 1}.stl" + (f"  {' x '.join(f'{s:g}' for s in sz)} mm" if sz else ""))
+                note += ["", "조립 / How to assemble:",
+                         f"1. 조각을 각각 뽑아요 (자른 면이 판에 닿게 놓으면 서포트가 적어요). Print each piece, cut face down for fewer supports.",
+                         f"2. pins.stl 의 맞춤 핀 {n_pins}개를 한쪽 구멍에 끼우고 맞은편 조각을 눌러 맞춰요. Push the {n_pins} pin{'s' if n_pins != 1 else ''} into one side, then press the other piece on.",
+                         "3. 빡빡하면 핀을 사포로 살짝, 헐거우면 순간접착제 한 방울. Sand the pins if tight, a drop of glue if loose."]
+                z.writestr("조립방법_assembly.txt", "\n".join(note))
+            zip_url = f"gen/{tok}_pieces.zip"
         return {
+            "zip_url": zip_url,
             "fits": r["fits"], "method": method, "n": r.get("n"), "cuts": r.get("cuts", []),
             "size": [round(x, 1) for x in r["size"]],
             "build": list(build), "n_pieces": v["n_pieces"], "all_fit": v["all_fit"],
@@ -754,5 +1040,51 @@ async def split_upload(model: UploadFile = File(...),
         return {"error": _safe_err(e)}
 
 
-# 정적 프론트(index.html 등)를 / 에 마운트 — API 라우트 뒤에 둬야 함
+class DfamReq(BaseModel):
+    url: str                      # current part file under gen/ (STL or STEP)
+
+
+@app.post("/api/dfam")
+def dfam_ep(req: DfamReq):
+    """Measured printability of the part on screen: thinnest wall + orientation with the least support (verify/dfam.py)."""
+    try:
+        name = Path(str(req.url)).name                      # reject paths outside gen/
+        p = (GEN / name).resolve()
+        if p.parent != GEN.resolve() or not p.exists() or p.suffix.lower() not in (".stl", ".step", ".stp"):
+            return {"error": "부품 파일을 찾지 못했어요"}
+        from ..verify import dfam as _dfam
+        if p.suffix.lower() == ".stl":
+            import trimesh
+            m = trimesh.load(str(p), force="mesh")
+            return {"wall": _dfam._wall_from_mesh(m), "orientation": _dfam._orient_from_mesh(m)}
+        from build123d import import_step
+        return _dfam.measure(import_step(str(p)))
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
+class DrawingReq(BaseModel):
+    url: str                      # current part STEP under gen/
+
+
+@app.post("/api/drawing")
+def drawing_ep(req: DrawingReq):
+    """Build a three-view shop drawing PDF of the current part on the spot (export/views.py). Needs STEP (B-rep) to draw hidden lines."""
+    try:
+        name = Path(str(req.url)).name
+        p = (GEN / name).resolve()
+        if p.parent != GEN.resolve() or not p.exists() or p.suffix.lower() not in (".step", ".stp"):
+            return {"error": "도면은 STEP 이 있는 부품에서만 만들 수 있어요"}
+        from build123d import import_step
+        from ..export.views import write_views_pdf
+        out = GEN / (p.stem + "_drawing.pdf")
+        if not out.exists():
+            if not write_views_pdf(import_step(str(p)), out, title="RealCAD part", part_number=p.stem[:8].upper()):
+                return {"error": "도면을 그리지 못했어요"}
+        return {"pdf_url": f"gen/{out.name}"}
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
+# Mount the static frontend (index.html etc.) at /. Must come after the API routes
 app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")

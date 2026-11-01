@@ -1,7 +1,7 @@
 [project]
 name = "realcad"
 version = "0.2.0"
-description = "프롬프트 → 실제로 조립되는 CAD. 커널 검증(볼트 간섭·공차·연단거리)으로 STEP/STL 생성."
+description = "Prompt to CAD parts that really fit: Meta Muse Spark designs, the CAD engine checks bolts, clearances and edge distances, and exports STEP and STL."
 requires-python = ">=3.12"
 dependencies = [
   "build123d>=0.13", "trimesh>=5.2",

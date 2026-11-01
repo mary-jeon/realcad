@@ -1,4 +1,4 @@
-"""볼트 BOM — 관통(너트·와셔 스택)/탭 체결에 맞는 표준 길이 선택 + CSV."""
+"""Bolt BOM: pick standard lengths for through (nut + washer stack) and tapped joints, plus CSV."""
 from __future__ import annotations
 import csv
 from pathlib import Path
@@ -7,7 +7,7 @@ from ..fasteners.standards import Fastener, std_length
 
 def bolt_length(f: Fastener, grip_mm: float, hole_type: str, washer: bool, nut: bool,
                 engage_mm: float | None = None) -> tuple[float, float, str]:
-    """(표준 길이, 필요 길이, 설명). 관통 = 그립 + 와셔 + 너트 + 2피치 돌출. 탭 = 그립(상대 부재) + 체결깊이."""
+    """(standard length, required length, description). Through = grip + washer + nut + 2 pitches of protrusion. Tapped = grip (mating part) + engagement depth."""
     if hole_type == "tapped":
         need = grip_mm + (f.washer_t_mm if washer else 0.0) + float(engage_mm or 0.0)
         why = f"상대부재 {grip_mm:.1f} + 체결 {float(engage_mm or 0):.1f}" + (" + 와셔" if washer else "")
@@ -18,7 +18,7 @@ def bolt_length(f: Fastener, grip_mm: float, hole_type: str, washer: bool, nut: 
 
 
 def make_bom(contract, f: Fastener, hole_dia_mm: float, engage_mm: float | None = None) -> list[dict]:
-    """계약 → BOM 행 목록(볼트/너트/와셔)."""
+    """Contract -> list of BOM rows (bolts, nuts, washers)."""
     c = contract
     n = len(c.holes)
     if n == 0:

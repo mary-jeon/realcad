@@ -1,4 +1,4 @@
-"""기계요소 규격표와 조립 빌더(CAD 실기 과제 프리셋)."""
+"""Machine element standards tables and assembly builders (CAD practical exam presets)."""
 
 PRESETS = {
     "power_train": ("동력전달장치", "power_train", "build_power_train"),
@@ -11,7 +11,7 @@ PRESETS = {
 
 
 def build_assembly(a):
-    """Assembly 계약 → preset 별 빌더."""
+    """Assembly contract to the builder for its preset."""
     import importlib
     name, mod, fn = PRESETS.get(getattr(a, "preset", "power_train"), PRESETS["power_train"])
     m = importlib.import_module(f"realcad.mech.{mod}")

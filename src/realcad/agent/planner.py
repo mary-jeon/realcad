@@ -1,4 +1,4 @@
-"""기획자 — 자연어 요구를 설계 계약(JSON)으로. Meta Muse Spark 호출."""
+"""Planner: natural-language request -> design contract (JSON). Calls the Meta model."""
 from __future__ import annotations
 import json
 import re
@@ -138,18 +138,18 @@ Units: millimeters. First pick the "kind" that best fits the request:
 {"kind":"retrieve","query":"<English search term, e.g. 'ergonomic computer mouse'>",
  "note":"<one line: why no parametric primitive fits>",
  "parts":[]}
-   - "query" MUST be English (external libraries are indexed in English).
-   - PARTS DECOMPOSITION: if the user asks to break the object into parts / classify its parts /
-     generate it part-by-part ("파츠 분류", "부품별로", "parts", "piece by piece", "분해"),
-     fill "parts" with its natural sub-components, each an English retrieval query. Otherwise leave "parts":[].
-     e.g. a gundam → [{"name":"머리 head","query":"gundam head"},{"name":"몸통 torso","query":"gundam torso chest"},
-       {"name":"왼팔 left arm","query":"gundam arm"},{"name":"오른팔 right arm","query":"gundam arm"},
-       {"name":"왼다리 left leg","query":"gundam leg"},{"name":"오른다리 right leg","query":"gundam leg"},
-       {"name":"백팩 backpack","query":"gundam backpack thruster"},{"name":"무기 weapon","query":"gundam rifle weapon"}].
    - ONLY use retrieve for clearly freeform/organic shapes. If ANY primitive above
      (plate/container/gear/enclosure/profile/clamp/ball/assembly) can CONFIDENTLY represent the request,
      use that primitive instead — never regress a box/cup/disc/sphere into retrieve.
      When unsure, prefer the matching primitive over retrieve.
+
+10) "code" — a MECHANICAL part that none of the primitives above can build FAITHFULLY: several distinct
+   features the user named (slots + bosses + ribs + cutouts together), an irregular outline, a mount or adapter
+   shaped around a specific product, or anything where a primitive would DROP or DISTORT a feature the user asked for.
+   It will be built by writing CAD code directly. Emit:
+{"kind":"code","query":"<short English description of the part>","note":"<one line: which feature no primitive can hold>"}
+   - Prefer a primitive when it represents EVERY named feature; use "code" instead of squeezing the request into a
+     primitive that would lose features (for example do NOT turn an unusual part into a plain plate with 4 bolts).
 
 Output JSON only for the single best kind."""
 
@@ -163,17 +163,20 @@ def _extract_json(text: str) -> dict:
 
 
 def plan(prompt: str) -> tuple[DesignContract, dict, str]:
-    """사용자 프롬프트 → (DesignContract, usage, 원문)."""
+    """User prompt -> (DesignContract, usage, raw text)."""
     content, usage = chat(
         [{"role": "system", "content": SYSTEM},
          {"role": "user", "content": prompt}],
         json_mode=True, temperature=0.0, max_tokens=8000,
     )
-    return DesignContract.from_dict(_extract_json(content)), usage, content
+    d = _extract_json(content)
+    if isinstance(d, dict) and d.get("kind") == "code":       # mechanical part that fits no template -> code path (the server routes it to codegen like retrieve)
+        d = {"kind": "retrieve", "query": d.get("query") or prompt[:120], "note": "code: " + str(d.get("note") or ""), "parts": []}
+    return DesignContract.from_dict(d), usage, content
 
 
 def plan_photo(image_data_url: str, note: str = "") -> tuple[DesignContract, dict, str]:
-    """사진(+메모) → 설계 계약. Muse Spark 멀티모달로 실측 치수를 추정한다."""
+    """Photo (+ note) -> design contract. Estimates real dimensions with the multimodal model."""
     instr = (note.strip() or
              "This photo shows a part or an object to fit/replace. Estimate real-world "
              "dimensions in mm (use any reference object, ruler or caliper visible for scale; "

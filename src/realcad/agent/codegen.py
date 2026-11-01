@@ -1,15 +1,19 @@
-"""코드생성 CAD — LLM이 build123d 코드를 직접 짜서 임의의 기계부품을 만든다.
+"""Code-generation CAD: the LLM writes build123d code directly to make arbitrary parts.
 
-기본형 메뉴(plate/container/...)로는 못 하는 "뭐든 다"를 푸는 경로.
-플래너가 kind 를 고르는 대신, 모델이 그때그때 build123d 파이썬 코드를 생성하고
-sandbox 에서 격리 실행한다. 깨지면 에러를 되먹여 자동 재시도(auto-repair)한다.
+This path covers what the fixed primitive menu (plate/container/...) cannot.
+Instead of the planner choosing a kind, the model writes build123d Python code
+that runs isolated in the sandbox. On failure the error is fed back for an
+automatic retry (auto-repair).
 
-유기적 조각 형상(건담·피규어·동물)은 여기서도 못 만든다(파라메트릭 한계) — 그건 retrieval/Meshy.
-여기는 기계·기하 부품(뚜껑 텀블러·거치대·나사·기어·브래킷·케이스·정리함 등) 전담.
+Used for mechanical parts (stands, screws, gears, brackets, cases, organizers)
+as well as free-form shapes such as figurines.
 """
 from __future__ import annotations
 import json
+import os
 import re
+import shutil
+from pathlib import Path
 from .meta_client import chat
 from . import sandbox
 from . import specs
@@ -133,7 +137,7 @@ libraries, pure build123d/OCC. Do NOT box these up; build them smooth and rounde
 - Make it STAND for printing: ensure a flat-ish bottom (sink the lowest part to z=0 or add a thin
   base disc), so it has a bed contact. Result must be ONE fused watertight solid.
 
-MECHA / ROBOT / GUNDAM (hard-surface humanoid) — this is build123d's STRENGTH: boxes, cylinders,
+MECHA / ROBOT FIGURE (hard-surface humanoid) — this is build123d's STRENGTH: boxes, cylinders,
 chamfers, angular panels. Build a FULL recognizable robot standing upright, symmetric L/R. Plan it as
 a skeleton with real coordinates (Z up, head on top), then build each part as a chamfered box/cyl and
 fuse. Mirror the right side from the left with mirror(..., Plane.YZ). A good ~180 mm figure:
@@ -147,17 +151,17 @@ fuse. Mirror the right side from the left with mirror(..., Plane.YZ). A good ~18
 - LEGS (mirror L/R): thigh tapered Box ~18x20x40 (z 52-92), knee cyl, shin tapered Box ~18x22x44
   (z 8-52), foot angular Box ~22x34x12 flat on z=0 so it STANDS.
 - BACKPACK: Box ~40x12x40 on the back (+Y side of torso) + two thruster Cylinders below it.
-- Optional weapon/shield: beam rifle = Cylinder barrel + Box body + grip in a fist; shield = large
+- Optional hand prop: a held tool = Cylinder shaft + Box body + grip in a fist; optional arm plate = large
   chamfered plate on a forearm.
 - Chamfer edges ~1.5-2 for the mech look, but DON'T chamfer every tiny edge (slow). Overlap each
   part into its neighbor >=2 mm and fuse to ONE solid (joints stay connected for printing). If the
   fuse count gets large/slow, group repeated/small parts into a Compound.
 - BODY FIRST, accessories LAST. ALWAYS build the COMPLETE standing humanoid (head, torso, both
   arms, hips, both legs with feet on z=0) FIRST and make it coherent; ONLY THEN attach backpack /
-  fin-funnels / weapon / shield. Do NOT start from the weapon or lead with many accessories — piling
-  rifle+shield+funnels into one pass breaks the body into floating boxes. If asked for lots of gear,
+  fins / hand prop / arm plate. Do NOT start from the accessories or lead with many of them: piling
+  prop+plate+fins into one pass breaks the body into floating boxes. If asked for lots of gear,
   keep the body solid and add at most a backpack + one held item; the rest can be added later by edit.
-This applies to any mech/robot/gundam/EVA/mobile-suit request. Make it clearly humanoid, not a box.
+This applies to any mech/robot figure request. Make it clearly humanoid, not a box.
 
 CHARACTER / CHIBI (anime, game, mascot figures) — soft organic, so build a STYLIZED CHIBI (2-3
 heads tall): a BIG head (scaled sphere ~ as wide as the body), a small rounded body (loft or
@@ -190,7 +194,7 @@ Return corrected code only."""
 
 def _strip(text: str) -> str:
     t = text.strip()
-    # ```python ... ``` 펜스 제거
+    # strip ```python ... ``` fences
     if "```" in t:
         m = re.search(r"```(?:python|py)?\s*\n?(.*?)```", t, re.DOTALL)
         if m:
@@ -200,7 +204,7 @@ def _strip(text: str) -> str:
 
 def generate_code(prompt: str, prior_code: str | None = None,
                   error: str | None = None) -> tuple[str, dict]:
-    """프롬프트(+직전 실패 코드/에러) → build123d 코드 문자열, usage."""
+    """Prompt (plus the previous failing code and error) -> (build123d code string, usage)."""
     if prior_code and error:
         user = (f"User request: {prompt}\n\n" +
                 _REPAIR.format(code=prior_code, error=error))
@@ -208,7 +212,7 @@ def generate_code(prompt: str, prior_code: str | None = None,
         hint = specs.spec_hint(prompt)
         user = f"{prompt}\n\n{hint}" if hint else prompt
         if _is_mecha(prompt):
-            user += ("\n\nMECHA/ROBOT: build a FULL recognizable humanoid robot per the MECHA/GUNDAM "
+            user += ("\n\nMECHA/ROBOT: build a FULL recognizable humanoid robot per the MECHA/ROBOT FIGURE "
                      "recipe — head with V-fin + eyes, chest with air intakes, pauldrons, arms, "
                      "hips, tapered legs with feet flat on z=0 so it stands, backpack with thrusters, "
                      "symmetric L/R via mirror(..., Plane.YZ), chamfered panels. Clearly humanoid, "
@@ -228,8 +232,8 @@ def generate_code(prompt: str, prior_code: str | None = None,
 
 
 _MECHA_RE = re.compile(
-    r"\b(mecha|mech|robot|gundam|mobile suit|mobilesuit|eva|evangelion|android|droid|exosuit|"
-    r"건담|건프라|로봇|로보트|메카|메크|모빌슈트|기동전사|이바|에바|안드로이드)\b")
+    r"\b(mecha|mech|robot|gundam|android|droid|exosuit|"
+    r"건담|건프라|로봇|로보트|메카|메크|안드로이드)\b")
 _CHAR_RE = re.compile(
     r"\b(character|chibi|anime|manga|game character|mascot character|figure of a (girl|boy|man|woman)|"
     r"캐릭터|치비|애니|애니메|만화|게임\s*캐릭터|미소녀|피규어)\b")
@@ -265,8 +269,8 @@ def _gen(user: str) -> tuple[str, dict]:
     return _strip(content), usage
 
 
-# 사진 스케일 역산용 기준물 실측 치수(mm). 한국 동전·국제 동전·표준 카드·용지.
-# 가장 신뢰: 자/캘리퍼(눈금·판독값 직접 읽음) > 카드/용지(큰 평면) > 동전(작아 오차 큼).
+# Real sizes (mm) of reference objects for inferring photo scale: Korean and international coins, standard cards, paper.
+# Most reliable: ruler/caliper (scale read directly) > card/paper (large flat area) > coin (small, larger error).
 _REFERENCE_SIZES = (
     "KNOWN REFERENCE SIZES (use whichever is visible, most reliable first):\n"
     "- Ruler / tape measure: read the mm/cm marks directly (BEST).\n"
@@ -301,7 +305,7 @@ _MEASURE_INSTR = (
 
 
 def estimate_dimensions_photo(image_url: str, note: str = "") -> dict:
-    """사진에서 기준물로 실물 치수(mm)를 역산 → 구조화 dict. 실패 시 {} 반환."""
+    """Infer real dimensions (mm) from a reference object in the photo -> structured dict. Returns {} on failure."""
     text = _MEASURE_INSTR + (f"\n\nUser note (may name the reference or target size): {note.strip()}"
                              if note.strip() else "")
     user = [{"type": "text", "text": text},
@@ -310,7 +314,7 @@ def estimate_dimensions_photo(image_url: str, note: str = "") -> dict:
         content, _u = chat(
             [{"role": "system", "content": "You are a precise metrologist. Output JSON only."},
              {"role": "user", "content": user}],
-            json_mode=False, temperature=0.0, max_tokens=8000,   # reasoning 모델 — 추론 토큰 여유
+            json_mode=False, temperature=0.0, max_tokens=8000,   # reasoning model: leave room for reasoning tokens
         )
         return _parse_json(content)
     except Exception:
@@ -318,7 +322,7 @@ def estimate_dimensions_photo(image_url: str, note: str = "") -> dict:
 
 
 def _parse_json(text: str) -> dict:
-    """느슨한 JSON 추출 — 펜스/잡텍스트 섞여도 첫 {..} 블록을 파싱."""
+    """Lenient JSON extraction: parse the first {...} block even with fences or stray text around it."""
     try:
         return json.loads(text)
     except Exception:
@@ -333,7 +337,7 @@ def _parse_json(text: str) -> dict:
 
 
 def _measure_to_text(m: dict) -> str:
-    """측정 dict → codegen user 메시지에 넣을 '정확히 이 치수로 만들라' 지시문."""
+    """Measurement dict -> instruction for the codegen user message to build at exactly these dimensions."""
     if not m or not m.get("overall_mm"):
         return ""
     o = m["overall_mm"]
@@ -354,11 +358,11 @@ _PHOTO_INSTR = ("Build the object shown in this photo as a single 3D-printable b
 
 
 def generate_code_photo(image_url: str, note: str = "", measured: str = "") -> tuple[str, dict]:
-    """사진(+메모+실측치수) → build123d 코드. 멀티모달 Muse Spark. 기계·기하 물체용.
+    """Photo (+ note + measured dimensions) -> build123d code. Multimodal; for mechanical and geometric objects.
 
-    주의: 사진 모드에선 specs.spec_hint(고정 레이아웃)를 주입하지 않는다 — 사진에 보이는
-    실제 배치(예: 풀사이즈 104키 vs TKL)를 따라야 하므로. measured(치수 추정 단계 결과)가
-    있으면 그 mm 값을 정확히 쓰도록 강제한다.
+    Note: photo mode does not inject specs.spec_hint (a fixed layout), because the code must
+    follow the actual layout visible in the photo (e.g. full-size 104-key vs TKL). If `measured`
+    (the dimension estimation result) is given, its mm values are enforced exactly.
     """
     text = _PHOTO_INSTR
     if measured.strip():
@@ -376,12 +380,13 @@ def generate_code_photo(image_url: str, note: str = "", measured: str = "") -> t
 
 
 def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters: int = 3) -> dict:
-    """사진 → 치수추정 → 코드생성·실행·자동수정. 결과에 measure(치수 리포트) 포함."""
+    """Photo -> dimension estimate -> generate, run, auto-repair. The result includes `measure` (dimension report)."""
     desc = (note.strip() or "the object in the photo")
-    measure = estimate_dimensions_photo(image_url, note)   # 1) 기준물로 실물 mm 역산
+    measure = estimate_dimensions_photo(image_url, note)   # 1) infer real mm from the reference object
     measured_txt = _measure_to_text(measure)
-    code, _u = generate_code_photo(image_url, note, measured_txt)   # 2) 그 치수로 생성
+    code, _u = generate_code_photo(image_url, note, measured_txt)   # 2) generate at those dimensions
     last_code, error = code, None
+    diags: list = []
     for it in range(max_iters + 1):
         if it > 0:
             code, _u = generate_code(desc, last_code, error)
@@ -391,15 +396,16 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
             d1 = dimension_check(code, info)
             if d1:
                 raise sandbox.SandboxError(d1)
+            code, info, rv = _visual_review(desc, code, info, stl_path, step_path, ref_image_url=image_url)   # also compare against the photo
             return {"ok": True, "code": code, "info": info, "measure": measure,
-                    "findings": _findings(info), "iters": it, "fixed": it > 0}
+                    "findings": _findings(info), "iters": it, "fixed": it > 0, "review": rv, "diag": diags}
         except sandbox.SandboxError as e:
-            error = str(e)
+            error = _diag_note(code, str(e), diags)
             if it == max_iters:
-                return {"ok": False, "error": error, "code": code, "iters": it,
-                        "findings": [], "measure": measure}
+                return {"ok": False, "error": str(e) + (f" (엔진 진단: {diags[-1]})" if diags else ""), "code": code, "iters": it,
+                        "findings": [], "measure": measure, "diag": diags}
     return {"ok": False, "error": error or "unknown", "code": code or "", "iters": max_iters,
-            "findings": [], "measure": measure}
+            "findings": [], "measure": measure, "diag": diags}
 
 
 _DIM_LINE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×X*]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×X*]\s*(\d+(?:\.\d+)?))?")
@@ -408,8 +414,8 @@ _H_LINE = re.compile(r"\b(?:height|tall|H|높이)\s*[=:≈~]?\s*(\d+(?:\.\d+)?)\
 
 
 def declared_overall_mm(code: str) -> float | None:
-    """코드 머리 주석(DIMENSION DISCIPLINE)에서 모델이 스스로 선언한 전체 크기(최대 치수, mm)를 뽑는다.
-    'overall 250 x 150 x 300', 'Ø90 x 300', 'height 250' 류. 없으면 None."""
+    """Extract the overall size (max dimension, mm) the model declared in the code header (DIMENSION DISCIPLINE).
+    Matches forms like 'overall 250 x 150 x 300', 'Ø90 x 300', 'height 250'. None if absent."""
     head = [l.strip("# ").strip() for l in code.splitlines()[:25] if l.strip().startswith("#")]
     cands = []
     for l in head:
@@ -432,7 +438,7 @@ def declared_overall_mm(code: str) -> float | None:
 
 
 def dimension_check(code: str, info: dict, tol: float = 0.6) -> str | None:
-    """D1 치수 충실도: 선언한 전체 크기와 실제 바운딩박스 최대 치수가 ±tol 밖이면 오류 문자열(재시도 입력)."""
+    """D1 dimension fidelity: error string (retry input) if the declared overall size and the bounding box max differ by more than tol."""
     bb = info.get("bbox") or []
     if not bb:
         return None
@@ -444,12 +450,12 @@ def dimension_check(code: str, info: dict, tol: float = 0.6) -> str | None:
         return None
     if built < decl * (1 - tol) or built > decl * (1 + tol):
         return (f"치수 불일치: 주석에 전체 크기 {decl:.0f} mm 라고 선언했는데 실제 바운딩박스 최대 치수는 {built:.1f} mm 입니다 "
-                f"(bbox {bb}). 선언한 실물 치수대로 좌표·크기를 다시 계산하세요. 형상을 작게 뭉개서 통과시키지 마세요.")
+                f"(bbox {bb}). 선언한 실물 치수대로 좌표와 크기를 다시 계산하세요. 형상을 작게 뭉개서 통과시키지 마세요.")
     return None
 
 
 def _findings(info: dict) -> list[dict]:
-    """sandbox 측정 정보 → 웹 응답용 finding dict(기존 _finding 모양과 호환)."""
+    """Sandbox measurement info -> finding dicts for the web response (same shape as _finding)."""
     out = []
     nsolids = info.get("nsolids", 0)
     wt = info.get("watertight")
@@ -460,7 +466,7 @@ def _findings(info: dict) -> list[dict]:
     })
     out.append({
         "code": "C1", "severity": "HARD", "ok": nsolids >= 1,
-        "message": f"솔리드 개수 / solids = {nsolids} (겹친 미융합 솔리드 없음 — 실행 단계에서 검사)",
+        "message": f"솔리드 개수 / solids = {nsolids} (겹친 미융합 솔리드 없음, 실행 단계에서 검사)",
         "actual": float(nsolids), "required": 1.0,
         "standard": "1개=단일부품, 2개↑=조립/뚜껑분리", "suggestion": {},
     })
@@ -479,16 +485,87 @@ def _findings(info: dict) -> list[dict]:
     return out
 
 
-def design_code(prompt: str, stl_path, step_path, max_iters: int = 3) -> dict:
-    """프롬프트 → 코드생성·실행·자동수정 루프. 성공 시 stl_path/step_path 에 파일 생성.
+def _diag_note(code: str, error: str, diags: list) -> str:
+    """For shape errors such as a failed union or floating pieces, append the engine diagnosis (union parts one at a time)."""
+    if not error or not sandbox.DIAG_TRIGGER.search(error):
+        return error
+    try:
+        d = sandbox.diagnose(code)
+    except Exception:
+        d = None
+    if d and d.get("kind") != "OK":
+        diags.append(d["ko"])
+        return error + "\n\n" + d["en"]
+    return error
 
-    반환:
-      성공 {"ok":True,"code":str,"info":dict,"findings":[...],"iters":int,"fixed":bool}
-      실패 {"ok":False,"error":str,"code":str,"iters":int,"findings":[]}
+
+def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_image_url: str | None = None):
+    """Visual check: show a 4-view render to the vision model and, if it reports problems, fix once and re-check.
+    Reverts to the first result if the fix fails or the re-check finds more problems. Returns (code, info, review|None)."""
+    if os.environ.get("REALCAD_VISUAL_REVIEW", "1") == "0":
+        return code, info, None
+    from . import review as _rv
+    stl_path, step_path = Path(stl_path), Path(step_path)
+    tok = stl_path.name.split("_")[0]
+    rv = {"rounds": [], "fixed": False, "images": []}
+    made = []
+    try:
+        png1 = stl_path.with_name(f"{tok}_review1.png")
+        if not _rv.render_views(png1, step_path=step_path, stl_path=stl_path, title=prompt[:80]):
+            return code, info, None
+        rv["images"].append(png1.name)
+        r1 = _rv.review_once(prompt, code, png1, ref_image_url)
+        rv["rounds"].append(r1)
+        if r1["matches"] or not r1["problems"]:
+            return code, info, rv
+        new_code, _u = generate_code(prompt, code, _rv.fix_note(r1))
+        tmp_stl, tmp_step = stl_path.with_name(f"{tok}_rvfix_part.stl"), step_path.with_name(f"{tok}_rvfix.step")
+        made += [tmp_stl, tmp_step]
+        try:
+            info2 = sandbox.execute_to_files(new_code, tmp_stl, tmp_step)
+            d1 = dimension_check(new_code, info2)
+            if d1:
+                raise sandbox.SandboxError(d1)
+        except sandbox.SandboxError as e:
+            rv["fix_error"] = str(e)[:300]
+            return code, info, rv                      # fix failed: keep the original result
+        bak_stl, bak_step = stl_path.with_name(f"{tok}_rvorig_part.stl"), step_path.with_name(f"{tok}_rvorig.step")
+        made += [bak_stl, bak_step]
+        shutil.copyfile(stl_path, bak_stl); shutil.copyfile(step_path, bak_step)
+        shutil.copyfile(tmp_stl, stl_path); shutil.copyfile(tmp_step, step_path)
+        old = (code, info)
+        code, info = new_code, info2
+        rv["fixed"] = True
+        if os.environ.get("REALCAD_REVIEW_CONFIRM", "1") != "0":
+            png2 = stl_path.with_name(f"{tok}_review2.png")
+            if _rv.render_views(png2, step_path=step_path, stl_path=stl_path, title=prompt[:80]):
+                rv["images"].append(png2.name)
+                r2 = _rv.review_once(prompt, code, png2, ref_image_url)
+                rv["rounds"].append(r2)
+                if not r2["matches"] and len(r2["problems"]) > len(r1["problems"]):   # got worse: revert
+                    shutil.copyfile(bak_stl, stl_path); shutil.copyfile(bak_step, step_path)
+                    code, info = old
+                    rv["fixed"] = False; rv["reverted"] = True
+    except Exception as e:
+        rv["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+    finally:
+        for p in made:
+            try: p.unlink()
+            except Exception: pass
+    return code, info, rv
+
+
+def design_code(prompt: str, stl_path, step_path, max_iters: int = 3) -> dict:
+    """Prompt -> generate, run, auto-repair loop -> visual check. On success writes stl_path/step_path.
+
+    Returns:
+      success {"ok":True,"code":str,"info":dict,"findings":[...],"iters":int,"fixed":bool,"review":dict|None,"diag":[str]}
+      failure {"ok":False,"error":str,"code":str,"iters":int,"findings":[],"diag":[str]}
     """
     code = None
     error = None
     last_code = ""
+    diags: list = []
     for it in range(max_iters + 1):
         code, _usage = generate_code(prompt, last_code if error else None, error)
         last_code = code
@@ -497,12 +574,13 @@ def design_code(prompt: str, stl_path, step_path, max_iters: int = 3) -> dict:
             d1 = dimension_check(code, info)
             if d1:
                 raise sandbox.SandboxError(d1)
+            code, info, rv = _visual_review(prompt, code, info, stl_path, step_path)
             return {"ok": True, "code": code, "info": info,
-                    "findings": _findings(info), "iters": it, "fixed": it > 0}
+                    "findings": _findings(info), "iters": it, "fixed": it > 0, "review": rv, "diag": diags}
         except sandbox.SandboxError as e:
-            error = str(e)
+            error = _diag_note(code, str(e), diags)
             if it == max_iters:
-                return {"ok": False, "error": error, "code": code,
-                        "iters": it, "findings": []}
+                return {"ok": False, "error": str(e) + (f" (엔진 진단: {diags[-1]})" if diags else ""), "code": code,
+                        "iters": it, "findings": [], "diag": diags}
     return {"ok": False, "error": error or "unknown", "code": code or "",
-            "iters": max_iters, "findings": []}
+            "iters": max_iters, "findings": [], "diag": diags}

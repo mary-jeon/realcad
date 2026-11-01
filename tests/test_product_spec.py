@@ -1,4 +1,4 @@
-"""상용 제품 규격 조회(agent/product_spec): 표 조회, 확신도 상태, 모델 답 병합, codegen 블록, 질문 생성. 네트워크 없음."""
+"""Commercial product spec lookup (agent/product_spec): table lookup, confidence status, merging model answers, codegen block, question generation. No network."""
 import re
 import pytest
 from realcad.agent import product_spec as ps
@@ -10,7 +10,7 @@ def test_table_lookup_mac_mini_official():
     p = c.products[0]
     assert (p.w, p.d, p.h, p.weight_g) == (127.0, 127.0, 50.0, 670)
     assert p.status == "확실(공식 규격)" and p.source.startswith("https://support.apple.com")
-    assert any("바닥" in k for k in p.keep_clear)          # 환기면을 피하라는 메모가 있어야 한다
+    assert any("바닥" in k for k in p.keep_clear)          # must include a note to avoid the vent face
 
 
 def test_table_lookup_english_and_multiple():
@@ -39,12 +39,12 @@ def test_confidence_thresholds(conf, status):
     c = ps.merge([], data)
     assert c.products[0].status == status
     if status == "모름":
-        assert c.products[0].w is None                      # 모르는 치수는 지우고
-        assert c.questions and "Some Gadget X1" in c.questions[0]["question"]   # 질문으로 돌린다
+        assert c.products[0].w is None                      # drop unknown dimensions
+        assert c.questions and "Some Gadget X1" in c.questions[0]["question"]   # and turn them into questions
 
 
 def test_merge_prefers_table_over_model(monkeypatch):
-    """표에 있는 제품은 모델이 다른 숫자를 말해도 표 값이 남고, 상대편 질문은 최대 3개."""
+    """For products in the table, table values win even if the model gives other numbers, and at most 3 mating questions."""
     fake = {"products": [{"name": "Apple Mac mini M4 2024", "w_mm": 130, "d_mm": 130, "h_mm": 55,
                           "weight_g": 700, "confidence": 0.95}],
             "counterpart": "노트북 거치대 팔",
@@ -81,7 +81,7 @@ def test_no_middle_dot_or_dash_in_korean_strings():
 
 
 def test_model_duplicate_of_table_is_dropped():
-    """모델이 표 제품을 다른 이름(한글)으로 또 말해도 한 줄만 남는다(이름 regex 또는 치수 2% 일치)."""
+    """If the model names a table product again under another (Korean) name, only one row remains (name regex or 2% dimension match)."""
     data = {"products": [{"name": "신용카드 (ISO/IEC 7810 ID-1)", "w_mm": 85.6, "d_mm": 53.98, "h_mm": 0.76,
                           "weight_g": 5, "confidence": 1.0},
                          {"name": "Mac mini 2024", "w_mm": 127, "d_mm": 127, "h_mm": 50, "confidence": 0.9}]}

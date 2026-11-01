@@ -1,4 +1,4 @@
-"""동력전달장치 조립: 규격표, 조립 생성, 검사(A1~A6, M2), 심은 오류 검출."""
+"""Power transmission assembly: standard tables, assembly build, checks (A1 to A6, M2), seeded error detection."""
 import pytest
 from build123d import Pos
 from realcad.contract.schema import DesignContract as D
@@ -17,7 +17,7 @@ def _run(**kw):
     return part, summ, {x.code: x for x in findings}
 
 
-# ── 규격표 ──────────────────────────────────────────────────────────
+# ── Standard tables ─────────────────────────────────────────────────
 def test_parallel_key_table_ks_b_1311():
     k = S.parallel_key(20)
     assert (k.b, k.h, k.t1, k.t2) == (6, 6, 3.5, 2.8) and k.top_clearance == pytest.approx(0.3)
@@ -43,7 +43,7 @@ def test_ring_seal_pulley_gear_tables():
     assert S.gear_dims(2, 30).da == 64 and S.center_distance(2, 30, 18) == 48.0
 
 
-# ── 계약 ────────────────────────────────────────────────────────────
+# ── Contract ────────────────────────────────────────────────────────
 def test_contract_roundtrip_and_clamps():
     c = _asm(bearing="6204", gear={"module": 2, "teeth": 30}, pulley={"type": "none"}, pinion_teeth=999, exploded=0)
     a = c.assembly
@@ -51,7 +51,7 @@ def test_contract_roundtrip_and_clamps():
     assert D.from_dict(c.to_dict()).to_dict() == c.to_dict()
 
 
-# ── 조립 생성 + 검사 ────────────────────────────────────────────────
+# ── Assembly build + checks ─────────────────────────────────────────
 def test_default_power_train_assembles_and_passes():
     part, summ, fd = _run(bearing="6204", gear={"module": 2, "teeth": 30}, pulley={"type": "A", "dp": 100})
     assert summ["passed"], summ["hard_fail"]
@@ -62,7 +62,7 @@ def test_default_power_train_assembles_and_passes():
         assert n in names
     L = asm.layout
     assert L["shoulder_d"] == 25.0 and L["key_gear"] == "8x7" and L["key_pulley"] == "6x6" and L["seal"] == "25x40x7"
-    assert min(p.solid.bounding_box().min.Z for p in asm.parts) >= -1e-6          # 아무 부품도 설치면 아래로 안 내려감
+    assert min(p.solid.bounding_box().min.Z for p in asm.parts) >= -1e-6          # no part goes below the mounting face
     assert {m["id"] for m in asm.mates} >= {"M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"}
 
 
@@ -89,7 +89,7 @@ def test_exploded_view_moves_parts_but_checks_run_on_assembled():
     assert bb1 > bb0 + 50
 
 
-# ── 심은 오류 ──────────────────────────────────────────────────────
+# ── Seeded errors ───────────────────────────────────────────────────
 def test_seeded_missing_rings_fails_axial_chain():
     part, summ, fd = _run(bearing="6204", gear={"module": 2, "teeth": 30}, pulley={"type": "A", "dp": 100}, rings=False)
     assert not summ["passed"] and "A3" in summ["hard_fail"] and fd["A1"].ok
@@ -98,7 +98,7 @@ def test_seeded_missing_rings_fails_axial_chain():
 def test_seeded_shifted_gear_is_caught_as_interference():
     asm = build_power_train(_asm(bearing="6204", gear={"module": 2, "teeth": 30}, pulley={"type": "A", "dp": 100}).assembly)
     g = next(p for p in asm.parts if p.name == "스퍼기어")
-    g.solid = Pos(3.0, 0, 0) * g.solid                     # 기어를 3 mm 밀어 스페이서와 겹치게
+    g.solid = Pos(3.0, 0, 0) * g.solid                     # push the gear 3 mm so it overlaps the spacer
     f = VA.a1_interference(asm.parts)
     assert not f.ok and "스퍼기어" in f.message
 
@@ -108,12 +108,12 @@ def test_seeded_wrong_bore_is_caught_by_fit_measurement():
     L = asm.layout
     g = next(p for p in asm.parts if p.name == "스퍼기어")
     xc = L["x"]["x_gear"] + L["gear"]["width"] / 2
-    g.solid = gear_solid(30, 2, L["gear"]["width"], 26.0, xc, 0.0, L["z_axis"], 90.0)   # 보어 Ø26 ≠ 자리 Ø25
+    g.solid = gear_solid(30, 2, L["gear"]["width"], 26.0, xc, 0.0, L["z_axis"], 90.0)   # bore diameter 26 != seat diameter 25
     f = VA.a2_fits(asm)
     assert not f.ok and "기어 보어" in f.message
 
 
-# ── 편심왕복장치(두 번째 프리셋) ──────────────────────────────────────
+# ── Eccentric reciprocator (second preset) ──────────────────────────
 def _ecc(**kw):
     kw.setdefault("preset", "eccentric_slider")
     return _asm(**kw)
@@ -150,7 +150,7 @@ def test_seeded_motion_interference_is_caught_by_a7():
     asm = build_eccentric(_ecc(eccentricity=8).assembly)
     orig = asm.motion
     def bad_motion(th):
-        mv = orig(th); mv["링크(크랭크)"] = Pos(0, 3.0, 0) * mv["링크(크랭크)"]; return mv   # 링크를 3 mm 옆으로 밀어 저널과 겹치게
+        mv = orig(th); mv["링크(크랭크)"] = Pos(0, 3.0, 0) * mv["링크(크랭크)"]; return mv   # push the link 3 mm sideways so it overlaps the journal
     asm.motion = bad_motion
     f = VA.a7_motion(asm, angles=(0, 90))
     assert not f.ok and "링크" in f.message
@@ -159,7 +159,7 @@ def test_seeded_motion_interference_is_caught_by_a7():
 import math
 
 
-# ── 기어펌프(세 번째 프리셋) ─────────────────────────────────────────
+# ── Gear pump (third preset) ────────────────────────────────────────
 def test_gear_pump_exam_example_passes_with_pair_and_motion_checks():
     part, f, dia, findings, summ = build_and_verify(_asm(preset="gear_pump", gear={"module": 1.5, "teeth": 24, "width": 29}))
     fd = {x.code: x for x in findings}
@@ -174,12 +174,12 @@ def test_gear_pump_exam_example_passes_with_pair_and_motion_checks():
 def test_gear_pump_seeded_shallow_pocket_fails_a8():
     from realcad.mech.gear_pump import build_gear_pump
     asm = build_gear_pump(_asm(preset="gear_pump", gear={"module": 1.5, "teeth": 24, "width": 29}).assembly)
-    asm.layout["extra_checks"][0]["ok"] = (27.0 + 1.0 >= 29.0)        # 포켓 깊이 27 로 바뀐 상황을 흉내
+    asm.layout["extra_checks"][0]["ok"] = (27.0 + 1.0 >= 29.0)        # simulate the pocket depth changing to 27
     f = VA.a8_extra(asm)[0]
     assert not f.ok and f.code == "A8"
 
 
-# ── 드릴지그(네 번째 프리셋) ─────────────────────────────────────────
+# ── Drill jig (fourth preset) ───────────────────────────────────────
 def test_drill_jig_from_workpiece_and_hole_pattern():
     part, f, dia, findings, summ = build_and_verify(_asm(preset="drill_jig", work={"length": 80, "width": 50, "thickness": 15}, drill_d=10, holes=[[-20, 0], [20, 0]]))
     fd = {x.code: x for x in findings}
@@ -193,7 +193,7 @@ def test_drill_jig_seeded_wrong_bush_position_fails_a10():
     from realcad.mech.drill_jig import build_drill_jig
     asm = build_drill_jig(_asm(preset="drill_jig", drill_d=10, holes=[[-20, 0], [20, 0]]).assembly)
     b = next(p for p in asm.parts if p.name == "고정부시")
-    b.solid = Pos(0.5, 0, 0) * b.solid                      # 부시 하나를 0.5 mm 어긋나게
+    b.solid = Pos(0.5, 0, 0) * b.solid                      # offset one bushing by 0.5 mm
     f = VA.a10_hole_pattern(asm)
     assert not f.ok and "-20" in f.message
 
@@ -205,7 +205,7 @@ def test_drill_bush_table_din179():
         S.drill_bush(25)
 
 
-# ── 탁상 바이스(다섯 번째 프리셋) ────────────────────────────────────
+# ── Bench vise (fifth preset) ───────────────────────────────────────
 def test_vise_opens_to_max_without_interference():
     part, f, dia, findings, summ = build_and_verify(_asm(preset="vise", jaw_w=80, open_max=60, screw_d=16))
     fd = {x.code: x for x in findings}
@@ -222,11 +222,11 @@ def test_vise_opens_to_max_without_interference():
 def test_vise_seeded_short_post_fails_a11():
     from realcad.mech.vise import build_vise
     asm = build_vise(_asm(preset="vise", open_max=60).assembly)
-    asm.layout["extra_checks"][0]["ok"] = False          # 포스트가 짧아 최대 벌림에서 부시에서 빠지는 상황
+    asm.layout["extra_checks"][0]["ok"] = False          # posts too short: they leave the bushings at maximum opening
     assert not VA.a8_extra(asm)[0].ok
 
 
-# ── 캠 클램프(여섯 번째 프리셋) ──────────────────────────────────────
+# ── Cam clamp (sixth preset) ────────────────────────────────────────
 def test_cam_clamp_locks_on_workpiece_and_moves_clear():
     part, f, dia, findings, summ = build_and_verify(_asm(preset="cam_clamp", work_d=30, cam_lift=4))
     fd = {x.code: x for x in findings}

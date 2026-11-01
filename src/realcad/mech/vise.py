@@ -1,10 +1,11 @@
-"""탁상 바이스 조립 빌더(preset vise) : CAD 실기 과제 5.
+"""Bench vise assembly builder (preset vise): CAD practical exam task 5.
 
-근거: 01_리서치/CAD실기과제_4종_조사_20261031.md §3 (153LAB 2023년 2회 탁상 바이스: 리드나사축 1 + 가이드 포스트 2 삼각 배치,
-탁상클램프 해설의 부품 역할: 본체, 이동조, 고정조, 나사축, 가이드부시, 물림판, 레버, 손잡이, 링, 너트).
-좌표: 나사축 = X, 고정조(본체 일체)가 +X 끝, 이동조가 -X 쪽으로 벌어진다. Z 위, 본체 바닥 z = 0.
-가이드 포스트 2개는 본체(고정조)에 압입되어 -X 로 뻗고, 이동조의 가이드부시가 그 위를 미끄러진다.
-리드나사축은 이동조에 칼라 + 멈춤링으로 축 방향 고정되어 회전만 하고, 고정조 안의 너트에 물려 이동조를 끌어온다.
+Reference: 153LAB 2023 round 2 bench vise (1 lead screw + 2 guide posts in a triangle);
+part roles from the table clamp commentary: body, movable jaw, fixed jaw, lead screw, guide bushing, jaw plate, lever, handle, ring, nut.
+Coordinates: lead screw = X, fixed jaw (integral with the body) at the +X end, movable jaw opens toward -X. Z up, body bottom z = 0.
+The 2 guide posts are pressed into the body (fixed jaw) and extend toward -X; the movable jaw's guide bushings slide on them.
+The lead screw is held axially in the movable jaw by a collar + retaining ring so it only rotates, and engages the nut
+in the fixed jaw to pull the movable jaw.
 """
 from __future__ import annotations
 
@@ -14,9 +15,9 @@ from . import standards as S
 from .power_train import PartInfo, Assembly, cyl_x, ring_x, retaining_ring_solid, fit
 
 BASE_T = 15.0
-JAW_T0 = 30.0         # 고정조, 이동조 두께(X) 최소값(너트 길이에 맞춰 커짐)
-JAW_H = 60.0          # 조 높이(바닥판 위)
-PLATE_T = 8.0         # 물림판
+JAW_T0 = 30.0         # Minimum fixed/movable jaw thickness (X); grows to fit the nut length
+JAW_H = 60.0          # Jaw height (above the base plate)
+PLATE_T = 8.0         # Jaw plate
 PLATE_H = 22.0
 POST_D = 14.0
 BUSH_WALL = 3.0
@@ -31,17 +32,17 @@ def layout_vise(a) -> dict:
     jw, om, ds = float(a.jaw_w), float(a.open_max), float(a.screw_d)
     ring = S.retaining_ring(ds) if ds in (15, 16, 17, 20, 25, 30) else S.retaining_ring(min((15, 16, 17, 20, 25, 30), key=lambda r: abs(r - ds)))
     nut_od = ds + NUT_OD_ADD
-    nut_l = round(1.8 * ds)                     # 너트 길이 ≥ 1.5 d
-    JAW_T = max(JAW_T0, nut_l + 2.0)            # 조 두께는 너트가 안에 들어가게
+    nut_l = round(1.8 * ds)                     # Nut length ≥ 1.5 d
+    JAW_T = max(JAW_T0, nut_l + 2.0)            # Jaw thickness large enough to house the nut
     collar_od = ds + 10.0
-    z_s = BASE_T + JAW_H - PLATE_H - ds / 2.0 - 4.0   # 나사축 높이: 물림판 아래 4 mm 여유
-    z_g = BASE_T + 12.0                                # 가이드 포스트 높이(삼각 배치의 아래 두 꼭짓점, 부시 구멍이 바닥에 닿지 않게)
+    z_s = BASE_T + JAW_H - PLATE_H - ds / 2.0 - 4.0   # Lead screw height: 4 mm clearance below the jaw plates
+    z_g = BASE_T + 12.0                                # Guide post height (lower two corners of the triangle, bushing holes clear of the base)
     y_g = jw / 2.0 - 14.0
-    x_fj0 = 0.0; x_fj1 = JAW_T                  # 고정조(본체)
-    x_mj1_closed = x_fj0 - 2 * PLATE_T          # 닫힘: 물림판끼리 접촉
-    post_len = om + JAW_T + 2 * PLATE_T + 2.0 + 20.0   # 고정조 안 20 압입
-    Lb0 = x_mj1_closed - om - JAW_T - HEAD_L - 24.0    # 바닥판 -X 끝(핸들 머리 여유)
-    Lb1 = x_fj1 + om + 10.0                           # 나사축이 뒤로 나오는 길이 + 여유
+    x_fj0 = 0.0; x_fj1 = JAW_T                  # Fixed jaw (body)
+    x_mj1_closed = x_fj0 - 2 * PLATE_T          # Closed: jaw plates touching
+    post_len = om + JAW_T + 2 * PLATE_T + 2.0 + 20.0   # Press fit 20 into the fixed jaw
+    Lb0 = x_mj1_closed - om - JAW_T - HEAD_L - 24.0    # Base plate -X end (clearance for the handle head)
+    Lb1 = x_fj1 + om + 10.0                           # Lead screw rear protrusion + margin
     return dict(jw=jw, om=om, ds=ds, ring=ring, nut_od=nut_od, nut_l=nut_l, collar_od=collar_od, z_s=z_s, z_g=z_g, y_g=y_g, jaw_t=JAW_T,
                 x_fj0=x_fj0, x_fj1=x_fj1, x_mj1_closed=x_mj1_closed, post_len=post_len, Lb0=Lb0, Lb1=Lb1, Wb=jw + 20.0,
                 motion_steps=[0.0, om * 0.25, om * 0.5, om * 0.75, om])
@@ -52,23 +53,23 @@ def _body(L: dict) -> Part:
     base = Pos((L["Lb0"] + L["Lb1"]) / 2.0, 0, BASE_T / 2.0) * Box(L["Lb1"] - L["Lb0"], L["Wb"], BASE_T)
     fj = Pos((L["x_fj0"] + L["x_fj1"]) / 2.0, 0, BASE_T + JAW_H / 2.0) * Box(L["jaw_t"], jw, JAW_H)
     b = base + fj
-    b = b - cyl_x(L["x_fj0"] - 1, L["x_fj1"] + 1, L["nut_od"] / 2.0, 0.0, L["z_s"])                       # 너트 구멍 H7(관통)
+    b = b - cyl_x(L["x_fj0"] - 1, L["x_fj1"] + 1, L["nut_od"] / 2.0, 0.0, L["z_s"])                       # Nut bore H7 (through)
     for sy in (-1, 1):
-        b = b - cyl_x(L["x_fj0"] - 1, L["x_fj0"] + 20.0, POST_D / 2.0, sy * L["y_g"], L["z_g"])          # 포스트 압입 구멍 20
-    for sx in (L["Lb0"] + 10.0, L["Lb1"] - 10.0):                                                          # 바닥 고정 구멍 4
+        b = b - cyl_x(L["x_fj0"] - 1, L["x_fj0"] + 20.0, POST_D / 2.0, sy * L["y_g"], L["z_g"])          # Post press-fit holes, depth 20
+    for sx in (L["Lb0"] + 10.0, L["Lb1"] - 10.0):                                                          # 4 base mounting holes
         for sy in (-1, 1):
             b = b - Pos(sx, sy * (L["Wb"] / 2.0 - 8.0), BASE_T / 2.0) * Cylinder(radius=5.5, height=BASE_T + 2)
     return b
 
 
 def _moving_jaw(L: dict) -> Part:
-    """이동조(닫힘 위치 기준, +X 면 = x_mj1_closed). 가이드부시 구멍 2, 나사축 구멍 + 칼라 카운터보어(-X 면), 멈춤링은 +X 면."""
+    """Movable jaw (at the closed position, +X face = x_mj1_closed). 2 guide bushing holes, lead screw hole + collar counterbore (-X face), retaining ring on the +X face."""
     x1 = L["x_mj1_closed"]; x0 = x1 - L["jaw_t"]
     j = Pos((x0 + x1) / 2.0, 0, BASE_T + JAW_H / 2.0) * Box(L["jaw_t"], L["jw"], JAW_H)
     for sy in (-1, 1):
-        j = j - cyl_x(x0 - 1, x1 + 1, POST_D / 2.0 + BUSH_WALL, sy * L["y_g"], L["z_g"])                  # 부시 구멍
-    j = j - cyl_x(x0 - 1, x1 + 1, (L["ds"] + 1.0) / 2.0, 0.0, L["z_s"])                                      # 나사축 통과 구멍
-    j = j - cyl_x(x0 - 1, x0 + COLLAR_T, L["collar_od"] / 2.0, 0.0, L["z_s"])                                # 칼라 카운터보어
+        j = j - cyl_x(x0 - 1, x1 + 1, POST_D / 2.0 + BUSH_WALL, sy * L["y_g"], L["z_g"])                  # Bushing holes
+    j = j - cyl_x(x0 - 1, x1 + 1, (L["ds"] + 1.0) / 2.0, 0.0, L["z_s"])                                      # Lead screw clearance hole
+    j = j - cyl_x(x0 - 1, x0 + COLLAR_T, L["collar_od"] / 2.0, 0.0, L["z_s"])                                # Collar counterbore
     return j
 
 
@@ -85,29 +86,29 @@ def build_vise(a) -> Assembly:
     x1 = L["x_mj1_closed"]; x0 = x1 - L["jaw_t"]
     add("본체(고정조)", _body(L), f"바닥판 {L['Lb1'] - L['Lb0']:.0f}×{L['Wb']:g}×{BASE_T:g}, 고정조 {L["jaw_t"]:g}×{jw:g}×{JAW_H:g}, 너트 구멍 Ø{L['nut_od']:g} H7, 포스트 구멍 Ø{POST_D:g} H7 ×2(삼각 배치)", 1, "GC200", (0, 0, -1.0), "본체")
     add("이동조", _moving_jaw(L), f"{L["jaw_t"]:g}×{jw:g}×{JAW_H:g}, 가이드부시 구멍 Ø{POST_D + 2 * BUSH_WALL:g} H7 ×2, 나사축 구멍 Ø{ds + 1:g}, 칼라 자리 Ø{L['collar_od']:g}", 1, "GC200", (0, 0, 1.5), "커버")
-    # 물림판 2
+    # 2 jaw plates
     add("물림판(고정조)", Pos(L["x_fj0"] - PLATE_T / 2.0, 0, BASE_T + JAW_H - PLATE_H / 2.0) * Box(PLATE_T, jw, PLATE_H), f"{PLATE_T:g}×{jw:g}×{PLATE_H:g} 열처리 HRC50", 1, "STC5", (0, 0, 2.0), "키")
     add("물림판(이동조)", Pos(x1 + PLATE_T / 2.0, 0, BASE_T + JAW_H - PLATE_H / 2.0) * Box(PLATE_T, jw, PLATE_H), f"{PLATE_T:g}×{jw:g}×{PLATE_H:g} 열처리 HRC50", 1, "STC5", (0, 0, 2.0), "키")
-    # 가이드 포스트 2 + 부시 2
+    # 2 guide posts + 2 bushings
     for sy in (-1, 1):
         add("가이드 포스트", cyl_x(L["x_fj0"] + 20.0 - L["post_len"], L["x_fj0"] + 20.0, POST_D / 2.0, sy * L["y_g"], z_g), f"Ø{POST_D:g} h6 × {L['post_len']:.0f}, 고정조 압입 20", 1, "SM45C", (0, sy * 0.8, 0), "축")
     for sy, tag in ((-1, "좌"), (1, "우")):
         add(f"가이드부시({tag})", ring_x(x0, x1, POST_D / 2.0 + BUSH_WALL, POST_D / 2.0, sy * L["y_g"], z_g), f"Ø{POST_D + 2 * BUSH_WALL:g} p6 / Ø{POST_D:g} H7 × {L["jaw_t"]:g}", 1, "PBC2", (0, sy * 0.8, 1.5), "칼라")
-    # 너트(고정조 안)
+    # Nut (inside the fixed jaw)
     nx0 = L["x_fj0"] + (L["jaw_t"] - L["nut_l"]) / 2.0
     add("너트", ring_x(nx0, nx0 + L["nut_l"], L["nut_od"] / 2.0, ds / 2.0, 0.0, z_s), f"Ø{L['nut_od']:g} p6 × {L['nut_l']:g}, 암나사 M{ds:g} (나사산 미모델)", 1, "PBC2", (0, 0, 0), "칼라")
-    # 리드나사축: 머리(핸들 구멍) + 칼라 + 축(닫힘 기준, 뒤로 open_max 만큼 더 나옴)
+    # Lead screw: head (handle hole) + collar + shaft (at the closed position; sticks out open_max further at the rear)
     xs_end = L["x_fj1"] + L["om"]
     screw = cyl_x(x0 - 2.0, xs_end, ds / 2.0, 0.0, z_s)
-    screw = screw + cyl_x(x0, x0 + COLLAR_T, L["collar_od"] / 2.0, 0.0, z_s)                                # 칼라(카운터보어 안)
+    screw = screw + cyl_x(x0, x0 + COLLAR_T, L["collar_od"] / 2.0, 0.0, z_s)                                # Collar (inside the counterbore)
     head = cyl_x(x0 - 2.0 - HEAD_L, x0 - 2.0, (ds + 8.0) / 2.0, 0.0, z_s)
-    head = head - Pos(x0 - 2.0 - HEAD_L / 2.0, 0, z_s) * Rot(90, 0, 0) * Cylinder(radius=HANDLE_D / 2.0 + 0.2, height=ds + 10.0)   # 핸들 구멍(Y)
+    head = head - Pos(x0 - 2.0 - HEAD_L / 2.0, 0, z_s) * Rot(90, 0, 0) * Cylinder(radius=HANDLE_D / 2.0 + 0.2, height=ds + 10.0)   # Handle hole (Y)
     screw = screw + head
     rg = L["ring"]
-    screw = screw - ring_x(x1, x1 + rg.m, ds / 2.0 + 1.0, rg.d2 / 2.0, 0.0, z_s)                                  # 멈춤링 홈(+X 면)
+    screw = screw - ring_x(x1, x1 + rg.m, ds / 2.0 + 1.0, rg.d2 / 2.0, 0.0, z_s)                                  # Retaining ring groove (+X face)
     add("리드나사축", screw, f"M{ds:g} (나사산 미모델) 길이 {xs_end - (x0 - 2.0 - HEAD_L):.0f}, 칼라 Ø{L['collar_od']:g}×{COLLAR_T:g}, 머리 Ø{ds + 8:g}×{HEAD_L:g} 핸들 구멍 Ø{HANDLE_D:g}, 멈춤링 홈 Ø{rg.d2:g}×{rg.m:g}", 1, "SM45C", (0, 0, 0), "축")
     add("멈춤링(C형)", retaining_ring_solid(rg, x1, 0.0, z_s), f"축용 {rg.d1:g} KS B 1336 (이동조 +X 면에 밀착)", 1, "SK5", (1.0, 0, 0), "멈춤링")
-    # 핸들: 바 + 양끝 볼
+    # Handle: bar + ball at each end
     hx = x0 - 2.0 - HEAD_L / 2.0
     bar = Pos(hx, 0, z_s) * Rot(90, 0, 0) * Cylinder(radius=HANDLE_D / 2.0, height=jw)
     handle = bar + Pos(hx, jw / 2.0, z_s) * Sphere(radius=BALL_D / 2.0) + Pos(hx, -jw / 2.0, z_s) * Sphere(radius=BALL_D / 2.0)

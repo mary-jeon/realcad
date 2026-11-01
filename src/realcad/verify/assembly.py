@@ -1,12 +1,12 @@
-"""조립(assembly) 검사: 전부 커널 실측 또는 규격표 대조.
+"""Assembly checks: all measured on the kernel or compared against standard tables.
 
-A1 부품 간섭        : 바운딩박스가 겹치는 모든 부품 쌍의 교차 부피 (Inventor Interference Analysis 와 같은 정의)
-A2 끼워맞춤 지름 실측: 보어, 자리, 구멍의 원통면 반지름을 완성 솔리드에서 읽어 짝이 같은지 (베어링↔축, 베어링↔본체, 기어↔축, 풀리↔축, 커버↔본체)
-A3 축 방향 고정 체인 : 베어링 내륜, 외륜이 양쪽에서 막혔는지 (턱, 멈춤링, 칼라, 커버 턱)
-A4 키 체결          : t1 + t2 - h 윗틈, 키 길이 ≤ 허브 폭, 키 윗면 ≤ 허브 홈 바닥 (실측 bbox)
-A5 기어 쌍          : 본체 두 구멍의 중심거리 실측 = m(z1+z2)/2, 기어↔피니언 교차 부피 ≈ 0 (맞물림)
-A6 베어링 턱        : 축 턱 Ø ∈ [da min, da max], 본체 턱 Ø ≤ Da max
-M2 부품별 watertight : 부품마다 내보낸 메시가 닫혀 있는지
+A1 part interference : intersection volume of every part pair whose bounding boxes overlap (same definition as Inventor Interference Analysis)
+A2 fit diameters     : read cylinder radii of bores, seats and holes on the finished solids and check mates match (bearing/shaft, bearing/housing, gear/shaft, pulley/shaft, cover/housing)
+A3 axial retention   : bearing inner and outer rings blocked on both sides (shoulder, retaining ring, collar, cover lip)
+A4 key joint         : top clearance t1 + t2 - h, key length <= hub width, key top <= hub slot bottom (measured bbox)
+A5 gear pair         : measured center distance of the two housing holes = m(z1+z2)/2, gear/pinion intersection volume ~ 0 (meshing)
+A6 bearing shoulders : shaft shoulder diameter in [da min, da max], housing shoulder diameter <= Da max
+M2 per-part watertight: each part's exported mesh is closed
 """
 from __future__ import annotations
 import itertools
@@ -14,7 +14,7 @@ import math
 
 from .checks import Finding, _intersection_volume, mesh_report
 
-VOL_TOL = 0.5          # mm^3, 수치 오차 허용(접하는 면의 부스러기)
+VOL_TOL = 0.5          # mm^3, numerical tolerance (slivers from touching faces)
 
 
 def _bbox_overlap(b1, b2, tol: float = 0.01) -> bool:
@@ -24,7 +24,7 @@ def _bbox_overlap(b1, b2, tol: float = 0.01) -> bool:
 
 
 def a1_interference(parts) -> Finding:
-    """A1: 부품 쌍 교차 부피. 바운딩박스가 겹치는 쌍만 불리언(속도)."""
+    """A1: pairwise intersection volume. Booleans only for pairs whose bounding boxes overlap (speed)."""
     bbs = [(p, p.solid.bounding_box()) for p in parts]
     bad, tested = [], 0
     for (p1, b1), (p2, b2) in itertools.combinations(bbs, 2):
@@ -43,8 +43,8 @@ def a1_interference(parts) -> Finding:
 
 
 def cyl_faces(part, axis: str, c, axis_tol: float = 0.3):
-    """axis('X'|'Z') 와 평행하고 축선이 c 를 지나는 원통면 → [(radius, lo, hi)] (lo, hi 는 축 방향 범위).
-    X 축이면 c = (y, z), Z 축이면 c = (x, y)."""
+    """Cylinder faces parallel to axis ('X'|'Z') whose axis passes through c -> [(radius, lo, hi)] (lo, hi = axial range).
+    For X, c = (y, z); for Z, c = (x, y)."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     try:
         from build123d import GeomType
@@ -75,12 +75,8 @@ def cyl_faces(part, axis: str, c, axis_tol: float = 0.3):
     return out
 
 
-def cyl_faces_x(part, y: float, z: float, axis_tol: float = 0.3):
-    return cyl_faces(part, "X", (y, z), axis_tol)
-
-
 def has_cyl(part, radius: float, lo: float, hi: float, c, axis: str = "X", tol: float = 0.03) -> bool:
-    """축선 c 위, 축 방향 구간 [lo,hi] 와 겹치는, 반지름 radius 인 원통면이 실제로 있는가."""
+    """Is there really a cylinder face of the given radius on axis c, overlapping the axial range [lo,hi]?"""
     for r, a, b in cyl_faces(part, axis, c):
         if abs(r - radius) <= tol and b >= lo - 0.05 and a <= hi + 0.05:
             return True
@@ -88,7 +84,7 @@ def has_cyl(part, radius: float, lo: float, hi: float, c, axis: str = "X", tol: 
 
 
 def a2_fits(asm) -> Finding:
-    """A2: 빌더가 선언한 끼워맞춤 쌍(layout["fits"])마다 두 부품의 원통면 반지름을 실측해 둘 다 있는지."""
+    """A2: for each fit pair declared by the builder (layout["fits"]), measure both parts' cylinder radii and check both exist."""
     fits = asm.layout.get("fits") or []
     by_no = {p.no: p for p in asm.parts}
     bad = []
@@ -107,8 +103,8 @@ def a2_fits(asm) -> Finding:
                    suggestion={} if ok else {"option_a": "보어와 자리 지름을 베어링 내경/턱 지름으로 통일"})
 
 
-def a3_axial_chain(asm, c) -> Finding:   # 두 프리셋 공통(고정 요소 유무로 판정)
-    """A3: 베어링 축 방향 고정. 내륜: 안쪽은 축 턱(항상), 바깥쪽은 멈춤링(rings) 또는 칼라+풀리(왼쪽). 외륜: 본체 턱(안쪽) + 커버 턱(바깥쪽)."""
+def a3_axial_chain(asm, c) -> Finding:   # shared by both presets (decided by which retaining elements exist)
+    """A3: bearing axial retention. Inner ring: shaft shoulder on the inside (always), retaining ring (rings) or collar + pulley (left) outside. Outer ring: housing shoulder (inside) + cover lip (outside)."""
     a = c.assembly
     L = asm.layout
     missing = []
@@ -128,7 +124,7 @@ def a3_axial_chain(asm, c) -> Finding:   # 두 프리셋 공통(고정 요소 �
 
 
 def a4_keys(asm) -> Finding:
-    """A4: 키 윗틈(t1+t2-h ≥ 0.1), 키 길이 ≤ 허브 폭 - 2, 키 윗면(실측) ≤ 허브 홈 바닥(실측 추정)."""
+    """A4: key top clearance (t1+t2-h >= 0.1), key length <= hub width - 2, key top (measured) <= hub slot bottom (measured estimate)."""
     L = asm.layout
     z = L["z_axis"]
     from ..mech import standards as S
@@ -152,7 +148,7 @@ def a4_keys(asm) -> Finding:
             bad.append(f"{p.name} 윗틈 {ks.top_clearance:g}")
         if kb.size.X > hb.size.X - 2.0 + 1e-6:
             bad.append(f"{p.name} 길이 {kb.size.X:.1f} > 허브 폭 {hb.size.X:.1f} - 2")
-        top_groove = z + seat_d / 2.0 + ks.t2            # 허브 홈 바닥(설계값)
+        top_groove = z + seat_d / 2.0 + ks.t2            # hub slot bottom (design value)
         if kb.max.Z > top_groove - 0.05:
             bad.append(f"{p.name} 윗면 {kb.max.Z:.2f} ≥ 홈 바닥 {top_groove:.2f}")
     ok = not bad
@@ -163,9 +159,9 @@ def a4_keys(asm) -> Finding:
 
 
 def a5_gear_pair(asm) -> Finding | None:
-    """A5: 피니언이 있을 때 본체 두 구멍 중심거리 실측 = a, 기어↔피니언 교차 부피 ≈ 0."""
+    """A5: with a pinion, measured center distance of the two housing holes = a, gear/pinion intersection volume ~ 0."""
     L = asm.layout
-    probe = L.get("pair_probe")          # {"a", "r", "names": [g1, g2], "m", "width"} 를 빌더가 주면 그걸 쓴다
+    probe = L.get("pair_probe")          # use {"a", "r", "names": [g1, g2], "m", "width"} if the builder provides it
     if not L.get("pinion") and not probe:
         return None
     if probe:
@@ -228,7 +224,7 @@ def a6_shoulders(asm) -> Finding | None:
 
 
 def m2_parts(asm) -> Finding:
-    """M2(조립): 부품마다 내보낸 메시가 watertight 인지."""
+    """M2 (assembly): each part's exported mesh is watertight."""
     bad = []
     for p in asm.parts:
         rep = mesh_report(p.solid)
@@ -241,7 +237,7 @@ def m2_parts(asm) -> Finding:
 
 
 def a7_motion(asm, angles=None) -> Finding | None:
-    """A7 운동 간섭: 기구를 각도별로 움직여 움직이는 부품 ↔ 고정 부품(및 서로) 교차 부피, 행정 실측, 부시 걸림 길이."""
+    """A7 motion interference: step the mechanism through angles and measure intersection volume of moving vs fixed parts (and each other), measured stroke, and bushing engagement length."""
     if asm.motion is None:
         return None
     L = asm.layout
@@ -259,7 +255,7 @@ def a7_motion(asm, angles=None) -> Finding | None:
             b1 = s1.bounding_box()
             for p, b2 in static_bb:
                 if n1 in ("편심축", "구동축", "종동축") and p.name in ("볼베어링", "멈춤링(C형)", "V벨트 풀리", "평행키(풀리)", "칼라", "간격링", "오일실", "부시"):
-                    continue                     # 축과 같이 도는(또는 회전 대칭인) 부품은 정지 상태 A1 에서 이미 봤다
+                    continue                     # parts that rotate with the shaft (or are rotationally symmetric) were already checked statically in A1
                 if _bbox_overlap(b1, b2):
                     v = _intersection_volume(s1, p.solid)
                     if v > VOL_TOL:
@@ -288,7 +284,7 @@ def a7_motion(asm, angles=None) -> Finding | None:
 
 
 def a10_hole_pattern(asm) -> Finding | None:
-    """A10 구멍 패턴: layout["hole_probe"] = {"r", "points": [(x,y)], "part"} 의 각 점에 그 부품의 Z축 원통면(반지름 r)이 실제로 있는지."""
+    """A10 hole pattern: for layout["hole_probe"] = {"r", "points": [(x,y)], "part"}, check the part really has a Z-axis cylinder face (radius r) at each point."""
     pr = asm.layout.get("hole_probe")
     if not pr:
         return None
@@ -311,7 +307,7 @@ def a10_hole_pattern(asm) -> Finding | None:
 
 
 def a8_extra(asm) -> list[Finding]:
-    """빌더가 layout["extra_checks"] 에 넣은 수치 판정(코드, 설명, 실측, 기준, 조건)을 Finding 으로."""
+    """Turn numeric checks the builder put in layout["extra_checks"] (code, description, measured, limit, condition) into Findings."""
     out = []
     for e in (asm.layout.get("extra_checks") or []):
         out.append(Finding(e["code"], e.get("severity", "HARD"), bool(e["ok"]), e["message"],

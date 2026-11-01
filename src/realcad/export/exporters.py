@@ -1,4 +1,4 @@
-"""STEP / STL 내보내기. STL은 공차 명시(맥>공모전 권고). build123d 기본 단위 mm."""
+"""STEP / STL export. STL uses an explicit tolerance (print quality). build123d default unit is mm."""
 from __future__ import annotations
 from pathlib import Path
 from build123d import Part, export_step, export_stl
@@ -18,8 +18,9 @@ def to_stl(part: Part, path: str | Path) -> Path:
 
 
 def _clean_degenerate(path: Path) -> None:
-    """OCC 구/곡면 테셀레이션은 극점에 0넓이 삼각형을 남겨 trimesh가 non-watertight로 본다.
-    그 면만 제거해(기하 불변, 부피 동일) 내보낸 STL을 watertight로 정리. 실패해도 원본 유지."""
+    """OCC tessellation of spheres and curved faces leaves zero-area triangles at the poles, so trimesh
+    sees the mesh as non-watertight. Remove just those faces (geometry and volume unchanged) to make
+    the exported STL watertight. Keeps the original on failure."""
     try:
         import trimesh
         m = trimesh.load(str(path))
@@ -27,18 +28,19 @@ def _clean_degenerate(path: Path) -> None:
             return
         mask = m.area_faces > 1e-9
         if bool(mask.all()):
-            return                       # 퇴화면 없음 → OCC 출력 그대로
+            return                       # No degenerate faces: keep OCC output as is
         m.update_faces(mask)
         m.remove_unreferenced_vertices()
         m.merge_vertices()
         m.export(str(path))
     except Exception:
-        pass                             # 정리는 best-effort, 내보내기를 깨지 않음
+        pass                             # Cleanup is best-effort and must not break export
 
 
 def to_dxf(part: Part, path: str | Path, z: float | None = None) -> Path | None:
-    """2D 평면도 DXF(AutoCAD 호환) — 지정 높이(z, 기본: 바닥에서 1 mm 위)의 수평 단면 윤곽을 선으로 내보낸다.
-    판·브래킷은 구멍까지 그대로 나오고, 임의 부품은 바닥 평면도. 실패하면 None(내보내기를 깨지 않음)."""
+    """2D plan DXF (AutoCAD compatible): exports the outline of a horizontal section at height z
+    (default 1 mm above the bottom) as lines. Plates and brackets come out with their holes; other
+    parts give a bottom plan view. Returns None on failure (does not break export)."""
     from build123d import ExportDXF, Plane, section
     try:
         bb = part.bounding_box()
@@ -48,7 +50,7 @@ def to_dxf(part: Part, path: str | Path, z: float | None = None) -> Path | None:
         sec = section(part, section_by=Plane.XY.offset(z), height=0.0)
         if sec is None or not hasattr(sec, "faces"):
             return None
-        sec = Pos(0, 0, -z) * sec                      # DXF 는 XY 평면 → 단면을 z=0 으로 내린다
+        sec = Pos(0, 0, -z) * sec                      # DXF lives in the XY plane, so move the section down to z=0
         faces = sec.faces()
         if not faces:
             return None

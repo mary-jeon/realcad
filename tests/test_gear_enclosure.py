@@ -1,4 +1,4 @@
-"""기어 맞물림·엔클로저 실측 검증 회귀."""
+"""Regression for measured gear meshing and enclosure checks."""
 import pytest
 from realcad.contract.schema import DesignContract as D
 from realcad.pipeline import build_and_verify
@@ -19,7 +19,7 @@ def test_involute_gear_meshes_at_theoretical_center_distance(z, m):
 
 def test_gear_extreme_values_are_clamped_not_crashing():
     summ, fd = _run({"kind": "gear", "gear": {"teeth": 0, "module": -3, "thickness": 6, "bore": 500}})
-    assert "M2" in fd and "G1" in fd            # 실행은 되고 판정이 나온다
+    assert "M2" in fd and "G1" in fd            # it runs and produces a verdict
 
 
 @pytest.mark.parametrize("board", ["raspberry_pi_4", "raspberry_pi_5", "raspberry_pi_zero", "arduino_uno"])
@@ -31,7 +31,7 @@ def test_enclosure_standoffs_match_real_board_holes_and_floor_kept(board):
 
 def test_pi4_holes_are_asymmetric_like_the_real_board():
     xs = sorted({h[0] for h in g.BOARDS["raspberry_pi_4"]["holes"]})
-    assert xs[1] - xs[0] == pytest.approx(58.0) and xs[0] != pytest.approx(-xs[1])   # 3.5mm 오프셋 패턴
+    assert xs[1] - xs[0] == pytest.approx(58.0) and xs[0] != pytest.approx(-xs[1])   # 3.5mm offset pattern
 
 
 def test_unknown_board_is_an_error_not_silent_pi():

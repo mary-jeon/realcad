@@ -1,15 +1,15 @@
-"""빡센 검증 — 전부 커널(OCC) 측정. 맥>공모전 룰셋 기반.
+"""Verification: everything measured on the OCC kernel, based on ASME/ISO tables and design practice.
 
-HARD: 실패 시 즉시 재생성(파라미터 수정)을 요구. SOFT: 경고.
-실패는 geometry 가 아니라 **파라미터 수정 제안 dict** 로 돌려준다
-("그림 다시 그려" 금지 — Zoo 류 치수 깨짐 방지).
+HARD: failure demands regeneration (parameter fix). SOFT: warning.
+Failures return a **parameter fix suggestion dict**, not geometry (no "redraw it", which
+breaks dimensions).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from build123d import Part
 from ..fasteners.standards import Fastener
 
-VOL_EPS = 1e-6  # 간섭 최소 부피(mm^3)
+VOL_EPS = 1e-6  # minimum interference volume (mm^3)
 
 
 @dataclass
@@ -29,7 +29,7 @@ class Finding:
         if self.actual is not None and self.required is not None:
             base += f" (실제 {self.actual:.2f} / 기준 {self.required:.2f} mm)"
         if self.standard:
-            base += f" — {self.standard}"
+            base += f", 기준: {self.standard}"
         return base
 
 
@@ -42,7 +42,7 @@ def _intersection_volume(a: Part, b: Part) -> float:
 
 
 def h1_interference(bolt: Part, obstacle: Part, where: str) -> Finding:
-    """H1: 볼트 솔리드와 장애물(벽·옆 볼트)의 교차 부피 > 0 이면 충돌."""
+    """H1: collision if the bolt solid intersects an obstacle (wall, neighboring bolt) with volume > 0."""
     v = _intersection_volume(bolt, obstacle)
     ok = v <= VOL_EPS
     return Finding("H1", "HARD", ok,
@@ -55,7 +55,7 @@ def h1_interference(bolt: Part, obstacle: Part, where: str) -> Finding:
 
 
 def f0_unknown_fastener(requested: str, used: Fastener, note: str) -> Finding:
-    """F0: 요청한 체결 규격을 보유하지 않아 다른 규격으로 계산했다 — 조용히 넘기지 않고 HARD 로 알린다."""
+    """F0: the requested fastener size is not available and another size was used. Report it as HARD instead of passing silently."""
     return Finding("F0", "HARD", False,
                    f"미지원 체결 규격 {requested!r} → {used.name} 로 계산 / unsupported fastener",
                    standard="보유 규격 표(ASME B18.2.8 / ISO 273)",
@@ -63,7 +63,7 @@ def f0_unknown_fastener(requested: str, used: Fastener, note: str) -> Finding:
 
 
 def h2_hole_clearance(hole_dia_mm: float, f: Fastener, fit: str = "normal", measured: bool = False) -> Finding:
-    """H2: (실측) 구멍 지름이 규격 clearance hole 이상인지. 너무 크면(loose 의 1.5배 초과) 경고 수준으로 메시지만."""
+    """H2: (measured) hole diameter is at least the standard clearance hole. If too large (over 1.5x loose), message only, at warning level."""
     req = f.clearance(fit)
     ok = hole_dia_mm >= req - 1e-6
     return Finding("H2", "HARD", ok,
@@ -77,18 +77,18 @@ K_ENGAGE = {"steel": 1.0, "stainless": 1.0, "cast_iron": 1.3, "brass": 1.3, "alu
 
 
 def h3_engagement(engaged_mm: float, f: Fastener, material: str) -> Finding:
-    """H3: 탭 구멍 체결 깊이 ≥ k·D (k: 강 1.0 / 알루미늄 1.5 / 플라스틱·FDM 2.0). engaged_mm 은 커널 레이캐스트 실측."""
+    """H3: tapped hole engagement >= k*D (k: steel 1.0 / aluminum 1.5 / plastic or FDM 2.0). engaged_mm is a kernel raycast measurement."""
     k = K_ENGAGE.get((material or "pla").lower(), 2.0)
     req = k * f.nominal_dia_mm
     ok = engaged_mm >= req - 1e-6
     return Finding("H3", "HARD", ok, f"체결 깊이 / thread engagement ({f.name}, {material}, k={k})",
-                   actual=engaged_mm, required=req, standard="실무 k·D (강1.0·Al1.5·플라스틱2.0)",
+                   actual=engaged_mm, required=req, standard="실무 k×D (강 1.0, 알루미늄 1.5, 플라스틱 2.0)",
                    suggestion={} if ok else {"option_a": f"판 두께를 {req:.1f}mm 이상으로", "option_b": "관통+너트(hole_type=through)로 변경",
                                              "option_c": "더 작은 볼트"})
 
 
 def h5_tool_access(bolt_xy, f: Fastener, obstacle: Part, where: str, head_z0: float = 0.0) -> Finding:
-    """H5: 소켓/드라이버 공구 포락선(소켓 OD, 머리 위 +15 mm)이 벽·옆 볼트와 겹치면 공구가 못 들어간다."""
+    """H5: if the socket/driver tool envelope (socket OD, +15 mm above the head) overlaps a wall or neighboring bolt, the tool cannot get in."""
     from build123d import Pos, Cylinder
     od = f.socket_od_mm or (f.head_across_corners_mm + 3.0)
     h = f.head_height_mm + 15.0
@@ -100,7 +100,7 @@ def h5_tool_access(bolt_xy, f: Fastener, obstacle: Part, where: str, head_z0: fl
 
 
 def h6_head_flush(part: Part, f: Fastener, xy, style: str) -> Finding:
-    """H6: 카운터보어/싱크 뒤 머리가 판면 아래로 묻히는지 — 머리 솔리드를 묻힌 위치에 놓고 판과 교차 = 0."""
+    """H6: after counterbore/countersink, the head sits below the plate surface: place the head solid at the sunk position and intersection with the plate = 0."""
     from build123d import Pos
     from ..geometry.builder import hex_bolt_solid
     if style == "counterbore":
@@ -113,16 +113,16 @@ def h6_head_flush(part: Part, f: Fastener, xy, style: str) -> Finding:
 
 
 def i1_insert_depth(part: Part, f: Fastener, xy, thickness: float) -> Finding:
-    """I1: 히트세트 인서트 구멍 깊이 ≥ 인서트 길이 + 1 mm, 바닥 ≥ 1 mm (레이캐스트 실측)."""
+    """I1: heat-set insert hole depth >= insert length + 1 mm, floor >= 1 mm (raycast measurement)."""
     from .engagement import engagement_raycast
     from ..fasteners.standards import insert_spec
     spec = insert_spec(f)
     if not spec:
         return Finding("I1", "HARD", False, f"{f.name} 용 히트세트 인서트 표 없음", standard="인서트 제조사 표")
     hole_d, L, od = spec
-    floor = engagement_raycast(part, (xy[0], xy[1], -thickness - 1.0), (0, 0, 1))   # 바닥부터 첫 재료 두께
+    floor = engagement_raycast(part, (xy[0], xy[1], -thickness - 1.0), (0, 0, 1))   # first material thickness from the bottom
     depth = thickness - floor if floor < thickness else 0.0
-    if depth <= 0.0:                      # 관통이면 깊이 = 판 두께
+    if depth <= 0.0:                      # through hole: depth = plate thickness
         depth = thickness; floor = 0.0
     need = L + 1.0
     ok = depth >= min(need, thickness) - 1e-6 and (floor >= 1.0 or floor == 0.0) and thickness >= L + 1.0
@@ -131,7 +131,7 @@ def i1_insert_depth(part: Part, f: Fastener, xy, thickness: float) -> Finding:
 
 
 def i2_insert_wall(edge_dist_mm: float, f: Fastener) -> Finding:
-    """I2: 인서트 둘레 살두께 ≥ 2.0 mm (커뮤니티 "벽이 얇아 warping and melting"). 구멍 중심↔모서리 − 인서트 OD/2."""
+    """I2: wall around the insert >= 2.0 mm (thin walls cause warping and melting). Hole center to edge minus insert OD/2."""
     from ..fasteners.standards import insert_spec
     spec = insert_spec(f)
     od = spec[2] if spec else f.nominal_dia_mm * 1.6
@@ -142,14 +142,14 @@ def i2_insert_wall(edge_dist_mm: float, f: Fastener) -> Finding:
 
 
 def p1_hole_comp(comp: float, hole_type: str) -> Finding:
-    """P1(정보): FDM 구멍 수축 보정 — 커뮤니티 실측으로 구멍이 0.1~0.3 mm 작게 나와 지름에 보정을 더해 뚫는다."""
+    """P1 (info): FDM hole shrink compensation. Holes print 0.1 to 0.3 mm small, so the drilled diameter gets an offset."""
     applied = comp if hole_type != "tapped" else 0.0
     return Finding("P1", "SOFT", True, f"FDM 구멍 보정 / hole compensation +{applied:.2f} mm 적용 (프린터별 0.1~0.3, 테스트 쿠폰으로 맞추세요)",
                    actual=applied, required=None, standard="커뮤니티 실측(Bambu/Prusa 포럼)")
 
 
 def m3_overhang(part: Part, max_deg: float = 45.0) -> Finding:
-    """M3 출력 가능성(SOFT): 바닥면 제외, 아래를 향한 면 중 수평에서 max_deg 보다 완만한(=오버행 심한) 면적 비율."""
+    """M3 printability (SOFT): share of downward faces (excluding the bottom) shallower than max_deg from horizontal (severe overhang)."""
     import math, tempfile, os
     try:
         import trimesh, numpy as np
@@ -158,8 +158,8 @@ def m3_overhang(part: Part, max_deg: float = 45.0) -> Finding:
             pth = os.path.join(td, "m.stl"); export_stl(part, pth, tolerance=0.05, angular_tolerance=0.2)
             m = trimesh.load(pth)
         n = m.face_normals; z = m.vertices[m.faces][:, :, 2].mean(axis=1); zmin = m.vertices[:, 2].min()
-        down = n[:, 2] < -math.cos(math.radians(90 - max_deg))     # 법선이 아래로 45° 이상 기울어짐
-        down &= z > zmin + 0.5                                     # 바닥 접지면 제외
+        down = n[:, 2] < -math.cos(math.radians(90 - max_deg))     # normal tilted 45 deg or more downward
+        down &= z > zmin + 0.5                                     # exclude the bottom contact face
         frac = float(m.area_faces[down].sum() / max(m.area, 1e-9))
     except Exception as e:
         return Finding("M3", "SOFT", True, f"오버행 측정 생략 ({type(e).__name__})", standard="FDM 45°")
@@ -169,7 +169,7 @@ def m3_overhang(part: Part, max_deg: float = 45.0) -> Finding:
 
 
 def h4_edge_distance(edge_dist_mm: float, f: Fastener) -> Finding:
-    """H4: 구멍 중심이 모서리에서 ≥ 1.5×지름."""
+    """H4: hole center >= 1.5 x diameter from the edge."""
     req = 1.5 * f.nominal_dia_mm
     ok = edge_dist_mm >= req
     return Finding("H4", "HARD", ok,
@@ -179,7 +179,7 @@ def h4_edge_distance(edge_dist_mm: float, f: Fastener) -> Finding:
 
 
 def s2_hole_spacing(center_to_center_mm: float, f: Fastener) -> Finding:
-    """S2: 렌치 간격 — 구멍 간 거리 ≥ 2×머리폭."""
+    """S2: wrench clearance: hole spacing >= 2 x head width."""
     req = 2.0 * f.head_across_flats_mm
     ok = center_to_center_mm >= req
     return Finding("S2", "SOFT", ok,
@@ -188,14 +188,14 @@ def s2_hole_spacing(center_to_center_mm: float, f: Fastener) -> Finding:
 
 
 def m_min_wall(wall_mm: float, nozzle: float = 0.4, label: str = "최소 벽두께 / min wall") -> Finding:
-    """M1 출력 가능성: 벽두께 ≥ 노즐×2 (FDM)."""
+    """M1 printability: wall thickness >= 2 x nozzle (FDM)."""
     req = round(nozzle * 2, 2)
     ok = wall_mm >= req - 1e-6
     return Finding("M1", "SOFT", ok, label, actual=wall_mm, required=req, standard="FDM 노즐×2")
 
 
 def e_board(part, board_name: str, holes: list, pilot_dia: float, screw: str) -> Finding:
-    """E1 기판 고정(실측): 보드의 각 나사구멍 좌표에 파일럿 구멍이 실제로 있는지, 지름이 맞는지 커널에서 확인."""
+    """E1 board mounting (measured): on the kernel, check there is a pilot hole of the right diameter at each board screw hole position."""
     from ..geometry.analyze import measure_hole_dia
     missing, wrong = [], []
     for (x, y) in holes:
@@ -206,18 +206,18 @@ def e_board(part, board_name: str, holes: list, pilot_dia: float, screw: str) ->
             wrong.append((x, y, round(d, 2)))
     ok = not missing and not wrong
     msg = f"보드 고정 / standoffs match {board_name} ({screw}, 구멍 {len(holes)}개 실측)"
-    if missing: msg += f" — 파일럿 없음 {missing}"
-    if wrong: msg += f" — 지름 불일치 {wrong}"
+    if missing: msg += f", 나사 밑구멍 없음 {missing}"
+    if wrong: msg += f", 구멍 지름 다름 {wrong}"
     return Finding("E1", "HARD", ok, msg, standard="board hole pattern",
                    suggestion={} if ok else {"option_a": "보드 프리셋 좌표로 기둥 재배치"})
 
 
 def e_floor(part, holes: list, min_floor: float = 1.0) -> Finding:
-    """E2 바닥 피막(실측): 기둥 파일럿 아래 남은 바닥 두께 ≥ 1.0 mm (레이캐스트)."""
+    """E2 floor skin (measured): remaining floor thickness under the boss pilot >= 1.0 mm (raycast)."""
     from .engagement import engagement_raycast
     worst = None
     for (x, y) in holes:
-        t = engagement_raycast(part, (x, y, -1.0), (0, 0, 1))   # 바닥 아래에서 위로 쏴 첫 재료 두께(바닥 피막)
+        t = engagement_raycast(part, (x, y, -1.0), (0, 0, 1))   # shoot upward from below the floor: first material thickness (floor skin)
         worst = t if worst is None else min(worst, t)
     worst = worst or 0.0
     ok = worst >= min_floor - 1e-6
@@ -226,33 +226,33 @@ def e_floor(part, holes: list, min_floor: float = 1.0) -> Finding:
 
 
 def g1_mesh(gear_part, teeth: int, module: float, thickness: float) -> Finding:
-    """G1 맞물림(실측): 같은 기어를 이론 중심거리 m·z 에 반피치 돌려 놓고 교차 부피 = 0 인지."""
+    """G1 meshing (measured): place a copy of the gear at the theoretical center distance m*z, rotated by half a pitch, and check intersection volume = 0."""
     from build123d import Pos, Rot
     try:
-        cd = module * teeth            # 같은 기어 두 개: m(z+z)/2
-        # 짝수 잇수는 180° 가 피치의 배수라 반피치를 더 돌려야 이가 홈에 들어가고, 홀수 잇수는 180° 자체가 반피치 어긋남
+        cd = module * teeth            # two identical gears: m(z+z)/2
+        # With an even tooth count 180 deg is a multiple of the pitch, so add half a pitch to seat teeth in gaps; with an odd count 180 deg is already offset by half a pitch
         mate = Pos(cd, 0, 0) * Rot(0, 0, (180.0 / teeth) if teeth % 2 == 0 else 0.0) * gear_part
         v = _intersection_volume(gear_part, mate)
     except Exception as e:
         return Finding("G1", "HARD", False, f"기어 맞물림 측정 실패 / {type(e).__name__}", standard="involute mesh")
-    ok = v <= 0.05 * module * thickness   # 수치 오차 허용(아주 작은 접촉)
+    ok = v <= 0.05 * module * thickness   # numerical tolerance (tiny contact)
     return Finding("G1", "HARD", ok, f"기어 맞물림 / meshing at center distance {cd:.1f}mm", actual=v, required=0.0,
                    standard="인벌류트 20°, 백래시 0.05m", suggestion={} if ok else {"option_a": "치형/백래시 확인"})
 
 
 def mesh_report(part) -> dict:
-    """내보낸 메시 기준 실측: watertight(퇴화면 정리 후)·연결 조각 수·OCC 솔리드 수·겹친(미융합) 솔리드 쌍."""
+    """Measured on the exported mesh: watertight (after degenerate face cleanup), connected component count, OCC solid count, overlapping (unfused) solid pairs."""
     import tempfile, os
     rep = {"nsolids": 0, "is_valid": False, "watertight": False, "bodies": 0, "overlaps": []}
     try:
         solids = part.solids()
         rep["nsolids"] = len(solids)
         rep["is_valid"] = bool(part.is_valid)
-        if 2 <= len(solids) <= 10:                      # 큰 배열(Compound 40+)은 의도된 겹침이라 건너뜀
+        if 2 <= len(solids) <= 10:                      # large arrays (Compound 40+) overlap on purpose: skip
             for i in range(len(solids)):
                 for j in range(i + 1, len(solids)):
                     v = _intersection_volume(solids[i], solids[j])
-                    if v > 0.5:                         # 0.5 mm³ 이상 겹치면 "붙이지 않고 포갠" 것
+                    if v > 0.5:                         # overlap of 0.5 mm^3 or more means stacked, not fused
                         rep["overlaps"].append((i, j, round(v, 2)))
         import trimesh
         from build123d import export_stl
@@ -260,7 +260,7 @@ def mesh_report(part) -> dict:
             p = os.path.join(td, "m.stl")
             export_stl(part, p, tolerance=0.01, angular_tolerance=0.1)
             m = trimesh.load(p)
-            mask = m.area_faces > 1e-9                  # 구 극점 퇴화면 정리(exporters._clean_degenerate 와 동일)
+            mask = m.area_faces > 1e-9                  # clean sphere pole degenerate faces (same as exporters._clean_degenerate)
             if not bool(mask.all()):
                 m.update_faces(mask); m.remove_unreferenced_vertices(); m.merge_vertices()
             rep["watertight"] = bool(m.is_watertight)
@@ -271,7 +271,7 @@ def mesh_report(part) -> dict:
 
 
 def m_manifold(part) -> Finding:
-    """M2 출력 가능성: OCC 유효 + 내보낸 메시가 watertight(퇴화면 정리 후). 측정 실패는 실패로(fail-closed)."""
+    """M2 printability: OCC valid + exported mesh watertight (after degenerate face cleanup). A failed measurement counts as failure (fail-closed)."""
     rep = mesh_report(part)
     ok = rep["nsolids"] >= 1 and rep["is_valid"] and rep["watertight"] and "error" not in rep
     msg = "매니폴드 / watertight solid"
@@ -284,7 +284,7 @@ def m_manifold(part) -> Finding:
 
 
 def c1_unfused(part) -> Finding:
-    """C1: 서로 겹치기만 하고 융합되지 않은 솔리드가 있으면 HARD — 슬라이서에서 조각나거나 내부 벽이 생긴다."""
+    """C1: HARD if solids only overlap without being fused: slicers split them or create internal walls."""
     rep = mesh_report(part)
     ok = not rep["overlaps"]
     desc = ", ".join(f"solid{i}∩solid{j}={v}mm³" for i, j, v in rep["overlaps"][:4])

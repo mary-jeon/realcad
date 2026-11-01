@@ -1,4 +1,4 @@
-"""계약 → 조립 + 검증 (kind별 분기). meta_run·loop·web 공용."""
+"""Contract -> assembly + verification (branches by kind). Shared by the agent loop and the web server."""
 from __future__ import annotations
 from .contract.schema import DesignContract
 from .geometry.builder import build_from_contract, wall as make_wall, place, hex_bolt_solid
@@ -8,13 +8,13 @@ from .verify import checks as v
 def build_and_verify(c: DesignContract):
     """return (part, fastener|None, hole_dia|None, findings, summary)."""
     if c.kind == "assembly":
-        # 조립: 부품별 솔리드를 조립 좌표로 만들고 A1~A6 + 부품별 M2. 단품용 C1/M3 는 적용하지 않는다(의도된 분리 부품).
+        # Assembly: build per-part solids in assembly coordinates, check A1~A6 plus per-part M2. Single-part C1/M3 are skipped (parts are intentionally separate).
         from .mech import build_assembly
         from .verify.assembly import verify_assembly
         asm = build_assembly(c.assembly)
         findings = verify_assembly(asm, c)
         part = asm.compound
-        part._rc_asm = asm                      # 웹 응답(부품별 STL·BOM·메이트)용
+        part._rc_asm = asm                      # for the web response (per-part STL, BOM, mates)
         return part, None, None, findings, v.summarize(findings)
     part, f, dia = build_from_contract(c)
     findings = []
@@ -31,12 +31,12 @@ def build_and_verify(c: DesignContract):
         if tapped:
             from .verify.engagement import engagement_raycast
         for i, h in enumerate(c.holes, 1):
-            md = measure_hole_dia(part, h.x, h.y)                 # 커널에서 실제 구멍 지름 실측
+            md = measure_hole_dia(part, h.x, h.y)                 # measure the actual hole diameter in the kernel
             if getattr(c, "hole_type", "through") == "insert":
-                pass                                               # 인서트는 I1 로 검사(공차구멍 아님)
+                pass                                               # inserts are checked with I1 (not a clearance hole)
             elif tapped:
-                # 탭 구멍: 볼트 축선을 판에 레이캐스트해 실제 물리는 길이(판 두께 − 벽 등) 실측
-                # 축선은 구멍(빈 공간)이라 0 이 나온다 → 나사산이 무는 반지름(0.47D, 탭드릴 밖·외경 안)에서 쏜다
+                # tapped hole: raycast the bolt axis into the plate to measure the actual engaged length (plate thickness minus walls, etc.)
+                # The axis is inside the hole (empty) and reads 0, so cast at the thread engagement radius (0.47D, outside the tap drill, inside the major diameter)
                 rr = 0.47 * f.nominal_dia_mm
                 eng = max(engagement_raycast(part, (h.x + rr, h.y, 50.0), (0, 0, -1)),
                           engagement_raycast(part, (h.x - rr, h.y, 50.0), (0, 0, -1)))
