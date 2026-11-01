@@ -1101,7 +1101,8 @@ function reviewSummary(d){ const EN=document.body.classList.contains('lang-en'),
       out.push(s); } }
   if(rv&&rv.iou&&rv.iou.length){ const pc=v=>Math.round(v*100)+'%', a=rv.iou[0], b=rv.iou[rv.iou.length-1];
     let s='📐 '+L2('윤곽이 참고 그림과 겹치는 정도','Outline match with the reference sheet')+': '+L2('정면','front')+' '+pc(a.front)+', '+L2('옆','side')+' '+pc(a.side);
-    if(rv.iou.length>1) s+=' → '+L2('고친 뒤','after the fix')+' '+L2('정면','front')+' '+pc(b.front)+', '+L2('옆','side')+' '+pc(b.side);
+    const k=rv.best||b; if(rv.iou.length>1) s+=' → '+L2('남긴 결과','kept')+' '+L2('정면','front')+' '+pc(k.front)+', '+L2('옆','side')+' '+pc(k.side);
+    if(rv.tries) s+=' <span class="n">('+L2(`윤곽 겹침 그림을 보여 주며 고치기 ${rv.tries}번 시도, ${rv.kept?rv.kept+'번째 것을 남김':'처음 것이 가장 좋아서 그대로 둠'}`,`fixed with the outline overlay ${rv.tries} times, ${rv.kept?'kept try '+rv.kept:'the first one stayed best'}`)+')</span>';
     out.push(s); }
   if(d.concept) out.push('🎨 <a href="'+esc(d.concept)+'" target="_blank" rel="noopener">'+L2('메타가 그린 참고 그림','reference sheet Meta drew')+'</a>');
   if(d.info&&d.info.mesh) out.push('🧩 '+L2('CAD 엔진이 부품 합치기에 실패해서 삼각형 메시로 합쳤어요. STEP 의 곡면은 작은 평면으로 나가요','The CAD engine could not join the parts, so they were joined as a triangle mesh. Curved faces in the STEP file are small flat facets'));

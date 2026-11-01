@@ -119,3 +119,26 @@ def test_sheet_split_when_the_drawings_almost_touch(tmp_path):
     d.rectangle([100, 100, 495, 500], fill="black"); d.rectangle([505, 150, 900, 500], fill="black")   # 9 px apart
     im.save(tmp_path / "close.png")
     assert concept.sheet_masks(tmp_path / "close.png") is not None
+
+
+def test_outline_overlay_and_widths(tmp_path):
+    stl, step = tmp_path / "ab12cd34_part.stl", tmp_path / "ab12cd34.step"
+    sandbox.execute_to_files(BOX, stl, step)
+    sheet = _sheet(tmp_path / "wide.png", front=(40, 40), side=(10, 40))
+    assert concept.diff_png(sheet, stl, tmp_path / "d.png").exists()
+    prof = concept.profile_text(sheet, stl)
+    assert "FRONT" in prof and "too narrow" in prof and "SIDE" not in prof
+
+
+def test_review_rounds_stop_when_a_fix_does_not_help(tmp_path, monkeypatch):
+    sheet = _sheet(tmp_path / "ref.png", front=(40, 40), side=(40, 40))
+    worse = "from build123d import *\npart = Box(10, 10, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))\n"
+    monkeypatch.setattr(codegen, "generate_code_photo", lambda *a, **k: (BOX, {}))
+    seen = []
+    monkeypatch.setattr(codegen, "generate_code", lambda *a, **k: (seen.append(k.get("image_url")), (worse, {}))[1])
+    monkeypatch.setattr(review, "review_once", lambda *a, **k: {"matches": True, "problems": [], "fix": ""})
+    r = codegen.design_code_concept("cube figure", sheet, tmp_path / "ab12cd34_part.stl", tmp_path / "ab12cd34.step")
+    rv = r["review"]
+    assert r["code"] == BOX and not rv["fixed"] and rv["tries"] == 1 and rv["rejected"] == 1
+    assert isinstance(seen[0], list) and len(seen[0]) == 2          # the sheet and the outline overlay
+    assert not list(tmp_path.glob("*try*"))

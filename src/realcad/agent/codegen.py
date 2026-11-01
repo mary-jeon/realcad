@@ -205,14 +205,15 @@ def _strip(text: str) -> str:
 
 
 def generate_code(prompt: str, prior_code: str | None = None,
-                  error: str | None = None, image_url: str | None = None) -> tuple[str, dict]:
+                  error: str | None = None, image_url: str | list | None = None) -> tuple[str, dict]:
     """Prompt (plus the previous failing code and error) -> (build123d code string, usage).
     With image_url (a photo or a reference sheet) a repair also sees that image."""
     if prior_code and error and image_url:
         text = f"User request: {prompt}\n\n" + _REPAIR.format(code=prior_code, error=error)
+        urls = image_url if isinstance(image_url, list) else [image_url]
         content, usage = chat([{"role": "system", "content": SYSTEM},
-                               {"role": "user", "content": [{"type": "text", "text": text},
-                                                            {"type": "image_url", "image_url": {"url": image_url}}]}],
+                               {"role": "user", "content": [{"type": "text", "text": text}] +
+                                [{"type": "image_url", "image_url": {"url": u}} for u in urls]}],
                               json_mode=False, temperature=0.0, max_tokens=12000)
         return _strip(content), usage
     if prior_code and error:
@@ -418,6 +419,88 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
             "findings": [], "measure": measure, "diag": diags}
 
 
+def _concept_review(prompt: str, code: str, info: dict, stl_path, step_path, sheet_png, sheet_url: str):
+    """Review loop for parts built from a reference sheet. Each round shows Muse Spark the 4-view render, the sheet,
+    an overlay of both outlines (red = missing, blue = extra) and the widths at nine heights, asks for a fix, and keeps
+    the fix only if the measured outline match goes up. Stops when the review passes and the outline is close enough,
+    when a fix does not help, or after REALCAD_FIX_ROUNDS rounds (default 3). Returns (code, info, review)."""
+    if os.environ.get("REALCAD_VISUAL_REVIEW", "1") == "0":
+        return code, info, None
+    from . import concept as _cc, review as _rv
+    stl_path, step_path = Path(stl_path), Path(step_path)
+    tok = stl_path.name.split("_")[0]
+    rounds = max(0, int(os.environ.get("REALCAD_FIX_ROUNDS", "3")))
+    rv = {"rounds": [], "fixed": False, "images": [], "iou": [], "tries": 0, "kept": 0}
+    made = []
+
+    def look(c, stl, step, n):
+        png = stl.with_name(f"{tok}_review{n}.png")
+        if not _rv.render_views(png, step_path=step, stl_path=stl, title=prompt[:80]):
+            return None, None, None
+        sc = _cc.score(sheet_png, stl)
+        r = _rv.review_once(prompt, c, png, sheet_url, extra=_outline_text(sc))
+        if _cc.low(sc):
+            r = {**r, "matches": False, "problems": (r.get("problems") or []) +
+                 [f"윤곽이 참고 그림과 덜 맞아요 (정면 {round(sc['front'] * 100)}%, 옆 {round(sc['side'] * 100)}%)"]}
+        return png, sc, r
+
+    try:
+        png, sc, r = look(code, stl_path, step_path, 1)
+        if png is None:
+            return code, info, None
+        rv["images"].append(png.name); rv["rounds"].append(r)
+        if sc:
+            rv["iou"].append(sc)
+        best = {"code": code, "info": info, "sc": sc, "r": r}
+        for k in range(rounds):
+            if best["r"]["matches"] and not _cc.low(best["sc"]):
+                break
+            diff = stl_path.with_name(f"{tok}_outline{k + 1}.png")
+            urls = [sheet_url]
+            if _cc.diff_png(sheet_png, stl_path, diff):
+                rv.setdefault("outlines", []).append(diff.name)
+                urls.append(_rv._png_data_url(diff))
+            prof = _cc.profile_text(sheet_png, stl_path)
+            note = _rv.fix_note(best["r"]) + (
+                "\nThe second image overlays the outline of the reference sheet and of your part, scaled to the same height: "
+                "grey = both, RED = in the sheet but missing in your part (add or enlarge there), "
+                "BLUE = your part sticks out where the sheet has nothing (shrink or move there)." if len(urls) > 1 else "") + (
+                "\nMeasured widths (H = height of the figure):\n" + prof if prof else "")
+            rv["tries"] += 1
+            new_code, _u = generate_code(prompt, best["code"], note, image_url=urls)
+            t_stl, t_step = stl_path.with_name(f"{tok}_try{k + 1}_part.stl"), step_path.with_name(f"{tok}_try{k + 1}.step")
+            made += [t_stl, t_step]
+            try:
+                info2 = sandbox.execute_to_files(new_code, t_stl, t_step)
+            except sandbox.SandboxError as e:
+                rv.setdefault("fix_errors", []).append(str(e)[:200])
+                continue
+            png2, sc2, r2 = look(new_code, t_stl, t_step, k + 2)
+            if png2 is None:
+                continue
+            rv["images"].append(png2.name)
+            if sc2:
+                rv["iou"].append(sc2)
+            better = (_mean(sc2) > _mean(best["sc"]) + 0.005) if (sc2 and best["sc"]) else \
+                     (len(r2["problems"]) < len(best["r"]["problems"]))
+            if not better:
+                rv["rejected"] = rv.get("rejected", 0) + 1
+                break
+            shutil.copyfile(t_stl, stl_path); shutil.copyfile(t_step, step_path)
+            best = {"code": new_code, "info": info2, "sc": sc2, "r": r2}
+            rv["fixed"] = True; rv["kept"] = k + 1
+            rv["rounds"] = [rv["rounds"][0], r2]
+        rv["best"] = best["sc"]
+        return best["code"], best["info"], rv
+    except Exception as e:
+        rv["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        return code, info, rv
+    finally:
+        for p in made:
+            try: p.unlink()
+            except Exception: pass
+
+
 _CONCEPT_INSTR = ("This image is a reference sheet drawn for the user's request: the FRONT view on the left and the "
                   "SIDE view on the right, of the same object. Build it as ONE 3D-printable figure that matches BOTH "
                   "views: the same parts, proportions and pose. Put its front toward -Y. If the request gives a size, use "
@@ -440,9 +523,8 @@ def design_code_concept(request: str, sheet_png, stl_path, step_path, max_iters:
             last_code = code
         try:
             info = sandbox.execute_to_files(code, stl_path, step_path)
-            # figures have no authoritative size comment, so the declared-size check (D1) is skipped here
-            code, info, rv = _visual_review(request, code, info, stl_path, step_path, ref_image_url=url, ref_png=sheet_png,
-                                            check_dims=False)
+            # figures have no authoritative size comment, so the declared-size check (D1) is not used here
+            code, info, rv = _concept_review(request, code, info, stl_path, step_path, sheet_png, url)
             return {"ok": True, "code": code, "info": info, "findings": _findings(info), "iters": it,
                     "fixed": it > 0, "review": rv, "diag": diags}
         except sandbox.SandboxError as e:

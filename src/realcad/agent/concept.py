@@ -104,32 +104,100 @@ def _norm(mask: np.ndarray) -> np.ndarray:
     return np.asarray(im) > 127
 
 
-def iou(a: np.ndarray, b: np.ndarray) -> float:
-    """Outline overlap after scaling both to the same height and centring them (mirror is tried too)."""
-    if not a.any() or not b.any():
-        return 0.0
+def _aligned(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """Scale both outlines to the same height, centre them, try b mirrored too; return the best pair and its IoU."""
     A, B = _norm(a), _norm(b)
-    best = 0.0
+    best = (None, None, -1.0)
     for BB in (B, B[:, ::-1]):
         w = max(A.shape[1], BB.shape[1])
         pa = np.zeros((_SIZE, w), bool); pb = np.zeros((_SIZE, w), bool)
         oa, ob = (w - A.shape[1]) // 2, (w - BB.shape[1]) // 2
         pa[:, oa:oa + A.shape[1]] = A
         pb[:, ob:ob + BB.shape[1]] = BB
-        best = max(best, float((pa & pb).sum()) / max(float((pa | pb).sum()), 1.0))
+        v = float((pa & pb).sum()) / max(float((pa | pb).sum()), 1.0)
+        if v > best[2]:
+            best = (pa, pb, v)
     return best
+
+
+def iou(a: np.ndarray, b: np.ndarray) -> float:
+    """Outline overlap after scaling both to the same height and centring them (mirror is tried too)."""
+    if not a.any() or not b.any():
+        return 0.0
+    return _aligned(a, b)[2]
+
+
+def _pairs(sheet_png, stl):
+    ref = sheet_masks(sheet_png)
+    if ref is None:
+        return None
+    front, side = part_masks(stl)
+    return {"front": _aligned(ref[0], front), "side": _aligned(ref[1], side)}
 
 
 def score(sheet_png, stl) -> dict | None:
     """{"front": 0..1, "side": 0..1} for the built part against the reference sheet, or None."""
     try:
-        ref = sheet_masks(sheet_png)
-        if ref is None:
-            return None
-        front, side = part_masks(stl)
-        return {"front": round(iou(ref[0], front), 2), "side": round(iou(ref[1], side), 2)}
+        pr = _pairs(sheet_png, stl)
+        return {k: round(v[2], 2) for k, v in pr.items()} if pr else None
     except Exception:
         return None
+
+
+def diff_png(sheet_png, stl, out_png) -> Path | None:
+    """Overlay of the two outlines for each view: grey = both, red = in the sheet but missing in the part,
+    blue = in the part but not in the sheet. This is what the repair request looks at."""
+    try:
+        pr = _pairs(sheet_png, stl)
+        if not pr:
+            return None
+        panels = []
+        for name in ("front", "side"):
+            ref, part, v = pr[name]
+            img = np.full(ref.shape + (3,), 255, np.uint8)
+            img[ref & part] = (150, 150, 150)
+            img[ref & ~part] = (220, 40, 40)
+            img[part & ~ref] = (40, 90, 220)
+            im = Image.fromarray(img).resize((ref.shape[1] * 2, ref.shape[0] * 2), Image.NEAREST)
+            canvas = Image.new("RGB", (im.width + 20, im.height + 34), "white")
+            canvas.paste(im, (10, 30))
+            ImageDraw.Draw(canvas).text((10, 8), f"{name.upper()}  match {round(v * 100)}%  red=missing  blue=extra", fill="black")
+            panels.append(canvas)
+        W = sum(p.width for p in panels) + 10
+        out = Image.new("RGB", (W, max(p.height for p in panels)), "white")
+        x = 0
+        for p in panels:
+            out.paste(p, (x, 0)); x += p.width + 10
+        out.save(out_png)
+        return Path(out_png)
+    except Exception:
+        return None
+
+
+def profile_text(sheet_png, stl, tol: float = 0.12) -> str:
+    """Width of the outline at nine heights, sheet vs part, as a share of the height. Only rows that differ are listed."""
+    try:
+        pr = _pairs(sheet_png, stl)
+    except Exception:
+        pr = None
+    if not pr:
+        return ""
+    lines = []
+    for name in ("front", "side"):
+        ref, part, _v = pr[name]
+        H = ref.shape[0]
+        for f in (0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1):
+            row = H - 1 - int(f * (H - 1))
+            def width(m):
+                xs = np.nonzero(m[row])[0]
+                return (xs.max() - xs.min() + 1) / H if xs.size else 0.0
+            wr, wp = width(ref), width(part)
+            if wr > 0.02 and abs(wp - wr) / wr > tol:
+                lines.append(f"{name.upper()} at {round(f * 100)}% height: sheet width {wr:.2f}H, part {wp:.2f}H "
+                             f"({'too narrow' if wp < wr else 'too wide'} by {round(abs(wp - wr) / wr * 100)}%)")
+            elif wr <= 0.02 < wp:
+                lines.append(f"{name.upper()} at {round(f * 100)}% height: the sheet is empty here but the part sticks out")
+    return "\n".join(lines[:14])
 
 
 def low(sc: dict | None) -> bool:
