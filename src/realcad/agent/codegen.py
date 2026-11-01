@@ -24,6 +24,8 @@ Output CODE ONLY — no prose, no markdown fences, no comments-as-explanation.
 
 HARD RULES
 - Assign the final result to a variable named exactly `part` (a Part/Solid/Compound).
+- ORIENTATION: +Z is up and the object stands on z=0. The FRONT of the object (a face, eyes, a screen,
+  buttons, the side a person looks at) faces -Y, toward the viewer of the front view.
 - Units are millimeters. Design for FDM 3D printing: walls >= 1.6 mm, no feature thinner
   than ~1.2 mm, avoid knife edges, keep it watertight (a single fused solid unless the user
   clearly asked for separate pieces like a body + a removable lid).
@@ -65,9 +67,9 @@ HARD RULES
   a case + a snap cover = 2). Do NOT leave attachments as loose overlapping solids.
   WELD RELIABLY: for a single-piece object, EVERY attached feature must deeply EMBED into the body,
   not just touch it. Make each foot, leg, spout, handle, rib, boss, knob penetrate its neighbor by
-  at least 1.5 mm (overlap the shared volume) — a part that only kisses the surface stays a separate
-  solid. Position features to sink INTO the body (e.g. a foot's top goes 1.5 mm above the base's
-  bottom; a spout's wide end sits 1.5 mm inside the funnel cone). Then `body = body + foot + spout +
+  at least 2 mm (overlap the shared volume) — a part that only kisses the surface stays a separate
+  solid. Position features to sink INTO the body (e.g. a foot's top goes 2 mm above the base's
+  bottom; a spout's wide end sits 2 mm inside the funnel cone). Then `body = body + foot + spout +
   handle` fuses to exactly ONE solid. After building, mentally check: is every piece sharing volume
   with another? If yes you get 1 solid. Only a genuinely separate piece (a removable lid/cap) is 2.
 - PERFORMANCE (hard 45 s limit): fusing a few dozen solids is fine and is the default. ONLY when you
@@ -203,8 +205,16 @@ def _strip(text: str) -> str:
 
 
 def generate_code(prompt: str, prior_code: str | None = None,
-                  error: str | None = None) -> tuple[str, dict]:
-    """Prompt (plus the previous failing code and error) -> (build123d code string, usage)."""
+                  error: str | None = None, image_url: str | None = None) -> tuple[str, dict]:
+    """Prompt (plus the previous failing code and error) -> (build123d code string, usage).
+    With image_url (a photo or a reference sheet) a repair also sees that image."""
+    if prior_code and error and image_url:
+        text = f"User request: {prompt}\n\n" + _REPAIR.format(code=prior_code, error=error)
+        content, usage = chat([{"role": "system", "content": SYSTEM},
+                               {"role": "user", "content": [{"type": "text", "text": text},
+                                                            {"type": "image_url", "image_url": {"url": image_url}}]}],
+                              json_mode=False, temperature=0.0, max_tokens=12000)
+        return _strip(content), usage
     if prior_code and error:
         user = (f"User request: {prompt}\n\n" +
                 _REPAIR.format(code=prior_code, error=error))
@@ -357,14 +367,14 @@ _PHOTO_INSTR = ("Build the object shown in this photo as a single 3D-printable b
                 "typical real sizes. CODE ONLY.")
 
 
-def generate_code_photo(image_url: str, note: str = "", measured: str = "") -> tuple[str, dict]:
+def generate_code_photo(image_url: str, note: str = "", measured: str = "", instr: str | None = None) -> tuple[str, dict]:
     """Photo (+ note + measured dimensions) -> build123d code. Multimodal; for mechanical and geometric objects.
 
     Note: photo mode does not inject specs.spec_hint (a fixed layout), because the code must
     follow the actual layout visible in the photo (e.g. full-size 104-key vs TKL). If `measured`
     (the dimension estimation result) is given, its mm values are enforced exactly.
     """
-    text = _PHOTO_INSTR
+    text = instr or _PHOTO_INSTR
     if measured.strip():
         text += "\n\n" + measured.strip()
     if note.strip():
@@ -389,7 +399,7 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
     diags: list = []
     for it in range(max_iters + 1):
         if it > 0:
-            code, _u = generate_code(desc, last_code, error)
+            code, _u = generate_code(desc, last_code, error, image_url=image_url)
             last_code = code
         try:
             info = sandbox.execute_to_files(code, stl_path, step_path)
@@ -406,6 +416,41 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
                         "findings": [], "measure": measure, "diag": diags}
     return {"ok": False, "error": error or "unknown", "code": code or "", "iters": max_iters,
             "findings": [], "measure": measure, "diag": diags}
+
+
+_CONCEPT_INSTR = ("This image is a reference sheet drawn for the user's request: the FRONT view on the left and the "
+                  "SIDE view on the right, of the same object. Build it as ONE 3D-printable figure that matches BOTH "
+                  "views: the same parts, proportions and pose. Put its front toward -Y. If the request gives a size, use "
+                  "it; otherwise make the tallest dimension about 100 mm. Every attached part (ears, eyes, arms, legs, "
+                  "tail, wings) must sink at least 2 mm into its neighbour so everything fuses into ONE solid. Follow "
+                  "DIMENSION DISCIPLINE (comment the sizes first). CODE ONLY.")
+
+
+def design_code_concept(request: str, sheet_png, stl_path, step_path, max_iters: int = 3) -> dict:
+    """Reference sheet drawn by Muse Image -> code that matches it, auto-repair with the sheet in view,
+    then the visual review with the measured outline match."""
+    from . import concept
+    url = concept.data_url(sheet_png)
+    code, _u = generate_code_photo(url, request, "", instr=_CONCEPT_INSTR)
+    last_code, error = code, None
+    diags: list = []
+    for it in range(max_iters + 1):
+        if it > 0:
+            code, _u = generate_code(request, last_code, error, image_url=url)
+            last_code = code
+        try:
+            info = sandbox.execute_to_files(code, stl_path, step_path)
+            # figures have no authoritative size comment, so the declared-size check (D1) is skipped here
+            code, info, rv = _visual_review(request, code, info, stl_path, step_path, ref_image_url=url, ref_png=sheet_png,
+                                            check_dims=False)
+            return {"ok": True, "code": code, "info": info, "findings": _findings(info), "iters": it,
+                    "fixed": it > 0, "review": rv, "diag": diags}
+        except sandbox.SandboxError as e:
+            error = _diag_note(code, str(e), diags)
+            if it == max_iters:
+                return {"ok": False, "error": str(e) + (f" (엔진 진단: {diags[-1]})" if diags else ""), "code": code,
+                        "iters": it, "findings": [], "diag": diags}
+    return {"ok": False, "error": error or "unknown", "code": code or "", "iters": max_iters, "findings": [], "diag": diags}
 
 
 _DIM_LINE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×X*]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×X*]\s*(\d+(?:\.\d+)?))?")
@@ -499,7 +544,19 @@ def _diag_note(code: str, error: str, diags: list) -> str:
     return error
 
 
-def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_image_url: str | None = None):
+def _outline_text(sc: dict | None) -> str:
+    if not sc:
+        return ""
+    return (f"Outline match against the reference sheet, measured by RealCAD (1.0 = identical outline): "
+            f"FRONT {sc['front']:.2f}, SIDE {sc['side']:.2f}. Below 0.70 means the proportions or pose clearly differ.")
+
+
+def _mean(sc: dict | None) -> float:
+    return (sc["front"] + sc["side"]) / 2 if sc else 0.0
+
+
+def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_image_url: str | None = None,
+                   ref_png=None, check_dims: bool = True):
     """Visual check: show a 4-view render to the vision model and, if it reports problems, fix once and re-check.
     Reverts to the first result if the fix fails or the re-check finds more problems. Returns (code, info, review|None)."""
     if os.environ.get("REALCAD_VISUAL_REVIEW", "1") == "0":
@@ -514,7 +571,16 @@ def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_
         if not _rv.render_views(png1, step_path=step_path, stl_path=stl_path, title=prompt[:80]):
             return code, info, None
         rv["images"].append(png1.name)
-        r1 = _rv.review_once(prompt, code, png1, ref_image_url)
+        from . import concept as _cc
+        sc1 = _cc.score(ref_png, stl_path) if ref_png else None
+        if sc1:
+            rv["iou"] = [sc1]
+        r1 = _rv.review_once(prompt, code, png1, ref_image_url, extra=_outline_text(sc1))
+        if _cc.low(sc1):                                   # the measured outline overrides a lenient "looks fine"
+            note = f"윤곽이 참고 그림과 덜 맞아요 (정면 {round(sc1['front'] * 100)}%, 옆 {round(sc1['side'] * 100)}%)"
+            r1 = {**r1, "matches": False, "problems": (r1.get("problems") or []) + [note],
+                  "fix": (r1.get("fix") or "") + " Make the outline match the reference sheet: compare the width and height "
+                         "of head, body, arms, legs and tail in the FRONT and SIDE views and correct the proportions and pose."}
         rv["rounds"].append(r1)
         if r1["matches"] or not r1["problems"]:
             return code, info, rv
@@ -523,7 +589,7 @@ def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_
         made += [tmp_stl, tmp_step]
         try:
             info2 = sandbox.execute_to_files(new_code, tmp_stl, tmp_step)
-            d1 = dimension_check(new_code, info2)
+            d1 = dimension_check(new_code, info2) if check_dims else None
             if d1:
                 raise sandbox.SandboxError(d1)
         except sandbox.SandboxError as e:
@@ -540,9 +606,14 @@ def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_
             png2 = stl_path.with_name(f"{tok}_review2.png")
             if _rv.render_views(png2, step_path=step_path, stl_path=stl_path, title=prompt[:80]):
                 rv["images"].append(png2.name)
-                r2 = _rv.review_once(prompt, code, png2, ref_image_url)
+                sc2 = _cc.score(ref_png, stl_path) if ref_png else None
+                if sc2:
+                    rv.setdefault("iou", []).append(sc2)
+                r2 = _rv.review_once(prompt, code, png2, ref_image_url, extra=_outline_text(sc2))
                 rv["rounds"].append(r2)
-                if not r2["matches"] and len(r2["problems"]) > len(r1["problems"]):   # got worse: revert
+                worse = (not r2["matches"] and len(r2["problems"]) > len(r1["problems"])) or \
+                        (sc1 is not None and sc2 is not None and _mean(sc2) < _mean(sc1) - 0.05)
+                if worse:   # got worse: revert
                     shutil.copyfile(bak_stl, stl_path); shutil.copyfile(bak_step, step_path)
                     code, info = old
                     rv["fixed"] = False; rv["reverted"] = True

@@ -81,3 +81,32 @@ def chat(messages: list[dict], model: str = MODEL,
     if content is None:
         raise RuntimeError(f"Meta 응답이 비었습니다(finish={finish}). 더 구체적으로 요청해 주세요.")
     return content, usage
+
+
+IMAGE_MODEL = "muse-image-1.0"
+IMAGE_USD = 0.01   # list price per generated image
+
+
+def image(prompt: str, size: str = "1024x1024", model: str = IMAGE_MODEL) -> bytes:
+    """Text -> one generated image (PNG bytes) from Meta Muse Image."""
+    import base64
+    import time
+    body = {"model": model, "prompt": prompt, "n": 1, "size": size}
+    req = urllib.request.Request(
+        f"{BASE_URL}/images/generations",
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={"Authorization": f"Bearer {_load_key()}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as r:
+            resp = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Meta API {e.code}: {e.read().decode()[:400]}") from e
+    try:
+        USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with USAGE_LOG.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": model, "images": 1, "usd": IMAGE_USD}) + "\n")
+    except Exception:
+        pass
+    return base64.b64decode(resp["data"][0]["b64_json"])

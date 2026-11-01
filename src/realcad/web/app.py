@@ -172,6 +172,7 @@ class DesignReq(BaseModel):
     prompt: str
     answers: dict | None = None
     settings: PrintSettings | None = None
+    concept: bool | None = None       # False: build a figure directly, without drawing a reference sheet first
 
 
 @app.post("/api/clarify")
@@ -204,6 +205,8 @@ def _design(req: DesignReq):
         # Organic (freeform) shapes: build surfaces with local code generation (loft/ellipsoid/sweep/fillet), no external API.
         # Only on failure suggest retrieval. Generated with organic techniques, not forced into a box.
         r = contract.retrieve
+        if _wants_concept(req, str(r.note or "")):
+            return _draw_concept(req.prompt)
         tok = uuid.uuid4().hex[:8]
         stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
         cr = codegen.design_code(req.prompt + _settings_note(getattr(req, "settings", None)), stl_path, step_path, max_iters=3)
@@ -218,6 +221,64 @@ def _design(req: DesignReq):
         return {"error": cr.get("error") or FREEFORM_MSG, "diag": cr.get("diag") or [], "mode": "code"}
     _it = getattr(req, "settings", None) and req.settings.iters
     return _respond(run(contract, max_iters=(3 if _it is None else max(0, min(int(_it), 5)))))
+
+
+_CONCEPT_ON = _os.environ.get("REALCAD_CONCEPT", "1") != "0"
+_TOK = re.compile(r"^[0-9a-f]{8}$")
+
+
+def _wants_concept(req, note: str) -> bool:
+    """Figures, animals and characters have no fixed dimensions: draw a reference sheet first."""
+    if not _CONCEPT_ON or req.concept is False:
+        return False
+    p = req.prompt
+    return (not note.startswith("code:")) or codegen._is_organic(p) or codegen._is_mecha(p) or codegen._is_character(p)
+
+
+def _draw_concept(prompt: str) -> dict:
+    from ..agent import concept
+    tok = uuid.uuid4().hex[:8]
+    concept.draw(prompt, GEN / f"{tok}_concept.png")
+    return {"kind": "concept", "token": tok, "image": f"gen/{tok}_concept.png", "prompt": prompt}
+
+
+class ConceptReq(BaseModel):
+    prompt: str
+    token: str | None = None
+    settings: PrintSettings | None = None
+
+
+@app.post("/api/concept")
+def concept_ep(req: ConceptReq):
+    """Draw (or redraw) the front + side reference sheet with Meta Muse Image. Nothing is built yet."""
+    try:
+        return _draw_concept(req.prompt)
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
+@app.post("/api/design_concept")
+def design_concept_ep(req: ConceptReq):
+    """Build the part from a confirmed reference sheet: Muse Spark looks at it, the engine checks it,
+    and the outline of the result is measured against the sheet."""
+    try:
+        if not req.token or not _TOK.match(req.token):
+            return {"error": "그림 번호가 올바르지 않아요."}
+        sheet = GEN / f"{req.token}_concept.png"
+        if not sheet.exists():
+            return {"error": "그림을 찾지 못했어요. 다시 그려 주세요."}
+        tok = uuid.uuid4().hex[:8]
+        stl_path = GEN / f"{tok}_part.stl"; step_path = GEN / f"{tok}.step"
+        cr = codegen.design_code_concept(req.prompt + _settings_note(req.settings), sheet, stl_path, step_path, max_iters=3)
+        if not cr["ok"]:
+            return {"error": cr.get("error") or FREEFORM_MSG, "diag": cr.get("diag") or [], "mode": "code",
+                    "concept": f"gen/{req.token}_concept.png"}
+        out = _emit_code(tok, stl_path, step_path, cr, _new_sid())
+        out["organic"] = True
+        out["concept"] = f"gen/{req.token}_concept.png"
+        return out
+    except Exception as e:
+        return {"error": _safe_err(e), "mode": "code"}
 
 
 def _mesh_stats(tm) -> dict:

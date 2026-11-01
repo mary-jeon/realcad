@@ -3,7 +3,7 @@
 Text, voice or a photo goes in; a part that really fits and assembles comes out (STEP, STL, 3MF, OBJ, DXF, PDF drawing).
 Meta Muse Spark designs, the CAD engine (build123d on OpenCascade) measures. All code was written after the Oct 26 kickoff.
 
-## Runtime AI: Meta Muse Spark 1.3 only
+## Runtime AI: Meta only (Muse Spark 1.3, Muse Image 1.0)
 | Stage | Module | What Muse Spark does |
 |---|---|---|
 | Clarify | `agent/clarify.py` | asks one essential question at most, usually none |
@@ -11,6 +11,7 @@ Meta Muse Spark designs, the CAD engine (build123d on OpenCascade) measures. All
 | Planner | `agent/planner.py` | request or photo to a design contract (JSON) |
 | Coder | `agent/codegen.py` | anything the contract kinds cannot express becomes build123d code; photos are scaled from a card, A4 sheet, coin or ruler |
 | Judge | `agent/judge.py` | reads the engine's failure report and changes contract parameters |
+| Reference sheet | `agent/concept.py` | Muse Image draws front and side views of a figure; RealCAD measures the outline match of the built part against it |
 | Visual review | `agent/review.py` | looks at four rendered views of the finished part and fixes what is missing, buried, floating or facing the wrong way |
 | Editor | `agent/editor.py` | follow-up requests ("bigger", "add 2 holes") as a minimal contract or code change |
 
@@ -21,6 +22,9 @@ A. Contract path (no code execution)
 B. Code path (sandboxed)
    prompt or photo -> codegen -> build123d code -> sandbox -> repair loop (max 3, with engine diagnosis)
                    -> visual review (render 4 views, Muse Spark checks, fix once, check again) -> export
+C. Figures (code path with a reference sheet)
+   prompt -> Muse Image front + side sheet -> user OK -> codegen looking at the sheet -> sandbox
+          -> visual review + outline match (below 70 % forces one fix, a worse fix is reverted) -> export
 ```
 Path A covers the parametric kinds (plate, container, gear, enclosure, profile, clamp, ball, assembly).
 Path B covers everything else. Photos go to path B first.
@@ -34,13 +38,18 @@ Path B covers everything else. Photos go to path B first.
 | Printability | thinnest wall by ray casting and the orientation needing the least support (`verify/dfam.py`) |
 
 When a code-path build fails with a fuse error or a floating piece, `sandbox.diagnose` rebuilds the final
-`part = a + b + ...` one part at a time in the same sandbox and names the part that breaks it; that goes into the repair request.
+`part = a + b + ...` one part at a time in the same sandbox and names the part that breaks it (separation is judged only
+on the finished union); that goes into the repair request.
+
+When the CAD kernel itself fails a union (a Null shape, or a non-watertight result), the sandbox reruns the same code in
+mesh mode: every `+`, `-` and `&` is done on closed triangle meshes (manifold3d), and the result is sewn back into a STEP solid.
 
 ## Sandbox (`agent/sandbox.py`)
 1. Static check: imports limited to `math` and `build123d`; file, network, eval and dunder access are rejected.
 2. Separate `python -I` process with only build123d's own geometry objects and safe builtins.
 3. Limits: 25 s CPU, 45 s wall clock, 3 GB memory watched by the parent.
-4. Result gates: empty, zero volume, unfused, floating or non-watertight results come back as readable errors for the repair loop.
+4. Result gates: empty, zero volume, unfused, floating or non-watertight results come back as readable errors for the repair loop
+   (a kernel union failure is first retried in mesh mode).
 
 The web app binds to localhost and can require a token (`REALCAD_TOKEN`).
 

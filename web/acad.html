@@ -1099,6 +1099,12 @@ function reviewSummary(d){ const EN=document.body.classList.contains('lang-en'),
       else if(rv.reverted) s+=' → '+L2('고친 게 더 나빠서 처음 것으로 되돌렸어요','the fix was worse, kept the first one');
       else if(rv.fix_error) s+=' → '+L2('고치기가 실패해서 처음 것을 그대로 둬요','the fix failed, kept the first one');
       out.push(s); } }
+  if(rv&&rv.iou&&rv.iou.length){ const pc=v=>Math.round(v*100)+'%', a=rv.iou[0], b=rv.iou[rv.iou.length-1];
+    let s='📐 '+L2('윤곽이 참고 그림과 겹치는 정도','Outline match with the reference sheet')+': '+L2('정면','front')+' '+pc(a.front)+', '+L2('옆','side')+' '+pc(a.side);
+    if(rv.iou.length>1) s+=' → '+L2('고친 뒤','after the fix')+' '+L2('정면','front')+' '+pc(b.front)+', '+L2('옆','side')+' '+pc(b.side);
+    out.push(s); }
+  if(d.concept) out.push('🎨 <a href="'+esc(d.concept)+'" target="_blank" rel="noopener">'+L2('메타가 그린 참고 그림','reference sheet Meta drew')+'</a>');
+  if(d.info&&d.info.mesh) out.push('🧩 '+L2('CAD 엔진이 부품 합치기에 실패해서 삼각형 메시로 합쳤어요. STEP 의 곡면은 작은 평면으로 나가요','The CAD engine could not join the parts, so they were joined as a triangle mesh. Curved faces in the STEP file are small flat facets'));
   return out; }
 function renderResult(d, wait){
   d=d||{};
@@ -1187,10 +1193,39 @@ async function design(prompt){
   if(busy||!prompt) return; busy=true;
   const wait=logline('sys','Muse Spark 설계 중 / designing…');
   try{ const r=await fetch('api/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fitPrefix()+prompt})});
-    const d=await r.json(); if(d&&d.mode==='code') renderCodeResult(d, wait); else renderResult(d, wait); busy=false; voiceReport(d); return; }   // also show results built by code when no template fits
+    const d=await r.json(); if(d&&d.kind==='concept'){ busy=false; showConcept(d, wait); return; }
+    if(d&&d.mode==='code') renderCodeResult(d, wait); else renderResult(d, wait); busy=false; voiceReport(d); return; }   // also show results built by code when no template fits
   catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; voiceReport({error:1}); }
   busy=false;
 }
+// Figures, animals, characters: Meta Muse Image draws a front + side sheet first; the part is built only after OK
+function showConcept(d, wait){
+  window._concept=d;
+  wait.innerHTML='<b style="color:#e8edf2">🎨 메타가 참고 그림을 그렸어요 / Meta drew a reference sheet</b>'
+    +'<a href="'+esc(d.image)+'" target="_blank" rel="noopener"><img src="'+esc(d.image)+'" alt="reference sheet" style="display:block;max-width:280px;width:100%;margin:6px 0;border-radius:6px;background:#fff"></a>'
+    +'<span class="n">정면과 옆면이에요. 이 그림대로 3D 를 만들어요 / Front and side views. The 3D part will follow this sheet</span>'
+    +'<div class="chiprow"><span class="chip" data-cc="build">✓ 이 그림으로 만들기 / Build from this</span><span class="chip" data-cc="redraw">다시 그리기 / Redraw</span><span class="chip" data-cc="cancel">취소 / Cancel</span></div>';
+  say('참고 그림을 그렸어요. 이대로 만들까요?');
+}
+async function conceptAction(kind){
+  const d=window._concept; if(!d||busy) return;
+  if(kind==='cancel'){ window._concept=null; logline('sys','취소했어요 / Cancelled'); return; }
+  busy=true;
+  if(kind==='redraw'){
+    const wait=logline('sys','다시 그리는 중 / redrawing…');
+    try{ const n=await (await fetch('api/concept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:d.prompt})})).json();
+      busy=false; if(n.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(n.error)+'</span>'; return; } showConcept(n, wait); }
+    catch(e){ busy=false; wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+    return;
+  }
+  window._concept=null;
+  const wait=logline('sys','그림을 보고 3D 로 만드는 중 / building from the sheet… <span class="n">(메타가 그림을 보며 코드를 짜고, 다 만들면 윤곽을 그림과 비교해서 고쳐요. 2분에서 5분 / Meta writes the code while looking at the sheet, then compares the outline and fixes it. 2 to 5 min)</span>');
+  try{ const r=await (await fetch('api/design_concept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:d.token,prompt:d.prompt})})).json();
+    renderCodeResult(r, wait); busy=false; voiceReport(r); return; }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+  busy=false;
+}
+document.addEventListener('click',e=>{ const c=e.target.closest('[data-cc]'); if(c) conceptAction(c.dataset.cc); });
 // Any-CAD: the AI writes build123d code for arbitrary mechanical parts (sandboxed, auto-fix, a bit slower)
 async function designCode(prompt, extra){
   if(busy||!prompt) return; busy=true;

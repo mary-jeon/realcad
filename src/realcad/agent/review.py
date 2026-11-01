@@ -116,7 +116,7 @@ def _parse(text: str) -> dict:
     return {"matches": bool(d.get("matches", not probs)) and not probs, "problems": probs, "fix": str(d.get("fix") or "")[:2500]}
 
 
-def review_once(request: str, code: str, png_path, ref_image_url: str | None = None) -> dict:
+def review_once(request: str, code: str, png_path, ref_image_url: str | None = None, extra: str = "") -> dict:
     """One 4-view image + request + code -> {"matches", "problems" (Korean), "fix" (English)}."""
     content = [{"type": "text", "text": f"User request:\n{request[:3000]}\n\nbuild123d code that was run:\n{code[:8000]}\n\n"
                                         "Rendered result (4 views in one image):"},
@@ -124,6 +124,8 @@ def review_once(request: str, code: str, png_path, ref_image_url: str | None = N
     if ref_image_url:
         content += [{"type": "text", "text": "Reference image the user gave (match its look and layout):"},
                     {"type": "image_url", "image_url": {"url": ref_image_url}}]
+    if extra:
+        content.append({"type": "text", "text": extra})
     out, _usage = chat([{"role": "system", "content": REVIEW_SYSTEM}, {"role": "user", "content": content}],
                        json_mode=True, temperature=0.0, max_tokens=6000)
     return _parse(out)

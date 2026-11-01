@@ -120,7 +120,13 @@ def call_tool(name: str, args: dict) -> dict:
     if name not in _ROUTES:
         raise KeyError(name)
     body = {k: v for k, v in args.items() if v is not None}
-    return _summarize(_post(_ROUTES[name], body))
+    d = _post(_ROUTES[name], body)
+    if isinstance(d, dict) and d.get("kind") == "concept":   # a figure: the reference sheet is drawn, build from it right away
+        d = _post("/api/design_concept", {"token": d["token"], "prompt": d["prompt"], "settings": body.get("settings")})
+    out = _summarize(d)
+    if isinstance(d, dict) and d.get("concept"):
+        out["reference_sheet"] = _abs(d["concept"])
+    return out
 
 
 def _reply(id_, result=None, error=None):
