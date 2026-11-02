@@ -277,8 +277,8 @@ def build_eccentric(a) -> Assembly:
         else:
             sp = ring_x(xs, xs + cl - 3.0 + 0.01, cb / 2.0, d / 2.0, 0.0, z) + ring_x(xs + cl - 3.0, xs + cl, dsh / 2.0, d / 2.0, 0.0, z)
         add("간격링", sp, f"단붙이 Ø{dsh:g}/Ø{cb:g}, 보어 Ø{d:g}, 길이 {cl:g} (링크 양면 접촉)", 1, "SM45C", (ex * 0.8, 0, 0), "스페이서")
-    add("볼베어링", bearing_solid(bs, L["xb1"], 0.0, z), f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "", (-1.0, 0, 0), "베어링")
-    add("볼베어링", bearing_solid(bs, L["xb2"], 0.0, z), f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "", (1.0, 0, 0), "베어링")
+    add("볼베어링", bearing_solid(bs, L["xb1"], 0.0, z), f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "SUJ2", (-1.0, 0, 0), "베어링")
+    add("볼베어링", bearing_solid(bs, L["xb2"], 0.0, z), f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "SUJ2", (1.0, 0, 0), "베어링")
     if a.rings:
         add("멈춤링(C형)", retaining_ring_solid(ring, L["xg1"] + ring.m - ring.t, 0.0, z), f"축용 {ring.d1:g} KS B 1336", 1, "SK5", (-4.0, 0, 0), "멈춤링")
         add("멈춤링(C형)", retaining_ring_solid(ring, L["xg2"], 0.0, z), f"축용 {ring.d1:g} KS B 1336", 1, "SK5", (1.5, 0, 0), "멈춤링")

@@ -54,7 +54,13 @@ def _flatten(d: dict) -> dict:
             for kk, vv in v.items():
                 out[f"{k}.{kk}"] = vv
         elif isinstance(v, list):
-            out[k] = f"[{len(v)}]"          # lists compare by count (e.g. number of holes)
+            out[k] = f"[{len(v)}]"          # the count (e.g. number of holes) ...
+            for i, it in enumerate(v, 1):   # ... and every item, so a hole that moved shows up too
+                if isinstance(it, dict):
+                    for kk, vv in it.items():
+                        out[f"{k}[{i}].{kk}"] = vv
+                else:
+                    out[f"{k}[{i}]"] = it
         else:
             out[k] = v
     return out

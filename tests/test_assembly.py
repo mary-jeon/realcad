@@ -71,6 +71,19 @@ def test_gear_pair_second_shaft_center_distance_measured():
     assert summ["passed"], summ["hard_fail"]
     assert fd["A5"].ok and "48.00" in fd["A5"].message and part._rc_asm.layout["center_distance"] == 48.0
     assert any(m["id"] == "M9" for m in part._rc_asm.mates)
+    # z18 on a 25 mm seat: the pinion keyway would cut through the tooth root (rim -0.3 mm), so the teeth are cut on the shaft
+    pin = part._rc_asm.layout["pinion"]
+    assert pin["integral"] and pin["rim_under_keyway"] < pin["rim_min"]
+    ps = part._rc_asm.by_name("피니언 축(일체)")
+    assert ps is not None and len(ps.solid.solids()) == 1 and part._rc_asm.by_name("평행키(피니언)") is None
+    assert fd["B2"].ok
+
+
+def test_large_pinion_keeps_its_key():
+    part, summ, fd = _run(bearing="6204", gear={"module": 2, "teeth": 30}, pinion_teeth=30)
+    assert summ["passed"], summ["hard_fail"]
+    assert not part._rc_asm.layout["pinion"]["integral"]
+    assert part._rc_asm.by_name("평행키(피니언)") is not None
 
 
 def test_no_pulley_variant_and_other_bearing():
@@ -249,3 +262,18 @@ def test_cam_clamp_seeded_lever_pointing_down_hits_strap():
         mv = orig(th); mv["캠 손잡이"] = Pos(0, 0, -30.0) * mv["캠 손잡이"]; return mv
     asm.motion = bad
     assert not VA.a7_motion(asm, angles=(0, 90)).ok
+
+
+def test_pinion_smaller_than_its_shaft_is_refused():
+    # z12 m2 on a 6204 shaft: root circle Ø19 is inside the Ø25 seat, no gear can be cut there
+    with pytest.raises(ValueError, match="이뿌리 지름"):
+        S_layout = __import__("realcad.mech.power_train", fromlist=["layout_power_train"]).layout_power_train
+        S_layout(_asm(bearing="6204", gear={"module": 2, "teeth": 30}, pinion_teeth=12).assembly)
+
+
+def test_failed_overlap_is_not_reported_as_no_overlap(monkeypatch):
+    from types import SimpleNamespace as NS
+    from build123d import Box
+    monkeypatch.setattr(VA, "_intersection_volume", lambda a, b: None)
+    f = VA.a1_interference([NS(name="a", solid=Box(10, 10, 10)), NS(name="b", solid=Box(10, 10, 10))])
+    assert not f.ok and "확인 못함" in f.message

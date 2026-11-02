@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools
 import math
 
-from .checks import Finding, _intersection_volume, mesh_report
+from .checks import Finding, NOT_MEASURED, _intersection_volume, mesh_report
 
 VOL_TOL = 0.5          # mm^3, numerical tolerance (slivers from touching faces)
 
@@ -26,18 +26,25 @@ def _bbox_overlap(b1, b2, tol: float = 0.01) -> bool:
 def a1_interference(parts) -> Finding:
     """A1: pairwise intersection volume. Booleans only for pairs whose bounding boxes overlap (speed)."""
     bbs = [(p, p.solid.bounding_box()) for p in parts]
-    bad, tested = [], 0
+    bad, unknown, tested = [], [], 0
     for (p1, b1), (p2, b2) in itertools.combinations(bbs, 2):
         if not _bbox_overlap(b1, b2):
             continue
         tested += 1
         v = _intersection_volume(p1.solid, p2.solid)
-        if v > VOL_TOL:
+        if v is None:
+            unknown.append(f"{p1.name}∩{p2.name}")
+        elif v > VOL_TOL:
             bad.append((p1.name, p2.name, round(v, 2)))
-    ok = not bad
+    ok = not bad and not unknown
     desc = ", ".join(f"{a}∩{b}={v}mm³" for a, b, v in bad[:5])
-    return Finding("A1", "HARD", ok,
-                   (f"부품 간섭 없음 / no interference ({tested}쌍 실측)" if ok else f"부품 간섭 {len(bad)}쌍 / interference: {desc}"),
+    if bad:
+        msg = f"부품 간섭 {len(bad)}쌍 / interference: {desc}"
+    elif unknown:
+        msg = f"교차 부피를 계산하지 못한 쌍 {len(unknown)}개, 확인 못함 / not checked: " + ", ".join(unknown[:5])
+    else:
+        msg = f"부품 간섭 없음 / no interference ({tested}쌍 실측)"
+    return Finding("A1", "HARD", ok, msg,
                    actual=float(sum(v for *_, v in bad)), required=0.0, standard="Inventor Interference Analysis 와 같은 정의(교차 부피)",
                    suggestion={} if ok else {"option_a": "겹친 부품의 자리 지름, 위치를 규격표 값으로", "option_b": "분해도(exploded)로 어느 부위인지 확인"})
 
@@ -172,7 +179,7 @@ def a5_gear_pair(asm) -> Finding | None:
     else:
         a_th = float(L["center_distance"]); z = L["z_axis"]; D = L["bearing_dDB"][1]
         gear = next((p for p in asm.parts if p.name == "스퍼기어"), None)
-        pin = next((p for p in asm.parts if p.name == "피니언"), None)
+        pin = next((p for p in asm.parts if p.name in ("피니언", "피니언 축(일체)")), None)
         gm, gw = L["gear"]["m"], L["gear"]["width"]
     hs = next((p for p in asm.parts if p.name == "본체"), None)
     msgs, ok = [], True
@@ -204,9 +211,13 @@ def a5_gear_pair(asm) -> Finding | None:
     if gear is not None and pin is not None:
         v = _intersection_volume(gear.solid, pin.solid)
         lim = 0.05 * gm * gw
-        if v > lim:
+        if v is None:
             ok = False
-        msgs.append(f"기어∩피니언 {v:.3f} mm³ (허용 {lim:.2f})")
+            msgs.append("기어∩피니언 " + NOT_MEASURED)
+        else:
+            if v > lim:
+                ok = False
+            msgs.append(f"기어∩피니언 {v:.3f} mm³ (허용 {lim:.2f})")
     return Finding("A5", "HARD", ok, "기어 쌍 중심거리, 맞물림 / gear pair: " + "; ".join(msgs),
                    actual=v, required=0.0, standard="a = m(z1+z2)/2, 인벌류트 20도 백래시 0.05m",
                    suggestion={} if ok else {"option_a": "두 구멍 중심거리를 a 로", "option_b": "잇수, 모듈 확인"})
@@ -258,13 +269,13 @@ def a7_motion(asm, angles=None) -> Finding | None:
                     continue                     # parts that rotate with the shaft (or are rotationally symmetric) were already checked statically in A1
                 if _bbox_overlap(b1, b2):
                     v = _intersection_volume(s1, p.solid)
-                    if v > VOL_TOL:
-                        bad.append((th, n1, p.name, round(v, 1)))
+                    if v is None or v > VOL_TOL:
+                        bad.append((th, n1, p.name, round(v, 1) if v is not None else "계산 못함"))
             for n2, s2 in items[i + 1:]:
                 if _bbox_overlap(b1, s2.bounding_box()):
                     v = _intersection_volume(s1, s2)
-                    if v > VOL_TOL:
-                        bad.append((th, n1, n2, round(v, 1)))
+                    if v is None or v > VOL_TOL:
+                        bad.append((th, n1, n2, round(v, 1) if v is not None else "계산 못함"))
         if "핀" in mv:
             zs.append(float(mv["핀"].bounding_box().center().Z))
         if bush is not None and "슬라이더" in mv:
@@ -279,7 +290,7 @@ def a7_motion(asm, angles=None) -> Finding | None:
         msg += f", 봉이 부시 위로 최소 {min(engage):.1f} mm"
     if bad:
         msg += " / 간섭: " + ", ".join(f"{th}도 {a}∩{b}={v}mm³" for th, a, b, v in bad[:4])
-    return Finding("A7", "HARD", ok, msg, actual=float(sum(v for *_, v in bad)), required=0.0,
+    return Finding("A7", "HARD", ok, msg, actual=float(sum(v for *_, v in bad if isinstance(v, (int, float)))), required=0.0,
                    standard="편심 기구: 행정 = 2e, 회전 1바퀴 전 구간 간섭 0", suggestion={} if ok else {"option_a": "본체 안쪽 여유 또는 링크 길이 L 조정"})
 
 
@@ -332,4 +343,6 @@ def verify_assembly(asm, c) -> list[Finding]:
     if a10 is not None:
         out.append(a10)
     out.append(m2_parts(asm))
+    from .audit import audit
+    out.extend(audit(asm.parts, asm.bom))
     return out

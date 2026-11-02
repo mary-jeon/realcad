@@ -255,7 +255,17 @@ def layout_power_train(a) -> dict:
     base_x1 = x_w2_1 + 8.0
     base_y0 = -max(Wy / 2.0, gd.da / 2.0 + 6.0)
     base_y1 = (cd if pd else 0.0) + max(Wy / 2.0, (pd.da if pd else gd.da) / 2.0 + 6.0)
+    # A pinion whose root circle falls inside the shaft seat cannot be cut, keyed or on the shaft: refuse it plainly
+    if pd and pd.df <= dsh + 1.0:
+        import math as _m
+        zmin = _m.ceil((dsh + 1.0 + 2.5 * pd.m) / pd.m) + 1
+        raise ValueError(f"피니언 z{pd.z} 모듈 {pd.m:g} 은 이뿌리 지름 {pd.df:.1f} mm 가 축 지름 Ø{dsh:g} 보다 작아서 "
+                         f"이 축 위에 기어를 만들 수 없어요. 피니언 잇수를 {zmin} 이상으로, 또는 모듈을 키우거나 더 작은 베어링을 골라 주세요.")
+    # Pinion rim under the keyway: AGMA backup ratio (rim thickness / whole depth) >= 1.2, else make a pinion shaft
+    pin_rim = (pd.df / 2.0 - (dsh / 2.0 + key_g.t2)) if pd else 0.0
+    pin_rim_min = 1.2 * pd.h if pd else 0.0
     return dict(
+        pinion_rim=pin_rim, pinion_rim_min=pin_rim_min, pinion_integral=bool(pd) and pin_rim < pin_rim_min,
         bearing=bs, d=d, dsh=dsh, key_p=key_p, key_g=key_g, ring=ring, gear=gd, gear_w=bg, pinion=pd, center_distance=cd,
         groove=gs, pulley_w=Wp, grooves=int(a.pulley_grooves), seal=seal, bolt=bolt_name, pcd=pcd, Wy=Wy, Tw=Tw,
         x0=x, xg1=xg1, xp0=xp0, collar=collar, x_cov1_out=x_cov1_out, x_w1_0=x_w1_0, xb1=xb1, x_w1_1=x_w1_1,
@@ -275,7 +285,7 @@ def _shaft_x(L: dict, with_pulley: bool) -> tuple[float, float]:
     return xg1 - (ring.n + 0.5), xg1
 
 
-def _shaft(L: dict, y: float, with_pulley: bool) -> Part:
+def _shaft(L: dict, y: float, with_pulley: bool, gear_keyway: bool = True) -> Part:
     """Stepped shaft: revolve a half-section polyline about the X axis (1 solid in one go), then cut retaining ring grooves and keyways."""
     from build123d import Axis
     d, dsh, bs, ring = L["d"], L["dsh"], L["bearing"], L["ring"]
@@ -289,7 +299,8 @@ def _shaft(L: dict, y: float, with_pulley: bool) -> Part:
     for xg in (xg1, L["xg2"]):                             # 2 retaining ring grooves
         s = s - ring_x(xg, xg + ring.m, d / 2.0 + 1.0, ring.d2 / 2.0, y, z)
     kg = L["key_g"]; bg = L["gear_w"]                      # Gear keyway (+Z)
-    s = s - shaft_keyway_cutter(L["x_gear"] + bg / 2.0, bg - 4.0, kg.b, z + dsh / 2.0 - kg.t1, y)
+    if gear_keyway:
+        s = s - shaft_keyway_cutter(L["x_gear"] + bg / 2.0, bg - 4.0, kg.b, z + dsh / 2.0 - kg.t1, y)
     if with_pulley:
         kp = L["key_p"]; Wp = L["pulley_w"]
         s = s - shaft_keyway_cutter(L["xp0"] + Wp / 2.0, Wp - 4.0, kp.b, z + d / 2.0 - kp.t1, y)
@@ -412,8 +423,8 @@ def build_power_train(a) -> Assembly:
     add("스페이서", sp, f"Ø{L['spacer_od']:g}/Ø{dsh:g}×{SPACER_L:g} (기어 축 방향 위치)", 2, "SM45C", (0, 0, 1.0), "스페이서")
     # 5 Bearings (2)
     b1 = bearing_solid(bs, L["xb1"], 0.0, z); b2 = bearing_solid(bs, L["xb2"], 0.0, z)
-    add("볼베어링", b1, f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "", (-1.0, 0, 0), "베어링")
-    add("볼베어링", b2, f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "", (1.0, 0, 0), "베어링")
+    add("볼베어링", b1, f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "SUJ2", (-1.0, 0, 0), "베어링")
+    add("볼베어링", b2, f"{bs.code} (d{bs.d:g} D{bs.D:g} B{bs.B:g}) KS B 2023", 1, "SUJ2", (1.0, 0, 0), "베어링")
     # 6 Retaining rings (2)
     if a.rings:
         r1 = retaining_ring_solid(ring, L["xg1"] + ring.m - ring.t, 0.0, z)     # In the groove, pressed against the hub side
@@ -438,16 +449,23 @@ def build_power_train(a) -> Assembly:
     if L["pinion"]:
         pdm = L["pinion"]; yp = L["center_distance"]
         rot2 = 90.0 + (180.0 / pdm.z if pdm.z % 2 == 0 else 0.0)
-        add("축(피니언)", _shaft(L, yp, False), f"Ø{d:g} 베어링 자리 ×2, 피니언 자리 Ø{dsh:g} 키홈 {kg.name}", 1, "SM45C", (0, 0, 0), "축")
         pin = gear_solid(pdm.z, pdm.m, bg, dsh, xgc, yp, z, rot2)
-        pin = pin - hub_keyway_cutter(xgc, bg + 2.0, kg.b, z + dsh / 2.0 + kg.t2, yp)
-        add("피니언", pin, f"m{pdm.m:g} z{pdm.z}, PCD Ø{pdm.d:g}, 중심거리 a={yp:g}", 1, "SC49", (0, 0, 1.6), "피니언")
-        add("평행키(피니언)", key_solid(xgc, bg - 4.0, kg.b, kg.h, z + dsh / 2.0 - kg.t1, yp), f"{kg.name}×{bg - 4:g} KS B 1311", 1, "SM45C", (0, 0, 2.4), "키")
+        if L["pinion_integral"]:
+            # The keyway would leave too thin a rim under the teeth (or cut through the root): cut the teeth on the shaft itself
+            rim, need = L["pinion_rim"], L["pinion_rim_min"]
+            add("피니언 축(일체)", _shaft(L, yp, False, gear_keyway=False) + pin,
+                f"Ø{d:g} 베어링 자리 ×2, 피니언 m{pdm.m:g} z{pdm.z} PCD Ø{pdm.d:g} 축과 일체 가공, 중심거리 a={yp:g} "
+                f"(키홈을 내면 림 {rim:.1f} mm < {need:.1f} mm = 1.2 × 이높이)", 1, "SCM440", (0, 0, 0), "축")
+        else:
+            add("축(피니언)", _shaft(L, yp, False), f"Ø{d:g} 베어링 자리 ×2, 피니언 자리 Ø{dsh:g} 키홈 {kg.name}", 1, "SM45C", (0, 0, 0), "축")
+            pin = pin - hub_keyway_cutter(xgc, bg + 2.0, kg.b, z + dsh / 2.0 + kg.t2, yp)
+            add("피니언", pin, f"m{pdm.m:g} z{pdm.z}, PCD Ø{pdm.d:g}, 중심거리 a={yp:g}", 1, "SC49", (0, 0, 1.6), "피니언")
+            add("평행키(피니언)", key_solid(xgc, bg - 4.0, kg.b, kg.h, z + dsh / 2.0 - kg.t1, yp), f"{kg.name}×{bg - 4:g} KS B 1311", 1, "SM45C", (0, 0, 2.4), "키")
         sp2 = ring_x(L["x_sp1"], L["x_sp1"] + SPACER_L, L["spacer_od"] / 2.0, dsh / 2.0, yp, z) + \
             ring_x(L["x_sp2"], L["x_sp2"] + SPACER_L, L["spacer_od"] / 2.0, dsh / 2.0, yp, z)
         add("스페이서(피니언)", sp2, f"Ø{L['spacer_od']:g}/Ø{dsh:g}×{SPACER_L:g}", 2, "SM45C", (0, 0, 1.0), "스페이서")
-        add("볼베어링", bearing_solid(bs, L["xb1"], yp, z), f"{bs.code} KS B 2023", 1, "", (-1.0, 0, 0), "베어링")
-        add("볼베어링", bearing_solid(bs, L["xb2"], yp, z), f"{bs.code} KS B 2023", 1, "", (1.0, 0, 0), "베어링")
+        add("볼베어링", bearing_solid(bs, L["xb1"], yp, z), f"{bs.code} KS B 2023", 1, "SUJ2", (-1.0, 0, 0), "베어링")
+        add("볼베어링", bearing_solid(bs, L["xb2"], yp, z), f"{bs.code} KS B 2023", 1, "SUJ2", (1.0, 0, 0), "베어링")
         if a.rings:
             _x0p, _xg1p = _shaft_x(L, False)
             add("멈춤링(C형)", retaining_ring_solid(ring, _xg1p + ring.m - ring.t, yp, z), f"축용 {ring.d1:g}", 1, "SK5", (-1.5, 0, 0), "멈춤링")
@@ -489,12 +507,12 @@ def _fits_power_train(L: dict, parts: list) -> list[dict]:
     out = []
     hs = P("본체")
     for yi, y in enumerate(L["ys"]):
-        shaft = P("축") if yi == 0 else P("축(피니언)")
+        shaft = P("축") if yi == 0 else (P("축(피니언)") or P("피니언 축(일체)"))
         brs = [p for p in parts if p.name == "볼베어링" and abs(p.solid.bounding_box().center().Y - y) < 1.0]
         for bx, br in zip((L["xb1"], L["xb2"]), brs):
             if shaft: out.append(fit(f"베어링 내경 Ø{d:g} ↔ 축 자리", br, shaft, d / 2, bx, bx + bs.B, (y, z)))
             if hs: out.append(fit(f"베어링 외경 Ø{bs.D:g} ↔ 본체 구멍", br, hs, bs.D / 2, bx, bx + bs.B, (y, z)))
-        gear = P("스퍼기어") if yi == 0 else P("피니언")
+        gear = P("스퍼기어") if yi == 0 else P("피니언")      # an integral pinion shaft has no separate bore to fit
         if gear and shaft: out.append(fit(f"기어 보어 Ø{dsh:g} ↔ 축 자리", gear, shaft, dsh / 2, L["x_gear"], L["x_gear"] + L["gear_w"], (y, z)))
         if yi == 0 and L["has_pulley"] and P("V벨트 풀리") and shaft:
             out.append(fit(f"풀리 보어 Ø{d:g} ↔ 축 자리", P("V벨트 풀리"), shaft, d / 2, L["xp0"], L["xp0"] + L["pulley_w"], (y, z)))
@@ -516,7 +534,8 @@ def _layout_public(L: dict) -> dict:
         "cover_bolt": L["bolt"], "pcd": L["pcd"], "z_axis": L["z_axis"], "shaft_length": round(L["x_end"] - L["x0"], 2),
         "x": {k: round(L[k], 2) for k in ("xb1", "xb2", "x_gear", "x_w1_0", "x_w1_1", "x_w2_0", "x_w2_1", "x_end", "xg1", "xg2") if L.get(k) is not None},
         "ys": L["ys"], "center_distance": L["center_distance"],
-        "pinion": ({"z": L["pinion"].z, "d": L["pinion"].d, "da": L["pinion"].da} if L["pinion"] else None),
+        "pinion": ({"z": L["pinion"].z, "d": L["pinion"].d, "da": L["pinion"].da, "integral": L["pinion_integral"],
+                    "rim_under_keyway": round(L["pinion_rim"], 2), "rim_min": round(L["pinion_rim_min"], 2)} if L["pinion"] else None),
     }
     if L["has_pulley"]:
         out["x"]["xp0"] = round(L["xp0"], 2); out["collar"] = [round(L["collar"][0], 2), round(L["collar"][1], 2)]

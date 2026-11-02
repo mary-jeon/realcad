@@ -1,4 +1,4 @@
-"""Visual review: render the result in 4 views, show it to the vision model, and ask whether it matches
+"""Visual review: render the result in 7 standard views, show it to the vision model, and ask whether it matches
 the request and whether any part is missing, buried, or facing the wrong way.
 
 Catches cases where the code runs and checks pass but the shape differs from the request (a face looking
@@ -15,10 +15,15 @@ from pathlib import Path
 from .meta_client import chat
 
 # View convention: Z up, viewer on the -Y side (front). Same as the RealCAD 3D view and the 3-view PDF.
+# Seven directions, as a CAD program's standard views: the four sides, top, bottom and one isometric.
+# Back, left and bottom catch what the first four hide (a hole cut from behind, feet missing underneath).
 _VIEWS = [
     ("FRONT (viewer at -Y, looking +Y)", (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    ("BACK (viewer at +Y, looking -Y)", (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)),
+    ("LEFT (viewer at -X, looking +X)", (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
     ("RIGHT (viewer at +X, looking -X)", (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
     ("TOP (viewer above, looking down)", (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+    ("BOTTOM (viewer below, looking up)", (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
     ("ISO (front-right-top)", (-0.577, 0.577, -0.577), (0.0, 0.0, 1.0)),
 ]
 
@@ -45,7 +50,7 @@ def _mesh(step_path=None, stl_path=None):
 
 
 def render_views(png_path, step_path=None, stl_path=None, title: str = "") -> Path | None:
-    """One 2x2 shaded image of 4 views. None on failure."""
+    """One shaded image of the 7 standard views (2 rows of 4). None on failure."""
     try:
         import numpy as np
         import matplotlib
@@ -57,7 +62,9 @@ def render_views(png_path, step_path=None, stl_path=None, title: str = "") -> Pa
             return None
         V = np.asarray(m.vertices, float); F = np.asarray(m.faces); N = np.asarray(m.face_normals, float)
         V = V - (V.min(0) + V.max(0)) / 2
-        fig, axes = plt.subplots(2, 2, figsize=(10, 8), facecolor="#ffffff")
+        fig, axes = plt.subplots(2, 4, figsize=(16, 8), facecolor="#ffffff")
+        for ax in axes.ravel()[len(_VIEWS):]:
+            ax.axis("off")
         for ax, (label, d, up) in zip(axes.ravel(), _VIEWS):
             d = np.array(_norm(d)); up = np.array(_norm(up))
             right = np.array(_norm(_cross(d, up)))
@@ -86,8 +93,10 @@ def render_views(png_path, step_path=None, stl_path=None, title: str = "") -> Pa
 
 
 REVIEW_SYSTEM = """You are a strict CAD design reviewer for a prompt-to-CAD tool. You get the user's request,
-the build123d code that was run, and ONE image with 4 shaded renders of the result:
-FRONT (viewer stands at -Y), RIGHT (viewer at +X), TOP (from above), ISO (front-right-top). Z is up.
+the build123d code that was run, and ONE image with 7 shaded renders of the result:
+FRONT (viewer stands at -Y), BACK (viewer at +Y), LEFT (viewer at -X), RIGHT (viewer at +X),
+TOP (from above), BOTTOM (from below), ISO (front-right-top). Z is up.
+Use BACK, LEFT and BOTTOM to check features that the front views hide (openings at the back, feet underneath).
 Judge ONLY big, visible mismatches with the request:
 - a requested component is missing or hidden/buried inside another part
 - something faces the wrong way (e.g. a face, screen, or opening that should face the viewer faces away)
@@ -109,17 +118,17 @@ def _parse(text: str) -> dict:
     m = re.search(r"\{.*\}", t, re.S)
     try:
         d = json.loads(m.group(0) if m else t)
-    except Exception:
-        return {"matches": True, "problems": [], "fix": "", "unparsed": t[:300]}
+    except Exception:                                   # an unreadable answer is "not reviewed", never "looks fine"
+        return {"matches": False, "unknown": True, "problems": [], "fix": "", "unparsed": t[:300]}
     clean = lambda x: re.sub(r"\s*[·—]\s*", ", ", str(x)).strip()[:160]   # on-screen text uses commas instead of middle dots and dashes
     probs = [clean(x) for x in (d.get("problems") or []) if str(x).strip()][:6]
     return {"matches": bool(d.get("matches", not probs)) and not probs, "problems": probs, "fix": str(d.get("fix") or "")[:2500]}
 
 
 def review_once(request: str, code: str, png_path, ref_image_url: str | None = None, extra: str = "") -> dict:
-    """One 4-view image + request + code -> {"matches", "problems" (Korean), "fix" (English)}."""
+    """One 7-view image + request + code -> {"matches", "problems" (Korean), "fix" (English)}."""
     content = [{"type": "text", "text": f"User request:\n{request[:3000]}\n\nbuild123d code that was run:\n{code[:8000]}\n\n"
-                                        "Rendered result (4 views in one image):"},
+                                        "Rendered result (7 standard views in one image):"},
                {"type": "image_url", "image_url": {"url": _png_data_url(png_path)}}]
     if ref_image_url:
         content += [{"type": "text", "text": "Reference image the user gave (match its look and layout):"},
@@ -135,7 +144,7 @@ def fix_note(rv: dict) -> str:
     """Visual review result -> code fix request (goes in the error slot of the auto-repair loop)."""
     probs = "\n".join(f"- {p}" for p in rv.get("problems") or [])
     return ("The code RAN and passed the geometry checks, but a visual review of the rendered result "
-            "(4 views) found these problems:\n" + probs +
+            "(7 standard views) found these problems:\n" + probs +
             ("\nSuggested fix: " + rv["fix"] if rv.get("fix") else "") +
             "\nFix ONLY these problems. Keep every other part, size and position the same. "
             "Keep ONE fused watertight solid with a flat bottom.")

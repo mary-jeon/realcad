@@ -14,6 +14,7 @@ readme = "README.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+record = ["playwright"]          # examples/record_tour.py (films the viewer tour; also needs ffmpeg)
 
 [build-system]
 requires = ["hatchling"]

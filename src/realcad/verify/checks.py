@@ -33,20 +33,25 @@ class Finding:
         return base
 
 
-def _intersection_volume(a: Part, b: Part) -> float:
+def _intersection_volume(a: Part, b: Part) -> float | None:
+    """Overlap volume in mm³, or None when the kernel could not compute it (callers report that as not checked,
+    never as no overlap)."""
     try:
         inter = a & b
         return float(inter.volume) if inter is not None else 0.0
     except Exception:
-        return 0.0
+        return None
+
+
+NOT_MEASURED = "교차 부피를 계산하지 못해 확인 못함 / overlap could not be computed"
 
 
 def h1_interference(bolt: Part, obstacle: Part, where: str) -> Finding:
     """H1: collision if the bolt solid intersects an obstacle (wall, neighboring bolt) with volume > 0."""
     v = _intersection_volume(bolt, obstacle)
-    ok = v <= VOL_EPS
+    ok = v is not None and v <= VOL_EPS
     return Finding("H1", "HARD", ok,
-                   f"볼트 머리 간섭 체크 ({where})",
+                   f"볼트 머리 간섭 체크 ({where})" + ("" if v is not None else ": " + NOT_MEASURED),
                    actual=v, required=0.0, standard="",
                    suggestion={} if ok else {
                        "option_a": f"{where}에서 볼트를 멀리(홀 위치 이동)",
@@ -94,8 +99,8 @@ def h5_tool_access(bolt_xy, f: Fastener, obstacle: Part, where: str, head_z0: fl
     h = f.head_height_mm + 15.0
     env = Pos(bolt_xy[0], bolt_xy[1], head_z0 + h / 2) * Cylinder(radius=od / 2, height=h)
     v = _intersection_volume(env, obstacle)
-    ok = v <= 0.5
-    return Finding("H5", "HARD", ok, f"공구 접근 / socket clearance ({where}, 소켓 Ø{od:.1f})", actual=v, required=0.0,
+    ok = v is not None and v <= 0.5
+    return Finding("H5", "HARD", ok, f"공구 접근 / socket clearance ({where}, 소켓 Ø{od:.1f})" + ("" if v is not None else ": " + NOT_MEASURED), actual=v, required=0.0,
                    standard="6각 소켓 OD(참고값)", suggestion={} if ok else {"option_a": "구멍을 장애물에서 멀리", "option_b": "소켓캡(육각렌치) 볼트로 변경"})
 
 
@@ -106,8 +111,8 @@ def h6_head_flush(part: Part, f: Fastener, xy, style: str) -> Finding:
     if style == "counterbore":
         head = Pos(xy[0], xy[1], -f.head_height_mm) * hex_bolt_solid(f, 0.1)
         v = _intersection_volume(head, part)
-        ok = v <= 0.5
-        return Finding("H6", "HARD", ok, "머리 묻힘 / counterbore fits head", actual=v, required=0.0,
+        ok = v is not None and v <= 0.5
+        return Finding("H6", "HARD", ok, "머리 묻힘 / counterbore fits head" + ("" if v is not None else ": " + NOT_MEASURED), actual=v, required=0.0,
                        standard="보어 Ø ≥ 머리 맞모+1, 깊이 ≥ 머리 높이", suggestion={} if ok else {"option_a": "보어 지름/깊이 증가"})
     return Finding("H6", "SOFT", True, "접시머리 / countersink (82°/90°)", standard="ASME B18.6.3 / ISO 10642")
 
@@ -233,6 +238,8 @@ def g1_mesh(gear_part, teeth: int, module: float, thickness: float) -> Finding:
         # With an even tooth count 180 deg is a multiple of the pitch, so add half a pitch to seat teeth in gaps; with an odd count 180 deg is already offset by half a pitch
         mate = Pos(cd, 0, 0) * Rot(0, 0, (180.0 / teeth) if teeth % 2 == 0 else 0.0) * gear_part
         v = _intersection_volume(gear_part, mate)
+        if v is None:
+            raise RuntimeError("overlap not computed")
     except Exception as e:
         return Finding("G1", "HARD", False, f"기어 맞물림 측정 실패 / {type(e).__name__}", standard="involute mesh")
     ok = v <= 0.05 * module * thickness   # numerical tolerance (tiny contact)
@@ -252,7 +259,9 @@ def mesh_report(part) -> dict:
             for i in range(len(solids)):
                 for j in range(i + 1, len(solids)):
                     v = _intersection_volume(solids[i], solids[j])
-                    if v > 0.5:                         # overlap of 0.5 mm^3 or more means stacked, not fused
+                    if v is None:
+                        rep.setdefault("overlaps_unmeasured", []).append((i, j))
+                    elif v > 0.5:                         # overlap of 0.5 mm^3 or more means stacked, not fused
                         rep["overlaps"].append((i, j, round(v, 2)))
         import trimesh
         from build123d import export_stl

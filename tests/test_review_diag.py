@@ -87,4 +87,5 @@ def test_review_parse_is_forgiving():
     assert review._parse('{"matches": true, "problems": []}')["matches"] is True
     r = review._parse('noise {"matches": false, "problems": ["눈이 없음"], "fix": "add eyes"} tail')
     assert r["matches"] is False and r["problems"] == ["눈이 없음"]
-    assert review._parse("not json")["matches"] is True     # if it cannot be read, do not fix (do not break a good result)
+    bad = review._parse("not json")                        # unreadable: reported as not reviewed, never as "looks fine"
+    assert bad["matches"] is False and bad["unknown"] and bad["problems"] == []   # no problems, so no fix attempt

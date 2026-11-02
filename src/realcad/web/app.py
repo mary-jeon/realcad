@@ -5,13 +5,14 @@ Run: PYTHONPATH=src .venv/bin/python -m uvicorn realcad.web.app:app --port 8750
 from __future__ import annotations
 import json
 import re
+import threading
 import uuid
 from pathlib import Path
 
 import base64
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..agent.planner import plan, plan_photo
 from ..agent.clarify import clarify, augment
@@ -301,6 +302,33 @@ def _mesh_stats(tm) -> dict:
         return {"error": f"{type(e).__name__}"}
 
 
+def _with_checks(d: dict) -> dict:
+    """Re-open every exported file (downloads, the viewer meshes, per-part STLs): not empty, readable, sha256
+    (export/filecheck.py). A download that fails is taken off the download list and listed in downloads_failed."""
+    try:
+        from ..export import filecheck
+        dl = dict(d.get("downloads") or {})
+        extra = {}
+        for k in ("part_url", "bolts_url", "case_url"):
+            if isinstance(d.get(k), str) and d[k].startswith("gen/") and d[k] not in dl.values():
+                extra[k] = d[k]
+        for i, p in enumerate(d.get("parts") or []):
+            if isinstance(p, dict) and isinstance(p.get("url"), str) and p["url"].startswith("gen/") and p["url"] not in dl.values():
+                extra[f"part{i}"] = p["url"]
+        def _abs(m):                                       # gen/... lives in GEN (the web folder's gen/)
+            return {k: (str(GEN / v[4:]) if isinstance(v, str) and v.startswith("gen/") else v) for k, v in m.items()}
+        checks = filecheck.check_downloads(_abs(dl), WEB) + filecheck.check_downloads(_abs(extra), WEB)
+        d["file_checks"] = checks
+        d["files_ok"] = filecheck.summary(checks)
+        bad = {c["label"] for c in checks if not c["ok"]}
+        if bad & set(dl):
+            d["downloads_failed"] = {k: dl[k] for k in dl if k in bad}
+            d["downloads"] = {k: v for k, v in dl.items() if k not in bad}
+    except Exception as e:
+        d["files_ok"] = {"ok": False, "checked": 0, "failed": [_safe_err(e)]}
+    return d
+
+
 def _respond(r, sid: str | None = None):
     c, part = r["contract"], r["part"]
 
@@ -324,7 +352,7 @@ def _respond(r, sid: str | None = None):
     # Assembly: with exploded spacing, display and export use the spread state; checks and drawings use the assembled state
     asm = getattr(part, "_rc_asm", None) if c.kind == "assembly" else None
     disp = part
-    parts_out, mates, layout, asm_bom = None, None, None, None
+    parts_out, mates, layout, asm_bom, bom_full, motion = None, None, None, None, None, None
     if asm is not None:
         gap = float(getattr(c.assembly, "exploded", 0.0) or 0.0)
         disp = asm.exploded(gap) if gap > 0 else part
@@ -334,10 +362,18 @@ def _respond(r, sid: str | None = None):
             parts_out.append({"no": pi.no, "name": pi.name, "spec": pi.spec, "qty": pi.qty, "material": pi.material,
                               "color": pi.color, "url": f"gen/{tok}_p{i}.stl"})
         mates, layout, asm_bom = asm.mates, asm.layout, asm.bom
-        import csv as _csv
-        with (GEN / f"{tok}_bom.csv").open("w", newline="", encoding="utf-8") as fp:
-            w = _csv.DictWriter(fp, fieldnames=["no", "item", "spec", "qty", "material"]); w.writeheader()
-            for row in asm_bom: w.writerow(row)
+        motion = None
+        if gap <= 0:                                      # one input value drives the moving parts (viewer slider)
+            try:
+                from ..mech.animate import motion_frames
+                motion = motion_frames(asm)
+            except Exception:
+                motion = None
+        from ..export import asm_bom as _ab           # measured volume + estimated mass per part, grouped list, CSV
+        bom_full = _ab.build(asm.parts)
+        _mass = {r["no"]: r for r in bom_full["top"]}
+        asm_bom = [{**row, "mass_g": _mass.get(row.get("no"), {}).get("mass_g")} for row in asm_bom]
+        _ab.write_csv(bom_full, GEN / f"{tok}_bom.csv", "flat")
     ex.to_stl(disp, stl_path)
     ex.to_step(disp, GEN / f"{tok}.step")
     # Export formats: STL (engine), 3MF and OBJ (trimesh conversion), STEP
@@ -381,10 +417,10 @@ def _respond(r, sid: str | None = None):
 
     # Store the current contract in the edit session (seed for follow-up edits like "bigger" or "add a hole")
     sid = sid or _new_sid()
-    SESSIONS[sid] = {"mode": "param", "contract": c.to_dict()}
+    SESSIONS[sid] = {"mode": "param", "contract": c.to_dict(), "step": str(GEN / f"{tok}.step")}
     _sess_save()
 
-    return {
+    return _with_checks({
         "passed": r["summary"]["passed"],
         "iters": r["iters"],
         "fixed": r["fixed"],
@@ -397,7 +433,9 @@ def _respond(r, sid: str | None = None):
         "part_url": f"gen/{tok}_part.stl",
         "bolts_url": bolts_url,
         "bom": bom,
-        **({"parts": parts_out, "mates": mates, "layout": layout} if parts_out else {}),
+        **({"parts": parts_out, "mates": mates, "layout": layout,
+            "bom_flat": bom_full["flat"], "total_mass_g": bom_full["total_mass_g"],
+            "mass_unknown": bom_full["unknown_material"], "motion": motion} if parts_out else {}),
         "stats": _mesh_stats(tm),
         **({"dfam": dfam} if dfam else {}),
         "downloads": {
@@ -409,7 +447,7 @@ def _respond(r, sid: str | None = None):
             **({"DXF": dxf_url} if dxf_url else {}),
             **({"PDF": pdf_url} if pdf_url else {}),
         },
-    }
+    })
 
 
 class DesignCodeReq(BaseModel):
@@ -495,7 +533,7 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
     _rv = r.get("review")
     if isinstance(_rv, dict):                         # so the image Meta saw can be opened on screen too
         _rv = {**_rv, "images": [f"gen/{n}" for n in _rv.get("images") or []]}
-    return {
+    return _with_checks({
         "review": _rv,
         "diag": r.get("diag") or [],
         "faces_url": _faces_url,
@@ -525,7 +563,7 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
             **({"DXF": _dxf} if _dxf else {}),
             **({"PDF": _pdf} if _pdf else {}),
         },
-    }
+    })
 
 
 @app.post("/api/design_code")
@@ -626,10 +664,17 @@ class EditReq(BaseModel):
     settings: PrintSettings | None = None
     faces: list[dict] | None = None     # faces picked on screen [{point, normal, center, area}] -> push/pull
     face_text: str | None = None        # face description for the model when it is not a push/pull
+    dry_run: bool | None = None         # True: build the change and show it, but keep the session as it is until /api/apply_plan
 
 
 @app.post("/api/edit")
 def edit_ep(req: EditReq):
+    """Edit one session at a time (a preview, an edit, an undo or an apply on the same part never interleave)."""
+    with _session_lock(req.session or ""):
+        return _edit_impl(req)
+
+
+def _edit_impl(req: EditReq):
     """Interactive edit: minimally modify the session's current design (code or contract) per a follow-up instruction (not a full regeneration).
 
     e.g. code: "make a remote" (design_code) -> "add 5 buttons" (edit)
@@ -643,7 +688,7 @@ def edit_ep(req: EditReq):
         return {"error": "세션이 만료됐어요. 먼저 설계를 새로 생성한 뒤 수정하세요.",
                 "expired": True}
     try:
-        if st["mode"] == "code" and req.faces:
+        if st["mode"] == "code" and req.faces and not req.dry_run:
             fo = _face_op(st, req, inst)
             if fo is not None:
                 return fo
@@ -669,6 +714,8 @@ def edit_ep(req: EditReq):
                 return {"error": r["error"], "code": r.get("code", ""),
                         "iters": r.get("iters", 0), "mode": "code",
                         "session": req.session, "edited": True}
+            if req.dry_run:
+                return _plan_code(req.session, st, tok, stl_path, step_path, r, inst)
             out = _emit_code(tok, stl_path, step_path, r, req.session)
             out["edited"] = True
             return out
@@ -679,12 +726,124 @@ def edit_ep(req: EditReq):
         if new_c.kind == "retrieve":
             return {"error": "이 수정은 치수만 바꿔서는 할 수 없어요. 원하는 모양을 새로 말해 주세요.",
                     "session": req.session, "edited": True}
-        out = _respond(run(new_c, max_iters=3), sid=req.session)
+        rr = run(new_c, max_iters=3)
+        if req.dry_run:
+            return _plan_contract(req.session, st, rr, prior, inst)
+        out = _respond(rr, sid=req.session)
         out["edited"] = True
         out["diff"] = editor.diff_contract(prior, new_c.to_dict())
         return out
     except Exception as e:
         return {"error": _safe_err(e), "session": req.session}
+
+
+# Edit plans (dry run): the change is built and shown first, and only the plan id the user saw can be applied.
+# One use per plan, and refused if the part changed in between (the plan was made against the old version).
+PLANS: dict[str, dict] = {}
+_PLAN_TTL = 3600.0
+
+
+def _sess_hash(st: dict) -> str:
+    import hashlib
+    body = st.get("code") if st.get("mode") == "code" else json.dumps(st.get("contract"), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(str(body).encode()).hexdigest()
+
+
+_LOCKS: dict = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _session_lock(sid: str):
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(sid, threading.Lock())
+
+
+_PLAN_MAX = 200                                         # plans kept in memory at most (oldest dropped first)
+
+
+def _new_plan(entry: dict) -> str:
+    import time
+    now = time.time()
+    for k in [k for k, v in PLANS.items() if now - v["t"] > _PLAN_TTL]:
+        PLANS.pop(k, None)
+    while len(PLANS) >= _PLAN_MAX:
+        PLANS.pop(min(PLANS, key=lambda k: PLANS[k]["t"]), None)
+    pid = "plan_" + uuid.uuid4().hex[:10]
+    PLANS[pid] = {**entry, "t": now}
+    return pid
+
+
+def _plan_code(sid: str, st: dict, tok: str, stl_path: Path, step_path: Path, r: dict, inst: str) -> dict:
+    """Code edit built but not applied: size and volume change, the code lines that changed, the checks, a preview file."""
+    import difflib
+    import trimesh
+    tm = trimesh.load(str(stl_path))
+    vol = float(tm.volume) if tm.is_volume else None
+    ext = [round(float(x), 2) for x in tm.extents]
+    change = {"size_from": st.get("ext"), "size_to": ext}
+    if st.get("vol") is not None and vol is not None:
+        dv = vol - st["vol"]
+        change.update({"dv_mm3": round(dv, 1), "dv_pct": round(100 * dv / max(st["vol"], 1e-6), 2)})
+    diff = list(difflib.unified_diff(st["code"].splitlines(), r["code"].splitlines(), "before", "after", n=1, lineterm=""))
+    pid = _new_plan({"session": sid, "base": _sess_hash(st), "mode": "code", "tok": tok,
+                     "stl": str(stl_path), "step": str(step_path), "r": r, "instruction": inst})
+    hard = [f for f in (r.get("findings") or []) if f.get("severity") == "HARD"]
+    return {"dry_run": True, "plan_id": pid, "session": sid, "mode": "code", "instruction": inst,
+            "change": change, "diff": diff[:160], "diff_more": max(0, len(diff) - 160),
+            "findings": r.get("findings") or [], "passed": all(f.get("ok") for f in hard),
+            "preview_url": f"gen/{tok}_part.stl",
+            "next": "이대로 바꾸려면 apply_plan 에 이 plan_id 를 보내세요. 보내기 전에는 부품이 그대로예요."}
+
+
+def _plan_contract(sid: str, st: dict, rr: dict, prior: dict, inst: str) -> dict:
+    """Template (contract) edit built but not applied: which numbers change, the checks, a preview file."""
+    tok = uuid.uuid4().hex[:8]
+    try:
+        ex.to_stl(rr["part"], GEN / f"{tok}_preview.stl")
+        preview = f"gen/{tok}_preview.stl"
+    except Exception:
+        preview = None
+    new = rr["contract"].to_dict()
+    pid = _new_plan({"session": sid, "base": _sess_hash(st), "mode": "param", "rr": rr, "prior": prior, "instruction": inst})
+    return {"dry_run": True, "plan_id": pid, "session": sid, "mode": "param", "instruction": inst,
+            "diff": editor.diff_contract(prior, new), "passed": rr["summary"]["passed"],
+            "findings": [_finding(x) for x in rr["findings"]], "preview_url": preview,
+            "next": "이대로 바꾸려면 apply_plan 에 이 plan_id 를 보내세요. 보내기 전에는 부품이 그대로예요."}
+
+
+class ApplyPlanReq(BaseModel):
+    plan_id: str
+
+
+@app.post("/api/apply_plan")
+def apply_plan_ep(req: ApplyPlanReq):
+    """Apply exactly the change shown by a dry run (and nothing else)."""
+    import time
+    pl = PLANS.get(req.plan_id or "")
+    if not pl or time.time() - pl["t"] > _PLAN_TTL:
+        PLANS.pop(req.plan_id or "", None)
+        return {"error": "그 계획을 찾지 못했어요(한 번 쓰면 사라지고, 1시간 지나도 사라져요). 미리보기를 다시 해 주세요."}
+    st = SESSIONS.get(pl["session"])
+    if not st:
+        return {"error": "세션이 만료됐어요.", "expired": True}
+    with _session_lock(pl["session"]):                  # two plans from the same part cannot both land
+        if PLANS.get(req.plan_id) is not pl:
+            return {"error": "그 계획은 이미 적용했어요. 미리보기를 다시 해 주세요."}
+        if _sess_hash(st) != pl["base"]:
+            PLANS.pop(req.plan_id, None)
+            return {"error": "미리보기 뒤에 부품이 바뀌어서 이 계획은 쓸 수 없어요. 미리보기를 다시 해 주세요.", "session": pl["session"]}
+        try:
+            if pl["mode"] == "code":
+                out = _emit_code(pl["tok"], Path(pl["stl"]), Path(pl["step"]), pl["r"], pl["session"])
+            else:
+                out = _respond(pl["rr"], sid=pl["session"])
+                out["diff"] = editor.diff_contract(pl["prior"], pl["rr"]["contract"].to_dict())
+        except Exception as e:
+            return {"error": _safe_err(e) + " (계획은 남아 있어서 다시 적용해 볼 수 있어요)", "session": pl["session"]}
+        PLANS.pop(req.plan_id, None)                     # used up only once it has really been applied
+        out["edited"] = True
+        out["plan_applied"] = req.plan_id
+        return out
 
 
 def _face_dims_text(st: dict, faces: list[dict]) -> str:
@@ -894,6 +1053,11 @@ class UndoReq(BaseModel):
 
 @app.post("/api/undo")
 def undo_ep(req: UndoReq):
+    with _session_lock(req.session or ""):
+        return _undo_impl(req)
+
+
+def _undo_impl(req: UndoReq):
     """Undo: restore the session's previous version (code).
 
     Plain undo (branching): editing after an undo discards later versions. Code mode only.
@@ -965,6 +1129,7 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
 
         mounts = []
         standoff_h = 0.0
+        _fixrep = None
         if ext in ("step", "stp"):
             from build123d import import_step, export_stl, Pos as _Pos
             from ..geometry.analyze import detect_mount_holes
@@ -978,7 +1143,8 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
             # Seat the board on the bosses
             export_stl(_Pos(-cx, -cy, base + standoff_h - b.min.Z) * part, str(ref_stl))
         else:
-            m = trimesh.load(str(raw), force="mesh")
+            from ..geometry import meshfix
+            m, _fixrep = meshfix.load_clean(raw)
             bb = m.bounds
             size = tuple(float(x) for x in (bb[1] - bb[0]))
             ctr = (bb[0] + bb[1]) / 2
@@ -1012,7 +1178,7 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
                 f"보드 나사구멍 {len(mounts)}개 감지 → 기둥 정렬 / {len(mounts)} board holes detected",
                 standard=f"{span} 패턴"))
         findings += [v.m_min_wall(wall, label="케이스 벽 / wall"), v.m_manifold(case)]
-        return {
+        return _with_checks({
             "ref_url": f"gen/{tok}_ref.stl",
             "case_url": f"gen/{tok}_case.stl",
             "lid_url": lid_url,
@@ -1020,11 +1186,12 @@ async def wrap_ep(model: UploadFile = File(...), clearance: float = Form(2.0),
             "size": [round(x, 1) for x in size],
             "clearance": clearance,
             "mounts": len(mounts),
+            **({"mesh_fix": _fixrep} if _fixrep else {}),
             "findings": [_finding(x) for x in findings],
             "passed": all(f.ok for f in findings if f.severity == "HARD"),
             "downloads": {"STL": f"gen/{tok}_case.stl", "3MF": f"gen/{tok}_case.3mf",
                           "STEP": f"gen/{tok}_case.step", "OBJ": f"gen/{tok}_case.obj"},
-        }
+        })
     except Exception as e:
         return {"error": _safe_err(e)}
 
@@ -1047,7 +1214,8 @@ async def split_upload(model: UploadFile = File(...),
         tok = uuid.uuid4().hex[:8]
         raw = GEN / f"{tok}_in.{ext}"
         raw.write_bytes(data)
-        m = trimesh.load(str(raw), force="mesh")
+        from ..geometry import meshfix
+        m, fixrep = meshfix.load_clean(raw)
         build = (bx, by, bz)
         tm = (target_max or None)
         # smart = detach joints/protrusions first (natural seams) / chopper = fewest pieces / grid = axis-aligned grid
@@ -1096,6 +1264,7 @@ async def split_upload(model: UploadFile = File(...),
             "pins": v["pins"], "volume_orig_cm3": v["volume_orig_cm3"],
             "volume_pieces_cm3": v["volume_pieces_cm3"], "volume_err_pct": v["volume_err_pct"],
             "pieces": v["pieces"], "piece_urls": urls, "pins_url": pin_url,
+            "mesh_fix": fixrep, "mesh_fix_note": meshfix.note(fixrep),
         }
     except Exception as e:
         return {"error": _safe_err(e)}
@@ -1115,9 +1284,10 @@ def dfam_ep(req: DfamReq):
             return {"error": "부품 파일을 찾지 못했어요"}
         from ..verify import dfam as _dfam
         if p.suffix.lower() == ".stl":
-            import trimesh
-            m = trimesh.load(str(p), force="mesh")
-            return {"wall": _dfam._wall_from_mesh(m), "orientation": _dfam._orient_from_mesh(m)}
+            from ..geometry import meshfix
+            m, fixrep = meshfix.load_clean(p)
+            return {"wall": _dfam._wall_from_mesh(m), "orientation": _dfam._orient_from_mesh(m),
+                    "mesh_fix_note": meshfix.note(fixrep)}
         from build123d import import_step
         return _dfam.measure(import_step(str(p)))
     except Exception as e:
@@ -1143,6 +1313,106 @@ def drawing_ep(req: DrawingReq):
             if not write_views_pdf(import_step(str(p)), out, title="RealCAD part", part_number=p.stem[:8].upper()):
                 return {"error": "도면을 그리지 못했어요"}
         return {"pdf_url": f"gen/{out.name}"}
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
+class AsmPartReq(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    session: str | None = Field(None, max_length=64)     # a part made earlier (its STEP)
+    url: str | None = Field(None, max_length=100)        # or a STEP under gen/ (gen/xxxx.step)
+    spec: str | None = Field(None, max_length=120)
+    material: str | None = Field(None, max_length=40)
+    qty: int | None = Field(None, ge=1, le=1000)
+    fixed: bool | None = None           # the part that stays put (default: the first one; only one may be fixed)
+
+
+class AssembleReq(BaseModel):
+    parts: list[AsmPartReq] = Field(..., max_length=12)
+    mates: list[dict] | None = Field(None, max_length=40)   # explicit mates; or leave empty and describe the assembly
+    instruction: str | None = Field(None, max_length=1000)
+
+
+def _part_step(pr: "AsmPartReq") -> Path:
+    if pr.session:
+        st = SESSIONS.get(pr.session)
+        if not st:
+            raise ValueError(f"'{pr.name}' 세션을 찾지 못했어요 (만료). 부품을 다시 만들어 주세요.")
+        stp = st.get("step")
+        if not stp or not Path(stp).exists():
+            raise ValueError(f"'{pr.name}' 의 STEP 파일이 없어요. 부품을 다시 만들어 주세요.")
+        return Path(stp)
+    if pr.url:
+        if not re.fullmatch(r"gen/[A-Za-z0-9_.-]{1,80}\.(step|stp)", pr.url):
+            raise ValueError(f"'{pr.name}' 경로는 gen/xxxx.step 꼴이어야 해요")
+        src = (WEB / pr.url).resolve()
+        if src.parent != GEN.resolve() or not src.exists():
+            raise ValueError(f"'{pr.name}' 파일을 찾지 못했어요")
+        return src
+    raise ValueError(f"'{pr.name}' 에 session 이나 url 이 필요해요")
+
+
+def _load_parts(req_parts) -> list:
+    from build123d import import_step
+    from ..geometry import mates as M
+    if not req_parts or len(req_parts) < 2:
+        raise ValueError("부품이 2개 이상 있어야 조립할 수 있어요")
+    if len(req_parts) > 12:
+        raise ValueError("한 번에 12개 부품까지 조립해요")
+    out = []
+    for i, pr in enumerate(req_parts, 1):
+        nm = M.safe_name(pr.name)
+        out.append(M.MatePart(nm, import_step(str(_part_step(pr))), no=i, spec=(pr.spec or "").strip(),
+                              qty=int(pr.qty or 1), material=(pr.material or "").strip(), fixed=bool(pr.fixed)))
+    return out
+
+
+class FeaturesReq(BaseModel):
+    parts: list[AsmPartReq] = Field(..., max_length=12)
+
+
+@app.post("/api/part_features")
+def part_features_ep(req: FeaturesReq):
+    """Measured faces (P*), holes (H*) and pins (B*) of each part, with the ids that mates refer to."""
+    try:
+        from build123d import import_step
+        from ..geometry import mates as M
+        out = {}
+        for pr in req.parts[:12]:
+            out[M.safe_name(pr.name)] = M.feature_table(M.features(import_step(str(_part_step(pr)))), max_planes=80)
+        return {"parts": out}
+    except Exception as e:
+        return {"error": _safe_err(e)}
+
+
+@app.post("/api/assemble")
+def assemble_ep(req: AssembleReq):
+    """Mate assembly: parts placed by coincident / distance / concentric mates (given, or chosen by Meta from
+    an instruction), then mates, interference, properties and quantities are measured; STEP, STL and BOM out."""
+    try:
+        from .. import mate_assembly as MA
+        from ..geometry import mates as M
+        parts = _load_parts(req.parts)
+        if not req.mates and not (req.instruction or "").strip():
+            return {"error": "메이트(mates)나 조립 설명(instruction) 중 하나를 주세요."}
+        try:
+            res = MA.run(parts, mates=req.mates or None, instruction=req.instruction)
+        except M.MateError as e:
+            return {"error": str(e), "mode": "mates"}
+        tok = uuid.uuid4().hex[:8]
+        files = MA.write(res, GEN, tok)
+        import trimesh
+        tm = trimesh.load(str(GEN / f"{tok}_part.stl"))
+        return _with_checks({
+            "kind": "assembly", "mode": "mates", "passed": res["passed"],
+            "findings": [_finding(x) for x in res["findings"]],
+            "mates": res["mates"], "measured": res["measured"], "why": res["why"], "tries": res["tries"],
+            "parts": files["parts"], "bom": files["bom"], "bom_flat": files["bom_flat"], "total_mass_g": files["total_mass_g"],
+            "mass_unknown": files["mass_unknown"],
+            "part_url": files["downloads"]["STL"], "stats": _mesh_stats(tm), "downloads": files["downloads"],
+        })
+    except ValueError as e:
+        return {"error": str(e)}
     except Exception as e:
         return {"error": _safe_err(e)}
 

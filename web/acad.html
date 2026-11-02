@@ -274,6 +274,16 @@ body.clean #side,body.clean #results,body.clean .sidetoggle{display:none!importa
 #stepbar b.done{color:#b7f0cb}
 #stepbar b.done::before{content:'✓ ';}
 /* Right vertical object toolbar (M R S F C shortcuts) */
+#motionBar{position:fixed;z-index:8;display:none;flex-wrap:wrap;align-items:center;gap:6px 10px;background:rgba(51,58,66,.72);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:#cdd6df}
+#motionBar b{width:28px;height:28px;flex:0 0 28px;display:grid;place-items:center;border-radius:6px;cursor:pointer;background:var(--primary-bg);color:#e8f5ec;font-size:13px}
+#motionBar input[type=range]{accent-color:var(--primary)}
+#motionBar #mbU{flex:1;min-width:90px}
+#motionBar #mbVal{min-width:74px;font-variant-numeric:tabular-nums;color:#fff}
+#motionBar #mbRead{order:9;flex:0 0 100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#b7c0cc;font-variant-numeric:tabular-nums}
+#motionBar #mbRead:empty{display:none}
+#motionBar label{display:flex;align-items:center;gap:6px;white-space:nowrap}
+#motionBar #mbEx{width:90px}
+#motionBar .mbm{display:contents}
 #objtools{position:fixed;right:calc(var(--res-w) + 18px);top:270px;z-index:7;display:flex;flex-direction:column;gap:2px;background:rgba(51,58,66,.6);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:8px;padding:3px}
 #objtools b{width:30px;height:30px;display:grid;place-items:center;border-radius:5px;cursor:pointer;position:relative;font-weight:600;font-size:10px;color:#cdd6df}
 #objtools b svg{width:16px;height:16px;stroke:#cdd6df;fill:none;stroke-width:1.6}
@@ -569,6 +579,7 @@ function fit(dirOpt){const b=new THREE.Box3().setFromObject(grp); if(!isFinite(b
   const off=right.multiplyScalar(-dx/ppw).add(up.multiplyScalar(dy/ppw)); cam.position.add(off); controls.target.add(off); controls.update(); window._dirty=true; }
 window.loadModel=function(partUrl,boltsUrl,facesUrl,viewUrl){
   if(typeof clearFace==='function') clearFace();
+  if(window.RCMotion) RCMotion.hide();
   scene.remove(grp); grp=new THREE.Group(); scene.add(grp);
   let pending=boltsUrl?2:1;
   const fmP=facesUrl?fetch(facesUrl+'?'+Date.now()).then(r=>r.json()).catch(()=>null):Promise.resolve(null);
@@ -593,9 +604,88 @@ window.loadParts=function(parts){
   parts.forEach((p,i)=>loader.load(p.url+'?'+Date.now(),gg=>{gg.computeVertexNormals();
     const metal=/베어링|볼트|^축|키|멈춤링|스페이서|칼라/.test(p.name);
     const m=new THREE.Mesh(gg,regMat(new THREE.MeshStandardMaterial({color:new THREE.Color(p.color||'#9aa7b2'),metalness:metal?0.45:0.1,roughness:0.5,opacity:1})));
-    m.name=(p.no?p.no+'. ':'')+p.name+(p.qty>1?' ×'+p.qty:'');
-    grp.add(m); if(--pending===0){ fit(); sizeReady(); }}));
+    m.name=(p.no?p.no+'. ':'')+p.name+(p.qty>1?' ×'+p.qty:''); m.userData.partName=p.name;
+    grp.add(m); if(--pending===0){ fit(); sizeReady(); if(window.RCMotion) RCMotion.setup(typeof lastResult!=='undefined'?lastResult:null); }}));
+  if(window.RCMotion) RCMotion.hide();
 };
+// ---- Tour: a fixed camera path with the mechanism running and the parts opening, as a pure function of time t.
+// The same function plays live (after 45 s with no input, or RCTour.start()) and is stepped frame by frame by
+// examples/record_tour.py to film it, so the film and the live page show exactly the same thing.
+window.RCTour=(function(){
+  const T=20; let base=null, on=false, t0=0, lastInput=performance.now(), idle=!/[?&]tour=off/.test(location.search);
+  const ease=x=>x<=0?0:x>=1?1:x*x*(3-2*x);
+  function capture(){ const c=controls.target.clone(), off=activeCam.position.clone().sub(c); const r=off.length();
+    base={c, r, az:Math.atan2(off.y,off.x), el:Math.asin(Math.max(-1,Math.min(1,off.z/(r||1)))), u:RCMotion.state.u}; }
+  function at(t){ if(!base) capture(); const st=RCMotion.state;
+    const az=base.az+(t/T)*Math.PI*1.5, el=base.el*0.85+0.12*Math.sin(t/T*Math.PI);
+    const cam=activeCam; cam.position.set(base.c.x+base.r*Math.cos(el)*Math.cos(az), base.c.y+base.r*Math.cos(el)*Math.sin(az), base.c.z+base.r*Math.sin(el));
+    cam.up.set(0,0,1); cam.lookAt(base.c); controls.target.copy(base.c); controls.update();
+    if(st.motion){ const k=Math.max(0,t-3)/(T-3); RCMotion.set((k*2)%1); }       // the mechanism runs twice
+    if(st.motion) RCMotion.ghost(ease((t-1.5)/1.5)*(1-ease((t-18)/1.5)));          // see through the housing while it runs
+    RCMotion.explode(0.7*ease((t-9)/3)*(1-ease((t-16)/3)));                         // open the parts, then close them
+    window._dirty=true; }
+  function frame(now){ if(!on) return; const t=((now-t0)/1000)%T; at(t); requestAnimationFrame(frame); }
+  function start(){ if(on||!RCMotion.state) return; capture(); on=true; t0=performance.now(); requestAnimationFrame(frame); }
+  function stop(){ if(!on) return; on=false; RCMotion.explode(0); RCMotion.ghost(0); }
+  ['pointerdown','keydown','wheel'].forEach(ev=>window.addEventListener(ev,()=>{ lastInput=performance.now(); stop(); },true));
+  setInterval(()=>{ const bar=document.getElementById('motionBar'); if(idle&&!on&&bar&&bar.style.display!=='none'&&performance.now()-lastInput>45000&&!document.hidden) start(); },1000);
+  return {at,start,stop,reset:()=>{ base=null; },idle:v=>{ idle=!!v; if(!v) stop(); },get duration(){ return T; },get on(){ return on; }};
+})();
+// ---- Motion and explode: one value (crank angle, cam angle, jaw opening) drives the moving parts; numbers are measured on the same solids ----
+window.RCMotion=(function(){
+  const V=THREE.Vector3, Q=THREE.Quaternion, M4=THREE.Matrix4;
+  let D=null, fr={}, meshes=[], u=0, n=1, playing=false, last=0, dir=1, ex=0, bar=null, ctr=new V(), span=1, kind={};
+  const L=(k,e)=>(typeof _L==='function'?_L(k,e):k);
+  function ensure(){ if(bar) return bar; bar=document.createElement('div'); bar.id='motionBar';
+    bar.innerHTML='<span class="mbm"><b id="mbPlay" title="재생, 멈춤 / Play, pause">▶</b><input id="mbU" type="range" min="0" max="1000" value="0" aria-label="motion"><span id="mbVal"></span><span id="mbRead"></span></span><label>'+L('분해','Explode')+' <input id="mbEx" type="range" min="0" max="100" value="0" aria-label="explode"></label>';
+    document.body.appendChild(bar);
+    bar.querySelector('#mbPlay').onclick=()=>playing?pause():play();
+    bar.querySelector('#mbU').oninput=e=>{ pause(); u=(+e.target.value/1000)*(n-1); apply(); };
+    bar.querySelector('#mbEx').oninput=e=>{ ex=+e.target.value/100; apply(); };
+    window.addEventListener('resize',()=>{ if(bar.style.display!=='none') place(); });
+    return bar; }
+  function place(){ const F=window._freeRect(); const w=Math.max(260,Math.min(820,F.Rr-F.L-16)); bar.style.left=(F.L+(F.Rr-F.L-w)/2)+'px'; bar.style.width=w+'px'; bar.style.top=(F.B-8-(bar.offsetHeight||42))+'px'; }
+  function dec(a,c){ const m=new M4().set(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9],a[10],a[11],0,0,0,1); const p=new V(),q=new Q(),s=new V(); m.decompose(p,q,s); return {q,s,pc:c.clone().applyMatrix4(m),c}; }
+  function at(name,uu){ const F=fr[name]; if(!F) return null; const i=Math.max(0,Math.min(n-1,Math.floor(uu))), j=Math.min(n-1,i+1), f=uu-i, A=F[i], B=F[j];
+    const q=A.q.clone().slerp(B.q,f), s=A.s.clone().lerp(B.s,f), pc=A.pc.clone().lerp(B.pc,f); const M=new M4().compose(new V(),q,s);
+    M.setPosition(pc.sub(A.c.clone().applyMatrix4(M))); return M; }
+  function apply(){ for(const m of meshes){ const M=(D&&at(m.userData.partName,u))||new M4();
+      if(ex>0){ const d=m.userData.c0.clone().sub(ctr); const len=d.length(); const off=len>1e-6?d.multiplyScalar(ex*span*0.6/Math.max(len,span*0.15)):new V(); M.premultiply(new M4().makeTranslation(off.x,off.y,off.z)); }
+      m.matrixAutoUpdate=false; m.matrix.copy(M); m.matrixWorldNeedsUpdate=true; }
+    window._dirty=true; if(!D) return;
+    const v0=D.values[Math.floor(u)], v1=D.values[Math.min(n-1,Math.floor(u)+1)], v=v0+(v1-v0)*(u-Math.floor(u));
+    bar.querySelector('#mbVal').textContent=(D.unit==='mm'?v.toFixed(1)+' mm':Math.round(v)+'°');
+    // parts that turn show their angle, parts that slide show how far: sliding parts first (they are the output)
+    const i0=Math.floor(u), i1=Math.min(n-1,i0+1), fu=u-i0, ra=D.readout[i0]||{}, rb=D.readout[i1]||{}, row={};
+    for(const k in ra){ const a=ra[k], b=rb[k]||a, mix=x=>(a[x]!=null&&b[x]!=null)?a[x]+(b[x]-a[x])*fu:a[x]; row[k]={move_mm:mix('move_mm'),pos_mm:mix('pos_mm'),turn_deg:mix('turn_deg')}; }
+    const items=Object.entries(row).filter(([k])=>kind[k]).sort((a,b)=>(kind[a[0]]==='turn')-(kind[b[0]]==='turn')).slice(0,3);
+    bar.querySelector('#mbRead').textContent=items.map(([k,r])=>k+' '+(kind[k]==='turn'?L('회전','turned')+' '+Math.round(r.turn_deg)+'°':L('위치','at')+' '+(r.pos_mm!=null?(r.pos_mm>=0?'+':'')+r.pos_mm.toFixed(1):r.move_mm.toFixed(1))+' mm')).join(',  ');
+    const sl=bar.querySelector('#mbU'); if(document.activeElement!==sl) sl.value=Math.round(u/(n-1||1)*1000); }
+  function tick(ts){ if(!playing) return; const dt=Math.min(100,ts-(last||ts)); last=ts;
+    const full=D&&D.unit==='deg'&&D.values[0]===0&&D.values[n-1]===360; const per=full?5000:3000;
+    u+=dir*dt/per*(n-1); if(full){ if(u>n-1) u-=(n-1); } else if(u>n-1||u<0){ dir=-dir; u=Math.max(0,Math.min(n-1,u)); }
+    apply(); requestAnimationFrame(tick); }
+  function play(){ if(!D) return; playing=true; last=0; bar.querySelector('#mbPlay').textContent='⏸'; requestAnimationFrame(tick); }
+  function pause(){ playing=false; if(bar) bar.querySelector('#mbPlay').textContent='▶'; }
+  function hide(){ pause(); D=null; meshes=[]; if(bar) bar.style.display='none'; }
+  function setup(d){ ensure(); pause(); meshes=[]; grp.traverse(o=>{ if(o.isMesh&&o.userData.partName){ o.geometry.computeBoundingBox(); o.userData.c0=o.geometry.boundingBox.getCenter(new V()); meshes.push(o); } });
+    if(meshes.length<2){ hide(); return; }
+    const bb=new THREE.Box3(); meshes.forEach(m=>bb.union(m.geometry.boundingBox)); ctr=bb.getCenter(new V()); span=bb.getSize(new V()).length()/2||1;
+    D=(d&&d.motion&&d.motion.values&&d.motion.values.length>1)?d.motion:null; fr={}; n=D?D.values.length:1; ex=0; bar.querySelector('#mbEx').value=0;
+    kind={};
+    if(D){ for(const [name,list] of Object.entries(D.parts)){ const c=new V(...(D.centers[name]||[0,0,0])); fr[name]=list.map(a=>dec(a,c)); }
+      for(const name in D.parts){ let mt=0,mm=0; D.readout.forEach(r=>{ if(r[name]){ mt=Math.max(mt,r[name].turn_deg); mm=Math.max(mm,r[name].move_mm); } }); kind[name]=mt>5?'turn':(mm>0.05?'move':''); }
+      let best=0,bd=1e9; for(let i=0;i<n;i++){ let s=0; for(const name in D.parts){ const a=D.parts[name][i]; s+=Math.abs(a[0]-1)+Math.abs(a[5]-1)+Math.abs(a[10]-1)+Math.abs(a[3])+Math.abs(a[7])+Math.abs(a[11]); } if(s<bd){ bd=s; best=i; } }
+      u=best; }   // start where the assembly was modelled
+    bar.querySelector('.mbm').style.display=D?'contents':'none';
+    bar.style.display='flex'; apply(); place(); }
+  // see-through for the parts that do not move, so a mechanism inside a housing can be watched
+  function ghost(f){ for(const m of meshes){ const still=!(D&&D.parts[m.userData.partName]); const mat=m.material; if(!mat) continue;
+      if(mat.userData.op0==null) mat.userData.op0=mat.opacity;
+      const op=still&&D?mat.userData.op0*(1-0.8*f):mat.userData.op0; mat.opacity=op; mat.transparent=op<0.999; mat.depthWrite=op>=0.999; mat.needsUpdate=true; }
+    window._dirty=true; }
+  return {setup,play,pause,hide,ghost,set:f=>{ if(!D) return; pause(); u=f*(n-1); apply(); },explode:f=>{ ex=f; if(bar) bar.querySelector('#mbEx').value=Math.round(f*100); apply(); },get state(){ return {motion:!!D,u,n,ex,playing}; }};
+})();
 window.loadPieces=function(urls,axis){
   scene.remove(grp); grp=new THREE.Group(); scene.add(grp);
   const cols=[0x8f9ba6,0xc98a5a,0x7a9e7e,0xb06b8e]; let pending=urls.length;
@@ -1052,7 +1142,13 @@ let lastDownloads=null, lastContract=null, lastResult=null, busy=false;
 let currentSession=null;
 // keep a stack so 'undo' can return to the previous part (previous session) after a new design
 let _cur=null; const _sessStack=[];
+window._made=[];   // parts made on this page, in order: [{session, name}] (the mate assembly picks from these)
+function _partName(t){ const w=String(t||'').replace(/\[[^\]]*\]/g,' ').replace(/(만들어|만들|해\s*줘|줘|주세요|좀)/g,' ').replace(/[^0-9A-Za-z가-힣 ]+/g,' ').trim().split(/\s+/).filter(Boolean).slice(0,2).join('_');
+  let n=w||('부품'+(window._made.length+1)); if(window._made.some(m=>m.name===n)) n+='_'+(window._made.length+1); return n.slice(0,24); }
+function _rememberPart(d){ if(!d||!d.session||d.mode==='mates'||window._made.some(m=>m.session===d.session)) return;
+  window._made.push({session:d.session, name:_partName(window._lastPrompt), spec:String(window._lastPrompt||'').replace(/\[[^\]]*\]/g,'').trim().slice(0,80), material:String(window._lastMaterial||'').toUpperCase()}); if(window._made.length>12) window._made.shift(); }
 function _switchSession(d){
+  _rememberPart(d);
   if(_cur&&_cur.session&&d.session!==_cur.session){ _sessStack.push(_cur); if(_sessStack.length>10) _sessStack.shift(); }
   currentSession=d.session; _cur={session:d.session,result:d,url:d.part_url,bolts:d.bolts_url,parts:d.parts}; }
 function _backToPrevPart(){ const prev=_sessStack.pop(); if(!prev) return false;
@@ -1093,7 +1189,8 @@ function dfamSummary(d){ const x=d&&d.dfam; if(!x) return ''; const EN=document.
 function reviewSummary(d){ const EN=document.body.classList.contains('lang-en'), L2=(k,e)=>EN?e:k, out=[];
   (d.diag||[]).slice(-2).forEach(t=>out.push('🔧 '+L2('엔진 진단','Engine diagnosis')+': '+esc(t)+' <span class="n">'+L2('→ 메타에게 알려서 고침','→ told Meta, fixed')+'</span>'));
   const rv=d.review; if(rv&&rv.rounds&&rv.rounds.length){ const r1=rv.rounds[0], r2=rv.rounds[1], img=i=>(rv.images&&rv.images[i])?' <a href="'+rv.images[i]+'" target="_blank" rel="noopener">'+L2('메타가 본 그림','what Meta saw')+(rv.images.length>1?' '+(i+1):'')+'</a>':'';
-    if(r1.matches) out.push('👁 '+L2('메타가 결과 그림을 보고 확인: 요청과 맞아요','Meta looked at the result: it matches the request')+img(0));
+    if(r1.unknown) out.push('👁 '+L2('메타의 그림 검토 답을 읽지 못해서 눈으로 확인하지 못했어요','Could not read Meta\'s picture review, so it was not checked by eye')+img(0));
+    else if(r1.matches) out.push('👁 '+L2('메타가 결과 그림을 보고 확인: 요청과 맞아요','Meta looked at the result: it matches the request')+img(0));
     else { let s='👁 '+L2(`메타가 결과 그림을 보고 문제 ${r1.problems.length}개를 찾음`,`Meta looked at the result and found ${r1.problems.length} problems`)+': '+esc(r1.problems.join('; '))+img(0);
       if(rv.fixed) s+=' → '+L2('고쳐서 다시 만들었어요','fixed and rebuilt')+(r2?(' → '+(r2.matches?L2('다시 확인: 맞아요','checked again: matches'):L2(`다시 확인: ${r2.problems.length}개 남음 (${esc(r2.problems.join('; '))})`,`checked again: ${r2.problems.length} left`))+img(1)):'');
       else if(rv.reverted) s+=' → '+L2('고친 게 더 나빠서 처음 것으로 되돌렸어요','the fix was worse, kept the first one');
@@ -1151,6 +1248,8 @@ function renderResult(d, wait){
     logline('sys', mb.length?`<span class="bad">✗ 조립 관계 ${d.mates.length}개 중 ${mb.length}개 안 맞음:</span> ${mb.slice(0,3).map(m=>esc(m.pair)).join(', ')}`:`<span class="ok">✓ 조립 관계 ${d.mates.length}개 모두 맞음</span> <span class="n">(${esc(d.mates.slice(0,4).map(m=>m.pair).join(', '))}${d.mates.length>4?' 등':''})</span>`);
   }
   if(d.parts&&d.parts.length){ logline('sys','<span class="n">부품표 '+d.parts.length+'줄: '+esc(d.parts.map(p=>p.name+(p.qty>1?' ×'+p.qty:'')).join(', '))+' (내보내기 메뉴의 BOM CSV, DXF 는 축 중심 단면 조립도)</span>'); }
+  massLine(d,'');
+  filesLine(d);
   { const _df=dfamSummary(d); if(_df) logline('sys', _df); }
   lastDownloads=d.downloads||null;
   lastMeshUrl=d.part_url||null;   // split source
@@ -1266,6 +1365,61 @@ function specAsk(text, d){   // ask for the mating object's dimensions one at a 
   if(q.length){ clarifyState={orig:text,questions:q,idx:0,answers:[],mode:'code',spec_text:d.spec_text||'',keyed:{}}; logline('sys','어떤 모델도 모르는 치수만 하나씩 물을게 / only what no model can know:'); askClarify(); }
   else designCode(text,{spec_text:d.spec_text||''});
 }
+// Exported files are opened again on the server (not empty, readable, sha256): one line here
+function massLine(d,tail){ if(d.total_mass_g==null&&!(d.mass_unknown||[]).length) return; const u=d.mass_unknown||[];
+  logline('sys','<span class="'+(u.length?'bad':'n')+'">⚖ '+(u.length?_L('아는 재질만 더한 추정 질량','Estimated mass of known materials only'):_L('추정 질량','Estimated mass'))+' '+esc(d.total_mass_g)+' g '
+    +_L('(부품 부피를 재서 재질 대표 밀도로 계산)','(measured volume x typical density)')+(u.length?' '+_L(`, 재질을 몰라 빠진 부품 ${u.length}개: ${esc(u.join(', '))}`,`, ${u.length} parts left out (unknown material): ${esc(u.join(', '))}`):'')+(tail||'')+'</span>'); }
+function filesLine(d){ const f=d&&d.files_ok; if(!f||!f.checked) return;
+  const gone=Object.keys(d.downloads_failed||{});
+  logline('sys', f.ok?'<span class="n">🗂 '+_L(`내보낸 파일 ${f.checked}개를 다시 열어 봤어요: 빈 파일이나 열리지 않는 파일 없음`,`Re-opened all ${f.checked} exported files: none empty or unreadable`)+'</span>'
+    :'<span class="bad">🗂 '+_L('다시 열어 보니 문제 있는 파일','Exported files that failed to re-open')+': '+esc(f.failed.join('; '))+(gone.length?' '+_L(`(${gone.join(', ')} 은 내려받기 목록에서 뺐어요)`,`(${gone.join(', ')} removed from downloads)`):'')+'</span>'); }
+const MATE_KO={coincident:'면 일치',distance:'면 거리',concentric:'동심'};
+// Mate assembly result: parts placed by mates, every mate measured again, interference, audit, mass BOM
+function renderMateResult(d, wait){
+  if(!d||d.error){ wait.innerHTML='<span class="bad">'+_L('조립 실패','Assembly failed')+':</span> '+esc((d&&d.error)||'?'); return; }
+  // the assembly is not one editable part: leave the last part on the back stack so an edit cannot land on it by mistake
+  if(_cur&&_cur.session){ _sessStack.push(_cur); if(_sessStack.length>10) _sessStack.shift(); }
+  currentSession=null; _cur={session:null,result:d,url:d.part_url,parts:d.parts};
+  lastResult=d; lastContract=null;
+  wait.innerHTML=_L(`조립했어요: 부품 ${d.parts.length}개, 메이트 ${d.measured.length}개`,`Assembled: ${d.parts.length} parts, ${d.measured.length} mates`)+(d.why?` <span class="n">(${esc(d.why)})</span>`:'')+(d.tries>1?` <span class="n">${_L(`메타가 잰 결과를 보고 ${d.tries}번째에 맞춤`,`Meta got it on try ${d.tries} after seeing the measurements`)}</span>`:'');
+  logline('sys', checkSummary(d.findings));
+  d.measured.forEach(m=>logline('sys',`<span class="${m.ok?'n':'bad'}">${m.ok?'✓':'✗'} ${m.no}. ${esc(MATE_KO[m.type]||m.type)}${m.value!=null?' '+m.value+' mm':''}: ${esc(m.a)} ↔ ${esc(m.b)} (${_L('오차','error')} ${m.error_mm} mm, ${m.error_deg}°)</span>`));
+  logline('sys','<span class="n">'+esc(d.parts.map(p=>p.name+': '+String(p.dof||'').split(' / ')[0]).join(', '))+'</span>');
+  massLine(d,', BOM '+(d.bom_flat||[]).length+_L('줄 (내보내기 메뉴의 BOM)',' rows (BOM in the export menu)'));
+  filesLine(d);
+  lastDownloads=d.downloads||null; lastMeshUrl=d.part_url||null;
+  window.loadParts(d.parts);
+}
+async function assembleParts(instruction){
+  if(busy) return;
+  const parts=(window._made||[]).slice(-12);
+  logline('you','🔩 '+_L('조립','Assemble')+': '+esc(instruction));
+  if(parts.length<2){ logline('sys',_L('조립하려면 이 화면에서 부품을 2개 이상 먼저 만들어 주세요. 만든 순서대로 쓰고, 처음 만든 부품이 고정돼요.','Make at least two parts on this page first. They are used in the order made; the first stays fixed.')); return; }
+  const wait=logline('sys',_L('메타가 부품마다 잰 면과 구멍을 보고 메이트를 고르는 중','Meta is choosing mates from the measured faces and holes')+' <span class="n">('+esc(parts.map(p=>p.name).join(', '))+')</span>');
+  busy=true;
+  try{ const d=await (await fetch('api/assemble',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({parts:parts.map(p=>({name:p.name,session:p.session,spec:p.spec||null,material:p.material||null})),instruction})})).json();
+    renderMateResult(d, wait); }
+  catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+  busy=false;
+}
+// Edit preview (dry run): the change is built and shown, the part stays as it was until 적용
+function _restoreCurrent(){ if(_cur&&_cur.parts&&_cur.parts.length) window.loadParts(_cur.parts); else if(_cur&&_cur.url) window.loadModel(_cur.url, _cur.bolts, _cur.result&&_cur.result.faces_url, _cur.result&&_cur.result.view_url); }
+function renderPlan(d, wait){
+  wait.innerHTML='<span class="ok">👀 '+_L('미리보기: 아직 안 바꿨어요','Preview: nothing changed yet')+'</span>'+(d.passed===false?' <span class="bad">'+_L('검사에 걸린 게 있어요','some checks failed')+'</span>':'');
+  const c=d.change||{}; if(c.size_to) logline('sys','<span class="n">'+_L('크기','size')+' '+esc((c.size_from||[]).join(' x '))+' → '+esc(c.size_to.join(' x '))+' mm'+(c.dv_pct!=null?', '+_L('부피','volume')+' '+(c.dv_pct>0?'+':'')+c.dv_pct+'%':'')+'</span>');
+  if(Array.isArray(d.diff)&&d.diff.length){ if(typeof d.diff[0]==='string') logline('sys','<pre class="n" style="white-space:pre-wrap;margin:2px 0">'+esc(d.diff.filter(l=>/^[+-][^+-]/.test(l)).slice(0,24).join('\n'))+'</pre>'); else logDiff(d.diff); }
+  if(d.preview_url) window.loadModel(d.preview_url);
+  if(window.rcPreviewDone) window.rcPreviewDone();
+  const row=logline('sys','<div class="chiprow"><span class="chip" data-plan="apply">✓ '+_L('이대로 적용','Apply')+'</span><span class="chip" data-plan="cancel">✕ '+_L('취소','Cancel')+'</span></div>');
+  row.querySelectorAll('[data-plan]').forEach(ch=>ch.onclick=async()=>{ if(busy) return; row.querySelectorAll('[data-plan]').forEach(x=>x.style.pointerEvents='none');
+    if(ch.dataset.plan==='cancel'){ _restoreCurrent(); logline('sys',_L('취소했어요. 부품은 그대로예요.','Cancelled. The part is unchanged.')); return; }
+    const w2=logline('sys',_L('미리보기에서 본 변경만 적용하는 중','Applying exactly the previewed change')); busy=true;
+    try{ const r=await (await fetch('api/apply_plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan_id:d.plan_id})})).json();
+      if(r.error){ w2.innerHTML='<span class="bad">'+esc(r.error)+'</span>'; _restoreCurrent(); }
+      else { if(r.mode==='code') renderCodeResult(r,w2); else renderResult(r,w2); if(r.diff&&r.mode!=='code') logDiff(r.diff); showToast(_L('✎ 적용됨','✎ applied')); } }
+    catch(e){ w2.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
+    busy=false; });
+}
 function renderCodeResult(d, wait){
   if(d&&d.route==='code') logline('sys','<span class="n">정해진 틀에 안 맞아서 코드로 직접 만들었어요'+(d.route_note?': '+esc(d.route_note):'')+'</span>');
   if(d && d.error){
@@ -1281,6 +1435,7 @@ function renderCodeResult(d, wait){
   logline('sys', checkSummary(d.findings, d.fixed?_L(`자동으로 ${d.iters}번 고쳐서 통과`,`fixed automatically ${d.iters} times`):''));
   reviewSummary(d).forEach(t=>logline('sys', t));
   { const _df=dfamSummary(d); if(_df) logline('sys', _df); }
+  filesLine(d);
   lastDownloads=d.downloads||null;
   lastMeshUrl=d.part_url||null;
   if(d.session) _switchSession(d);
@@ -1288,8 +1443,10 @@ function renderCodeResult(d, wait){
   try{ if(d.code) sessionStorage.setItem('rc_cur_code', d.code); }catch(e){}
 }
 // Interactive edit: apply a follow-up instruction as a minimal change to the session's current design (not a full regeneration)
-async function editDesign(instruction){
+async function editDesign(instruction, opts){
   if(busy||!instruction) return;
+  const dry=!!(opts&&opts.dry);
+  if(!currentSession&&lastResult&&lastResult.measured){ logline('sys',_L('조립 결과는 한 부품이 아니라서 바로 고칠 수 없어요. 되돌리기로 마지막 부품으로 돌아가 고친 뒤 다시 조립해 주세요.','An assembly is not one part, so it cannot be edited directly. Undo goes back to the last part; edit it and assemble again.')); return; }
   if(!currentSession&&!(lastResult&&lastResult.code)){ logline('sys','먼저 무언가를 생성한 뒤 수정하세요 / generate something first'); return; }
   busy=true;
   // if the session is gone (e.g. server restart), re-register the code the page holds (so it does not turn into a new design)
@@ -1303,15 +1460,16 @@ async function editDesign(instruction){
     const r4=v=>[+v.x.toFixed(4),+v.y.toFixed(4),+v.z.toFixed(4)];
     faces=selFaces.map(f=>({point:r4(f.hit||f.center), center:r4(f.center), normal:r4(f.normal), area:Math.round(f.area)}));
     face_text='[SELECTED FACES on the current part ('+selFaces.length+'): '+selFaces.map((f,i)=>(i+1)+') '+f.en).join('; ')+'. The user is pointing at THESE faces; apply the instruction to them, keep everything else unchanged]'; }
-  else logline('you','✎ 수정 / edit: '+esc(instruction));
-  const wait=logline('sys','수정 반영 중: 바뀐 부분만 다시 깎는 중 / applying edit… <span class="n">(조금 걸려요)</span>');
+  else logline('you',(dry?'👀 미리보기 / preview: ':'✎ 수정 / edit: ')+esc(instruction));
+  const wait=logline('sys',(dry?'바꾼 모습을 만들어 보는 중, 부품은 아직 그대로 / building a preview… ':'수정 반영 중: 바뀐 부분만 다시 깎는 중 / applying edit… ')+'<span class="n">(조금 걸려요)</span>');
   try{
     const _send=()=>fetch('api/edit',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({session:currentSession,instruction:fitPrefix()+instruction,faces,face_text})});
+      body:JSON.stringify({session:currentSession,instruction:fitPrefix()+instruction,faces,face_text,dry_run:dry||undefined})});
     let d=await (await _send()).json();
     if(d&&d.expired){ currentSession=null; if(await _reReg()) d=await (await _send()).json(); }
     if(d&&d.ask){ wait.remove(); busy=false; askBack(d.ask, instruction.replace(/^\[FIT:[^\]]*\]\s*/,'')); return; }
     if(d&&d.expired){ wait.innerHTML='<span class="bad">세션 만료 / session expired</span>: 다시 생성해 주세요'; currentSession=null; busy=false; return; }
+    if(d&&d.dry_run){ renderPlan(d,wait); busy=false; return; }
     if(d&&d.mode==='code') renderCodeResult(d,wait); else renderResult(d,wait);
     if(d&&d.diff) logDiff(d.diff);
     if(d&&d.face_op){ const fo=d.face_op, mv=fo.moves.map(m=>(m>0?'+':'')+m).join(', ');
@@ -1402,6 +1560,7 @@ async function runSplitUpload(blob,name,method,build,dowel){
     const r=await fetch('api/split_upload',{method:'POST',body:fd});
     const d=await r.json();
     if(d.error){ wait.innerHTML='<span class="bad">오류 / error: '+esc(d.error)+'</span>'; return; }
+    if(d.mesh_fix_note) logline('sys','<span class="n">🧹 '+esc(d.mesh_fix_note)+'</span>');
     if(d.fits){ wait.innerHTML='<span class="ok">■ 프린터에 들어감 / fits</span> ('+d.size.join('×')+'mm ≤ '+build.join('×')+'): 분할 불필요 / no split needed'; return; }
     const n=d.n_pieces||d.n||(d.piece_urls?d.piece_urls.length:0);
     wait.innerHTML='<span style="color:#d6b25f">■ 베드보다 큼 / too big</span> ('+d.size.join('×')+') → '+n+'조각 / '+n+' pieces';
@@ -1628,6 +1787,8 @@ async function handleCommand(text){
     askBack('어느 쪽을 바꿀까요? '+(h?h+' 중에서':'가로, 세로, 높이 중에서')+' 말해 주세요.', text); return; }
   if(busy){ logline('sys','아직 앞 작업을 처리 중이에요. 끝나면 다시 말해 주세요 / still busy: '+esc(text)); return; }
   if(CLEAR_RE.test(text.trim())){ logline('you',text.replace(/</g,'&lt;')); doClear(); return; }
+  { const m=text.trim().match(/^(조립|assemble)\s*[:：]?\s*(.*)$/i); if(m){ assembleParts(m[2]||'부품들을 서로 맞는 면과 구멍끼리 조립해'); return; } }
+  { const m=text.trim().match(/^(미리\s*보기|미리보고|preview)\s*[:：]?\s*(.+)$/i); if(m){ if(!currentSession&&!(lastResult&&lastResult.code)){ logline('sys',_L('미리 볼 부품이 없어요. 먼저 만들어 주세요.','Nothing to preview. Make a part first.')); return; } clarifyState=null; editDesign(m[2],{dry:true}); return; } }
   // greetings and acknowledgements (thanks, ok, good) are not sent to design
   if(text.replace(/[^가-힣a-z]/gi,'').length<=6&&/^(고마워|고맙|감사|땡큐|thank|좋아|좋네|오케이|ok|알았어|알겠어|됐어|그래|응|네|예|안녕|hello|hi)/i.test(text.trim())){ logline('you',esc(text)); logline('sys','네.'); say('네.'); return; }
   if(/^(되돌려|되돌리기|원래대로|이전\s*(부품|세션|걸로|거|것|으로|단계)|아까\s*(그|거|걸)|전으로|돌아가|undo|go back)/i.test(text.trim())){ logline('you',esc(text)); undoDesign(); return; }
@@ -2126,11 +2287,11 @@ function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classL
     const v=cmdEl.value.trim(); if(!v){ cmdEl.focus(); cmdEl.placeholder='만들 것을 먼저 적어 주세요 (예: M3 볼트 4개 브래킷 80x40x5)'; showToast('명령창에 만들 것을 적어 주세요'); return; } cmdEl.value=''; handleCommand(v); };
   // ---- Attach settings to design requests: intercept fetch (api/design, api/design_code, api/edit) ----
   const _fetch=window.fetch.bind(window);
-  window.fetch=function(url,opt){ try{ if(typeof url==='string'&&/api\/(design|design_code|edit)$/.test(url)&&opt&&opt.body&&typeof opt.body==='string'){ const b=JSON.parse(opt.body); b.settings=settings(); opt=Object.assign({},opt,{body:JSON.stringify(b)}); setState('busy'); $('chips').classList.add('stale'); } }catch(e){} return _fetch(url,opt); };
+  window.fetch=function(url,opt){ try{ if(typeof url==='string'&&/api\/(design|design_code|edit)$/.test(url)&&opt&&opt.body&&typeof opt.body==='string'){ const b=JSON.parse(opt.body); b.settings=settings(); if(/api\/(design|design_code)$/.test(url)&&b.prompt){ window._lastPrompt=b.prompt; window._lastMaterial=(b.settings&&b.settings.material)||''; } opt=Object.assign({},opt,{body:JSON.stringify(b)}); setState('busy'); $('chips').classList.add('stale'); } }catch(e){} return _fetch(url,opt); };
   // ---- Result → cards/chips/object list (runs after renderResult, renderCodeResult) ----
   const FIXES={H2:'구멍을 규격 공차구멍으로',H4:'구멍을 안쪽으로 옮겨',H1:'볼트 간격을 넓혀',S2:'볼트 간격을 넓혀',M1:'벽을 더 두껍게',M2:'솔리드가 닫히게 다시',C1:'겹친 부분을 융합해서',H3:'판을 더 두껍게',I1:'보스를 더 높게',I2:'인서트 둘레 살을 2mm 이상으로',E2:'바닥을 1.2mm 이상으로',M3:'45도 넘는 면을 줄이거나 눕혀서',D1:'선언한 크기대로 다시',F0:'지원 규격으로 바꿔서',H5:'볼트 주변 공간을 넓혀',H6:'카운터보어를 머리보다 크게'};
-  const PLAIN={"M2": ["닫힌 한 덩어리", "구멍 난 곳 없이 닫힌 모양이라 프린터가 뽑을 수 있는지 봐요", "Closed solid", "Checks the part is closed with no gaps, so it can be printed"], "C1": ["덩어리 개수", "따로 노는 조각 없이 한 덩어리인지 봐요", "Number of bodies", "Checks there are no loose separate pieces"], "D1": ["말한 크기와 같은지", "말한 크기와 실제로 만든 크기가 비슷한지 봐요", "Size matches", "Checks the built size matches what was asked"], "C2": ["전체 크기", "보통 프린터에 들어가는 크기(500 mm 이하)인지 봐요", "Overall size", "Checks it fits a typical printer (500 mm or less)"], "M1": ["벽 두께", "벽이 노즐 두 줄 이상으로 두꺼운지 봐요", "Wall thickness", "Checks walls are at least two nozzle widths thick"], "M3": ["공중에 뜬 면", "받침 없이 뽑기 어려운 45도 넘게 기운 면이 많은지 봐요", "Overhang", "Checks how much surface leans past 45 degrees and needs support"], "H1": ["볼트끼리 부딪침", "볼트끼리, 볼트와 벽이 부딪치지 않는지 봐요", "Bolt clash", "Checks bolts do not hit each other or the walls"], "H2": ["구멍 크기", "볼트가 들어갈 만한 구멍 크기인지 봐요", "Hole size", "Checks holes are the right size for the bolts"], "H3": ["나사 물림", "나사가 충분히 깊게 물리는지 봐요", "Thread engagement", "Checks screws thread in deep enough"], "H4": ["구멍과 가장자리", "구멍이 가장자리에서 충분히 떨어졌는지 봐요", "Edge distance", "Checks holes are far enough from the edge"], "H5": ["공구 들어갈 자리", "렌치나 드라이버가 들어갈 공간이 있는지 봐요", "Tool clearance", "Checks a wrench or driver can reach"], "H6": ["볼트 머리 자리", "볼트 머리가 들어갈 자리가 충분한지 봐요", "Head pocket", "Checks the bolt head fits its pocket"], "I1": ["인서트 구멍", "열로 박는 나사 인서트 구멍 깊이가 충분한지 봐요", "Insert hole", "Checks the heat set insert hole is deep enough"], "I2": ["인서트 둘레 살", "인서트 둘레 벽이 2 mm 이상인지 봐요", "Wall around insert", "Checks at least 2 mm of wall around the insert"], "P1": ["구멍 여유", "뽑으면 작아지는 구멍에 여유를 더했는지 봐요", "Hole allowance", "Checks extra room was added to printed holes"], "S2": ["볼트 간격", "볼트 사이가 너무 좁지 않은지 봐요", "Bolt spacing", "Checks bolts are not too close together"], "E1": ["보드 구멍 위치", "전자 보드 나사 구멍 위치가 맞는지 봐요", "Board holes", "Checks the board mounting holes line up"], "E2": ["기둥 아래 바닥", "보드 기둥 아래 바닥이 충분히 두꺼운지 봐요", "Floor under standoff", "Checks the floor under each standoff is thick enough"], "G1": ["기어 맞물림", "기어가 서로 걸리지 않고 맞물리는지 봐요", "Gear mesh", "Checks gears mesh without jamming"], "F0": ["지원 규격", "지원하는 볼트 규격인지 봐요", "Supported fastener", "Checks the bolt size is supported"]};   // check name and a one-line plain description of what it checks
-  const UNIT={C1:'개',M3:'%'}; window._PLAIN=PLAIN;
+  const PLAIN={"M2": ["닫힌 한 덩어리", "구멍 난 곳 없이 닫힌 모양이라 프린터가 뽑을 수 있는지 봐요", "Closed solid", "Checks the part is closed with no gaps, so it can be printed"], "C1": ["덩어리 개수", "따로 노는 조각 없이 한 덩어리인지 봐요", "Number of bodies", "Checks there are no loose separate pieces"], "D1": ["말한 크기와 같은지", "말한 크기와 실제로 만든 크기가 비슷한지 봐요", "Size matches", "Checks the built size matches what was asked"], "C2": ["전체 크기", "보통 프린터에 들어가는 크기(500 mm 이하)인지 봐요", "Overall size", "Checks it fits a typical printer (500 mm or less)"], "M1": ["벽 두께", "벽이 노즐 두 줄 이상으로 두꺼운지 봐요", "Wall thickness", "Checks walls are at least two nozzle widths thick"], "M3": ["공중에 뜬 면", "받침 없이 뽑기 어려운 45도 넘게 기운 면이 많은지 봐요", "Overhang", "Checks how much surface leans past 45 degrees and needs support"], "H1": ["볼트끼리 부딪침", "볼트끼리, 볼트와 벽이 부딪치지 않는지 봐요", "Bolt clash", "Checks bolts do not hit each other or the walls"], "H2": ["구멍 크기", "볼트가 들어갈 만한 구멍 크기인지 봐요", "Hole size", "Checks holes are the right size for the bolts"], "H3": ["나사 물림", "나사가 충분히 깊게 물리는지 봐요", "Thread engagement", "Checks screws thread in deep enough"], "H4": ["구멍과 가장자리", "구멍이 가장자리에서 충분히 떨어졌는지 봐요", "Edge distance", "Checks holes are far enough from the edge"], "H5": ["공구 들어갈 자리", "렌치나 드라이버가 들어갈 공간이 있는지 봐요", "Tool clearance", "Checks a wrench or driver can reach"], "H6": ["볼트 머리 자리", "볼트 머리가 들어갈 자리가 충분한지 봐요", "Head pocket", "Checks the bolt head fits its pocket"], "I1": ["인서트 구멍", "열로 박는 나사 인서트 구멍 깊이가 충분한지 봐요", "Insert hole", "Checks the heat set insert hole is deep enough"], "I2": ["인서트 둘레 살", "인서트 둘레 벽이 2 mm 이상인지 봐요", "Wall around insert", "Checks at least 2 mm of wall around the insert"], "P1": ["구멍 여유", "뽑으면 작아지는 구멍에 여유를 더했는지 봐요", "Hole allowance", "Checks extra room was added to printed holes"], "S2": ["볼트 간격", "볼트 사이가 너무 좁지 않은지 봐요", "Bolt spacing", "Checks bolts are not too close together"], "E1": ["보드 구멍 위치", "전자 보드 나사 구멍 위치가 맞는지 봐요", "Board holes", "Checks the board mounting holes line up"], "E2": ["기둥 아래 바닥", "보드 기둥 아래 바닥이 충분히 두꺼운지 봐요", "Floor under standoff", "Checks the floor under each standoff is thick enough"], "G1": ["기어 맞물림", "기어가 서로 걸리지 않고 맞물리는지 봐요", "Gear mesh", "Checks gears mesh without jamming"], "F0": ["지원 규격", "지원하는 볼트 규격인지 봐요", "Supported fastener", "Checks the bolt size is supported"], "J1": ["메이트 맞음", "놓은 뒤 메이트마다 다시 재서 0.02 mm 안에 맞는지 봐요", "Mates met", "Measures every mate again after placing (within 0.02 mm)"], "J2": ["구속 상태", "부품마다 위치와 방향이 하나로 정해졌는지 봐요", "Fully defined", "Checks each part's position and direction are fully set"], "J3": ["부품 연결", "모든 부품이 고정 부품과 메이트로 이어졌는지 봐요", "Parts connected", "Checks every part is tied to the fixed part by mates"], "A1": ["부품끼리 겹침", "조립한 부품끼리 파고들지 않는지 겹친 부피를 재요", "Interference", "Measures the overlap volume between parts"], "B1": ["재질과 사양", "부품표에 나갈 재질과 사양이 다 있는지 봐요", "Material and spec", "Checks every part has a material and spec for the BOM"], "B2": ["부품표 수량", "적힌 수량과 실제 모델 개수가 같은지 세어 봐요", "BOM quantity", "Counts that the BOM quantity equals the parts modelled"], "B3": ["부품표 줄", "모델의 부품과 부품표 줄이 하나씩 맞는지 봐요", "BOM rows", "Checks model parts and BOM rows match one to one"]};   // check name and a one-line plain description of what it checks
+  const UNIT={C1:'개',M3:'%',J2:'개',J3:'개',B1:'개',B2:'개',B3:'개',A1:'mm³'}; window._PLAIN=PLAIN;
   const FIXLAB={"H2": ["구멍을 볼트에 맞는 크기로", "Fit holes to the bolts"], "H4": ["구멍을 안쪽으로 옮기기", "Move holes inward"], "H1": ["볼트 간격 넓히기", "Space the bolts apart"], "S2": ["볼트 간격 넓히기", "Space the bolts apart"], "M1": ["벽 더 두껍게", "Thicker walls"], "M2": ["빈틈 없이 닫힌 모양으로", "Close up the gaps"], "C1": ["겹친 조각 하나로 합치기", "Merge overlapping pieces"], "H3": ["판 더 두껍게", "Thicker plate"], "I1": ["인서트 기둥 더 높게", "Taller insert post"], "I2": ["인서트 둘레 살 2 mm 이상", "2 mm or more around the insert"], "E2": ["바닥 1.2 mm 이상", "Floor 1.2 mm or more"], "M3": ["기운 면 줄이거나 눕히기", "Fewer steep faces"], "D1": ["말한 크기대로 다시", "Rebuild at the asked size"], "F0": ["지원하는 규격으로", "Use a supported size"], "H5": ["볼트 둘레 공간 넓히기", "More room around bolts"], "H6": ["볼트 머리 자리 크게", "Bigger bolt head pocket"]};   // fix button labels (UI only); directives sent to Meta stay as in FIXES
   function describe(f){ const EN=document.body.classList.contains('lang-en'), P=PLAIN[f.code], u=UNIT[f.code]||'mm';
     const nf=v=>u==='개'?Math.round(v):num(v); const nums=(f.actual!=null&&f.required!=null)?(EN?`now <b>${nf(f.actual)}</b>, needs ${nf(f.required)}${u==='개'?'':' '+u}`:`지금 <b>${nf(f.actual)}</b>${u==='개'?'개':' '+u}, 기준 ${nf(f.required)}${u==='개'?'개':' '+u}`):'';
@@ -2153,7 +2314,9 @@ function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classL
     const chips=[]; if(s.bbox_mm) chips.push(`<span title="전체 크기(가로×세로×높이)" data-t-en="Overall size (width × depth × height)">⤢ <b>${s.bbox_mm.map(x=>Math.round(x)).join('×')}</b> mm</span>`); if(s.volume_cm3!=null) chips.push(`<span title="부피" data-t-en="Volume">▣ <b>${s.volume_cm3}</b> cm³</span>`); if(g20!=null) chips.push(`<span title="20% 채움 추정 무게(재료 밀도 ${den} g/cm³), 100% 채움 ${gs} g">⚖ <b>${g20}</b> g</span>`); if(d.fixed) chips.push(`<span title="Meta 가 고친 횟수" data-t-en="Times Meta fixed it">↻ <b>${d.iters}</b>회 고침 / fixed ${d.iters} times</span>`); c.innerHTML=chips.join(''); }
   function renderObjects(){ const ol=$('objlist'); const ms=[]; grp.traverse(o=>{ if(o.isMesh) ms.push(o); }); if(!ms.length){ ol.innerHTML='<div style="color:#6f7a86">아직 부품이 없어요 / No parts yet</div>'; return; }
     const over=checkVolume(); ol.innerHTML=ms.map((m,i)=>{ const col='#'+m.material.color.getHexString(); const hasBolts=!!((typeof lastResult!=='undefined'&&lastResult)||{}).bolts_url; const nm=m.name||(i===0?'본체 / Body':((hasBolts&&i===1)||(m.material.metalness||0)>=0.35?'볼트 / Bolts':'부품 '+(i+1))); return `<div class="o" data-i="${i}"><span class="eye ${m.visible?'':'off'}" title="표시/숨김">${m.visible?'👁':'◌'}</span><span class="sw" style="background:${col}"></span><span class="nm">${esc(nm)}</span>${i===0&&over?'<span class="bd">프린터 판보다 큼 / Bigger than the bed</span>':''}</div>`; }).join('');
-    ol.querySelectorAll('.eye').forEach(e=>e.onclick=()=>{ const m=ms[+e.closest('.o').dataset.i]; m.visible=!m.visible; renderObjects(); }); }
+    ol.querySelectorAll('.eye').forEach(e=>e.onclick=()=>{ const m=ms[+e.closest('.o').dataset.i]; m.visible=!m.visible; window._dirty=true; renderObjects(); });
+    // click a part name: show only that part (click it again to show all)
+    if(ms.length>1) ol.querySelectorAll('.o .nm').forEach(e=>{ e.style.cursor='pointer'; e.title=_L('눌러서 이 부품만 보기, 다시 누르면 전체','Click to show only this part, click again for all'); e.onclick=()=>{ const me=ms[+e.closest('.o').dataset.i]; const only=me.visible&&ms.every(o=>o===me||!o.visible); ms.forEach(o=>o.visible=only||o===me); window._dirty=true; renderObjects(); }; }); }
   // ---- Build volume overflow: translucent red box + card ----
   let overBox=null;
   function checkVolume(){ if(overBox){ scene.remove(overBox); overBox=null; } const st=settings(); if(!st.build) return false; let first=null; grp.traverse(o=>{ if(!first&&o.isMesh) first=o; }); const b=new THREE.Box3().setFromObject(first||grp); if(!isFinite(b.min.x)) return false; const sz=b.getSize(new THREE.Vector3()); const over=sz.x>st.build[0]+1e-6||sz.y>st.build[1]+1e-6||sz.z>st.build[2]+1e-6;
@@ -2165,6 +2328,7 @@ function toggleHelp(){const p=document.getElementById('helppanel');if(p)p.classL
   function afterResult(d){ if(!d||d.error){ setState(currentSession?'failed':'idle'); return; } renderCards(d); renderChips(d); setTimeout(()=>{ renderObjects(); checkVolume(); },900); const hardBad=(d.findings||[]).some(f=>!f.ok&&f.severity==='HARD'); setState(hardBad?'failed':'passed'); step(hardBad?2:3); showToast(hardBad?'검사에 걸린 게 있어요. 빨간 카드의 고치기 단추를 눌러 보세요 / Some checks failed. Try the fix button on a red card':`검사 완료. 경고 ${(d.findings||[]).filter(f=>!f.ok&&f.severity!=='HARD').length}건`); if(document.body.classList.contains('nores')) document.body.classList.remove('nores'); }
   const _rr=renderResult; renderResult=function(d){ const r=_rr.apply(this,arguments); try{ afterResult(d); }catch(e){ console.warn(e); } return r; };
   if(typeof renderCodeResult==='function'){ const _rc=renderCodeResult; renderCodeResult=function(d){ const r=_rc.apply(this,arguments); try{ afterResult(d); }catch(e){ console.warn(e); } return r; }; }
+  if(typeof renderMateResult==='function'){ const _rm=renderMateResult; renderMateResult=function(d){ const r=_rm.apply(this,arguments); try{ afterResult(d); }catch(e){ console.warn(e); } return r; }; }
   // on error: watch the log so the busy state is not left on
   new MutationObserver(()=>{ if(state==='busy'&&!busy) setState(currentSession?'failed':'idle'); }).observe(document.getElementById('log'),{childList:true});
   // ---- Single-letter shortcuts (outside inputs): S size, F lay flat, D center, H hole, C split ----
@@ -2281,6 +2445,8 @@ body.nores #progcard{right:16px}
     }
     return _f(url,opt);
   };
+  // edit preview (dry run): the request finished but nothing changed, so go back to the state before it
+  window.rcPreviewDone=function(){ quiet=Date.now()+1500; showProg('ok','미리보기','아직 안 바꿨어요. 적용 또는 취소를 눌러 주세요'); hideProg(4000); rc.setState(prevState==='busy'?'idle':prevState); try{ document.getElementById('chips').classList.remove('stale'); }catch(e){} };
   pc.querySelector('.pc-x').onclick=()=>{ if(ctrl){ try{ ctrl.abort(); }catch(e){} } quiet=Date.now()+1500; showProg('warn','취소됨','요청을 중단했어요. 이전 결과는 그대로예요'); hideProg(3500); setTimeout(()=>{ if(prevLabel.startsWith('설정 바뀜')){ rc.setState('passed'); rc.stale(); } else rc.setState(prevState==='busy'?'idle':prevState); try{ busy=false; }catch(e){} },60); };
   // show the done/failed card from the primary button text change (check mark on success, red strip on error)
   const pb=$('primaryBtn'); let lastLabel=pb.textContent;

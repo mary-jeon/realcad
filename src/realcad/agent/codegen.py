@@ -420,7 +420,7 @@ def design_code_photo(image_url: str, note: str, stl_path, step_path, max_iters:
 
 
 def _concept_review(prompt: str, code: str, info: dict, stl_path, step_path, sheet_png, sheet_url: str):
-    """Review loop for parts built from a reference sheet. Each round shows Muse Spark the 4-view render, the sheet,
+    """Review loop for parts built from a reference sheet. Each round shows Muse Spark the 7-view render, the sheet,
     an overlay of both outlines (red = missing, blue = extra) and the widths at nine heights, asks for a fix, and keeps
     the fix only if the measured outline match goes up. Stops when the review passes and the outline is close enough,
     when a fix does not help, or after REALCAD_FIX_ROUNDS rounds (default 3). Returns (code, info, review)."""
@@ -639,7 +639,7 @@ def _mean(sc: dict | None) -> float:
 
 def _visual_review(prompt: str, code: str, info: dict, stl_path, step_path, ref_image_url: str | None = None,
                    ref_png=None, check_dims: bool = True):
-    """Visual check: show a 4-view render to the vision model and, if it reports problems, fix once and re-check.
+    """Visual check: show a 7-view render to the vision model and, if it reports problems, fix once and re-check.
     Reverts to the first result if the fix fails or the re-check finds more problems. Returns (code, info, review|None)."""
     if os.environ.get("REALCAD_VISUAL_REVIEW", "1") == "0":
         return code, info, None
