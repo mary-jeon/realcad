@@ -89,3 +89,18 @@ def test_review_parse_is_forgiving():
     assert r["matches"] is False and r["problems"] == ["눈이 없음"]
     bad = review._parse("not json")                        # unreadable: reported as not reviewed, never as "looks fine"
     assert bad["matches"] is False and bad["unknown"] and bad["problems"] == []   # no problems, so no fix attempt
+
+
+def test_cpu_limit_gives_a_plain_message_and_a_simplify_hint(monkeypatch):
+    import subprocess
+    from realcad.agent import codegen, sandbox
+
+    class R:
+        stdout, stderr, returncode = "", "", -24
+    monkeypatch.setattr(sandbox, "_run_watched", lambda *a, **k: R)
+    import pytest
+    with pytest.raises(sandbox.SandboxError) as e:
+        sandbox.execute_to_files("from build123d import *\npart = Box(1, 1, 1)\n", "/tmp/_x.stl", "/tmp/_x.step")
+    assert str(e.value) == sandbox.TOO_SLOW and "code -24" not in str(e.value)
+    note = codegen._diag_note("", str(e.value), [])
+    assert sandbox.SLOW_HINT in note

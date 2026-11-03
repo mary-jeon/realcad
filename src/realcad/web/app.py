@@ -497,6 +497,9 @@ def _emit_code(tok: str, stl_path: Path, step_path: Path, r: dict, sid: str) -> 
         _change["visible"] = abs(_dv) >= 1.0 or any(abs(a - b) >= 0.2 for a, b in zip(_prev.get("ext") or _ext, _ext))
     SESSIONS[sid] = {"mode": "code", "code": r["code"], "hist": _hist, "step": str(step_path), "vol": _vol, "ext": _ext}
     _sess_save()
+    if not any(f.get("code") == "H7" for f in r.get("findings") or []):      # edits and other routes: measure the holes too
+        from ..verify.holes import check_files as _hole_check
+        r["findings"] = list(r.get("findings") or []) + [_hole_check(step_path, stl_path)["finding"]]
     _hard = [f for f in (r.get("findings") or []) if f.get("severity") == "HARD"]
     _dxf = None
     try:

@@ -80,6 +80,8 @@ def build_and_verify(c: DesignContract):
         if b["holes"]:
             findings.append(v.e_board(part, e.board, b["holes"], b["pilot"], b["screw"]))
             findings.append(v.e_floor(part, b["holes"]))
+        if e.open_ports:
+            findings.append(v.e_ports(part, e, b) if b.get("ports") else v.e_ports_unknown())
         findings.append(v.m_min_wall(e.wall, label="벽 두께 / wall", nozzle=getattr(c, "nozzle", 0.4)))
         findings.append(v.m_min_wall(e.base, label="바닥 두께 / base", nozzle=getattr(c, "nozzle", 0.4)))
 

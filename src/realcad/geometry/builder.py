@@ -137,6 +137,23 @@ BOARDS = {
     "arduino_uno":       {"l": 68.6, "w": 53.3, "screw": "M3", "pilot": 2.6,
                           "holes": _centered(68.6, 53.3, [(13.97, 2.54), (15.24, 50.8), (66.04, 7.62), (66.04, 35.56)])},
 }
+# Connectors, from the public board drawings (±1 mm): (name, side, centre along that edge from the board's lower-left
+# corner, connector width, bottom above the board's underside, connector height). Sides: x- x+ y- y+.
+_PI_USB_ROW = [("Ethernet / USB", "x+", 28.0, 53.0, 1.6, 16.0)]      # the three stacked connectors sit side by side; their order differs by model
+_PI_SD = [("microSD", "x-", 28.0, 12.0, -2.0, 2.0)]
+_PORTS = {
+    "raspberry_pi_4": _PI_USB_ROW + _PI_SD + [("USB-C", "y-", 11.2, 9.0, 1.6, 3.5), ("HDMI 0", "y-", 26.0, 7.0, 1.6, 3.5),
+                                               ("HDMI 1", "y-", 39.5, 7.0, 1.6, 3.5), ("audio", "y-", 54.0, 6.0, 1.6, 6.0)],
+    "raspberry_pi_5": _PI_USB_ROW + _PI_SD + [("USB-C", "y-", 11.2, 9.0, 1.6, 3.5), ("HDMI 0", "y-", 25.8, 7.0, 1.6, 3.5),
+                                               ("HDMI 1", "y-", 39.2, 7.0, 1.6, 3.5)],
+    "raspberry_pi_3b": _PI_USB_ROW + _PI_SD + [("micro USB", "y-", 10.6, 8.0, 1.6, 3.0), ("HDMI", "y-", 32.0, 15.0, 1.6, 6.0),
+                                                ("audio", "y-", 53.5, 6.0, 1.6, 6.0)],
+    "raspberry_pi_zero": [("microSD", "x-", 16.9, 12.0, -2.0, 2.0), ("mini HDMI", "y-", 12.4, 11.0, 1.6, 3.5),
+                          ("USB", "y-", 41.4, 8.0, 1.6, 3.0), ("power", "y-", 54.0, 8.0, 1.6, 3.0)],
+    "arduino_uno": [("USB", "x-", 38.1, 12.0, 1.6, 11.0), ("power jack", "x-", 7.6, 9.0, 1.6, 11.0)],
+}
+for _n, _b in BOARDS.items():
+    _b["ports"] = _PORTS.get(_n, [])
 for _b in BOARDS.values():   # Backward compatibility: dx, dy = bounding size of the hole pattern
     _xs = [h[0] for h in _b["holes"]]; _ys = [h[1] for h in _b["holes"]]
     _b["dx"] = round(max(_xs) - min(_xs), 2); _b["dy"] = round(max(_ys) - min(_ys), 2)
@@ -160,8 +177,48 @@ def board_spec(name: str, e=None) -> dict:
     return BOARDS[name]
 
 
+PORT_MARGIN = 1.0      # room on each side of a connector and under it
+
+
+def port_boxes(e, b: dict) -> list[dict]:
+    """Where each connector passes through the case wall, case frame: name, side, centre along the wall, width,
+    z range. The case is centred on the board, so these follow the board drawing."""
+    so_top = e.base + e.standoff_h
+    out = []
+    for name, side, along, width, z0, h in b.get("ports") or []:
+        half = b["l"] / 2 if side[0] == "y" else b["w"] / 2
+        out.append({"name": name, "side": side, "at": along - half, "width": width,
+                    "z0": so_top + z0, "z1": so_top + z0 + h})
+    return out
+
+
+def _port_slots(e, b: dict, outer_l: float, outer_w: float, total_h: float) -> list:
+    """Slots open at the rim: the board drops in from above, and its connectors stick out past the inner wall.
+    Slots with less than 3 mm of wall between them are joined, since a sliver like that would snap off."""
+    slots = []
+    for side in ("x-", "x+", "y-", "y+"):
+        spans = sorted((p["at"] - p["width"] / 2 - PORT_MARGIN, p["at"] + p["width"] / 2 + PORT_MARGIN, p["z0"] - PORT_MARGIN)
+                       for p in port_boxes(e, b) if p["side"] == side)
+        merged: list = []
+        for lo, hi, zb in spans:
+            if merged and lo - merged[-1][1] < 3.0:
+                merged[-1] = [merged[-1][0], max(merged[-1][1], hi), min(merged[-1][2], zb)]
+            else:
+                merged.append([lo, hi, zb])
+        sign = 1 if side[1] == "+" else -1
+        for lo, hi, zb in merged:
+            zb = max(zb, e.base)
+            h = total_h + 1 - zb
+            through = e.wall + 1.0
+            if side[0] == "x":
+                slots.append(Pos(sign * (outer_l - e.wall) / 2, (lo + hi) / 2, zb + h / 2) * Box(through, hi - lo, h))
+            else:
+                slots.append(Pos((lo + hi) / 2, sign * (outer_w - e.wall) / 2, zb + h / 2) * Box(hi - lo, through, h))
+    return slots
+
+
 def build_enclosure(e) -> Part:
-    """Board case: shell + board standoffs (screw pilot holes) + open port side. Bottom z=0."""
+    """Board case: shell + board standoffs (screw pilot holes) + connector slots. Bottom z=0."""
     b = board_spec(e.board, e)
     bl, bw = b["l"], b["w"]
     inner_l, inner_w = bl + 2 * e.clearance, bw + 2 * e.clearance
@@ -179,7 +236,10 @@ def build_enclosure(e) -> Part:
         part = part + Pos(sx, sy, so_top / 2) * Cylinder(radius=3.0, height=so_top)
         part = part - Pos(sx, sy, so_top - pilot_depth / 2 + 0.05) * Cylinder(radius=b["pilot"] / 2, height=pilot_depth + 0.1)
 
-    if e.open_ports:                       # Open the long walls (±y) on the port side
+    if e.open_ports and b.get("ports"):
+        for slot in _port_slots(e, b, outer_l, outer_w, total_h):
+            part = part - slot
+    elif e.open_ports:                     # A custom board: connector positions unknown, so open both long walls
         oh = total_h - (so_top + 2)
         for sign in (-1, 1):
             part = part - Pos(0, sign * outer_w / 2, (so_top + 2) + oh / 2) * \

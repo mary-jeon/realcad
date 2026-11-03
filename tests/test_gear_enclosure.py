@@ -37,3 +37,37 @@ def test_pi4_holes_are_asymmetric_like_the_real_board():
 def test_unknown_board_is_an_error_not_silent_pi():
     with pytest.raises(g.UnknownBoard):
         g.board_spec("esp32_devkit")
+
+
+BOARDS_WITH_PORTS = ["raspberry_pi_3b", "raspberry_pi_4", "raspberry_pi_5", "raspberry_pi_zero", "arduino_uno"]
+
+
+@pytest.mark.parametrize("board", BOARDS_WITH_PORTS)
+def test_every_connector_clears_the_wall(board):
+    summ, fd = _run({"kind": "enclosure", "enclosure": {"board": board}})
+    assert summ["passed"], summ["hard_fail"]
+    assert fd["E3"].ok and fd["E3"].actual == 0
+
+
+def test_arduino_short_wall_has_slots_and_long_walls_stay_closed():
+    from build123d import Box, Pos
+    from realcad.contract.schema import Enclosure
+    from realcad.verify.checks import _intersection_volume
+    part = g.build_enclosure(Enclosure(board="arduino_uno"))
+    b = g.BOARDS["arduino_uno"]
+    outer_l, outer_w = b["l"] + 8, b["w"] + 8
+    usb_y = 38.1 - b["w"] / 2
+    assert _intersection_volume(part, Pos(-(outer_l - 2) / 2, usb_y, 14) * Box(2, 12, 11)) < 1e-3     # the USB slot
+    long_wall = Pos(0, (outer_w - 2) / 2, 14) * Box(40, 2, 11)
+    assert _intersection_volume(part, long_wall) == pytest.approx(40 * 2 * 11, rel=0.01)              # still solid
+
+
+def test_closed_case_reports_no_connector_check():
+    summ, fd = _run({"kind": "enclosure", "enclosure": {"board": "arduino_uno", "open_ports": False}})
+    assert "E3" not in fd
+
+
+def test_custom_board_says_its_connectors_are_unknown():
+    summ, fd = _run({"kind": "enclosure", "enclosure": {"board": "custom", "board_l": 50, "board_w": 30,
+                                                        "board_holes": [[3, 3], [47, 3], [3, 27], [47, 27]]}})
+    assert fd["E3"].severity == "SOFT" and not fd["E3"].ok and summ["passed"]

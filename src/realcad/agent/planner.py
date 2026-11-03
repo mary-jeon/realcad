@@ -53,6 +53,7 @@ Units: millimeters. First pick the "kind" that best fits the request:
      fill board_l, board_w and board_holes (mm from the board's bottom-left corner). If the user gives no hole positions,
      put 4 holes 3.5 mm in from each corner. board_screw M2.5 for small boards, M3 otherwise.
    - clearance ~2, wall ~2, base ~2, standoff_h ~4, inner_h ~22 unless the user says otherwise.
+   - open_ports=true cuts slots where the board's real connectors are (USB, power, HDMI). false only for a closed case.
 
 5) "profile" — flat parts with a CUSTOM 2D outline extruded to a thickness: coasters,
    logo tags, star/asterisk shapes, discs, regular polygons, rounded squares:

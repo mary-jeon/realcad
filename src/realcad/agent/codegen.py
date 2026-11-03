@@ -17,6 +17,7 @@ from pathlib import Path
 from .meta_client import chat
 from . import sandbox
 from . import specs
+from ..verify import holes as _holes
 
 SYSTEM = r"""You write build123d (v0.13, algebra mode) Python that builds ONE 3D-printable
 part. The part may be simple or may have many repeated sub-features (keys, teeth, slots, ribs).
@@ -614,6 +615,8 @@ def _findings(info: dict) -> list[dict]:
 
 def _diag_note(code: str, error: str, diags: list) -> str:
     """For shape errors such as a failed union or floating pieces, append the engine diagnosis (union parts one at a time)."""
+    if error and (error == sandbox.TOO_SLOW or error.startswith(("실행 시간 초과", "메모리 초과"))):
+        return error + "\n\n" + sandbox.SLOW_HINT
     if not error or not sandbox.DIAG_TRIGGER.search(error):
         return error
     try:
@@ -728,8 +731,12 @@ def design_code(prompt: str, stl_path, step_path, max_iters: int = 3) -> dict:
             if d1:
                 raise sandbox.SandboxError(d1)
             code, info, rv = _visual_review(prompt, code, info, stl_path, step_path)
+            hc = _holes.check_files(step_path, stl_path)
+            if hc["note"] and it < max_iters:                # the review may have changed the code: repair that version
+                last_code = code
+                raise sandbox.SandboxError(hc["note"])
             return {"ok": True, "code": code, "info": info,
-                    "findings": _findings(info), "iters": it, "fixed": it > 0, "review": rv, "diag": diags}
+                    "findings": _findings(info) + [hc["finding"]], "iters": it, "fixed": it > 0, "review": rv, "diag": diags}
         except sandbox.SandboxError as e:
             error = _diag_note(code, str(e), diags)
             if it == max_iters:

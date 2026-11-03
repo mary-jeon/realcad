@@ -16,6 +16,7 @@ Failure: SandboxError (human-readable message); this message is the input to the
 from __future__ import annotations
 import ast
 import json
+import signal
 import subprocess
 import sys
 import tempfile
@@ -549,6 +550,13 @@ raise ValueError("RCDIAG:" + (_rc_bad or "OK||"))
             "ko": f"`{name}` 를 더할 때 합치기가 실패함"}
 
 
+TOO_SLOW = "모양이 너무 복잡해서 제한 시간 안에 못 만들었어요. 무늬나 반복 개수를 줄이거나 더 단순한 모양으로 말해 주세요."
+SLOW_HINT = ("This code ran out of compute time and was stopped. Write a much simpler version: no helix or spiral sweep, no fillets or "
+             "chamfers on many edges, no shell on a complex body, and at most 12 boolean operations. For a spiral or twisted pattern, "
+             "revolve the plain body first, then add at most 6 raised ribs, each one a single lofted or swept solid made once and "
+             "rotated into place. Keep every dimension the user asked for.")
+
+
 def execute_to_files(code: str, stl_out: str | Path, step_out: str | Path,
                      timeout: float = 75.0) -> dict:
     """Run code isolated and write STL/STEP files. Returns a measurement dict; raises SandboxError on failure."""
@@ -568,6 +576,8 @@ def execute_to_files(code: str, stl_out: str | Path, step_out: str | Path,
         try:
             res = json.loads(last)
         except Exception:
+            if proc.returncode in (-signal.SIGXCPU, -signal.SIGKILL):      # the CPU limit in the harness stopped it
+                raise SandboxError(TOO_SLOW)
             err = (proc.stderr or "").strip()[-500:] or "(출력 없음)"
             raise SandboxError(f"실행 프로세스 비정상 종료(code {proc.returncode}): {err}")
         if not res.get("ok"):

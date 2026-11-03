@@ -59,7 +59,7 @@ class Enclosure:
     base: float = 2.0
     standoff_h: float = 4.0         # Standoff height lifting the board off the floor
     inner_h: float = 22.0           # Component space above the board
-    open_ports: bool = True         # Open the port side (long wall)
+    open_ports: bool = True         # Cut slots at the board's real connectors (custom board: open the long walls)
     board_l: float = 0.0            # Board length when board="custom"
     board_w: float = 0.0            # Board width when board="custom"
     board_holes: list = field(default_factory=list)   # custom: [[x,y],...] in mm, origin at the board lower-left corner

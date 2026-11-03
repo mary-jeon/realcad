@@ -2,7 +2,7 @@
 
 **Describe a part by voice, text or a photo and get a real 3D model: bolt holes that match real fasteners, bolt heads that do not collide, gears that actually mesh, every rule measured on the CAD engine, not eyeballed.** Use it as CAD (STEP, DXF, a 3-view drawing PDF, bolt list) or send it straight to a printer (STL, 3MF, OBJ). Before you print, it also tells you how thin the thinnest wall is and which way to lay the part so it needs the least support. Built after reading 100 community threads about 3D printing and CAD.
 
-Built for the **Meta Global AI Developer Hackathon** (Indie track, *Push the Frontier* / manufacturing), all code written after the Oct 26 kickoff. The only runtime AI is Meta, through the Meta Model API: **Muse Spark 1.3** designs and reviews, **Muse Image 1.0** draws reference sheets for figures; the CAD engine ([build123d](https://github.com/gumyr/build123d) / OpenCascade), verification and export run locally.
+Built for the **Meta Global AI Developer Hackathon** (Indie track, *Push the Frontier* / manufacturing), all project code written after the Oct 26 kickoff (third-party code is listed below). The only cloud AI is Meta, through the Meta Model API: **Muse Spark 1.3** designs and reviews, **Muse Image 1.0** draws reference sheets for figures; the CAD engine ([build123d](https://github.com/gumyr/build123d) / OpenCascade), verification and export run locally.
 
 > RealCAD treats the model as a designer and the engine as a referee: it **measures** the result (hole diameters, interference volumes, thread engagement, gear meshing, floor thickness, watertightness) and, when something fails, tells Muse Spark exactly which parameter to change.
 
@@ -63,13 +63,23 @@ PYTHONPATH=src .venv/bin/python examples/record_tour.py --preset eccentric_slide
 # tests
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
-Optional env: `REALCAD_TOKEN` (require `X-RealCAD-Token` on `/api/*` when you expose the server). The only runtime AI is Meta (Muse Spark, Muse Image). `REALCAD_CONCEPT=0` builds figures without drawing a reference sheet first.
+Optional env: `REALCAD_TOKEN` (require `X-RealCAD-Token` on `/api/*` when you expose the server). The only cloud AI is Meta (Muse Spark, Muse Image); voice input is transcribed on your machine by whisper.cpp. `REALCAD_CONCEPT=0` builds figures without drawing a reference sheet first.
 
 ## Security notes
 Generated code runs in a separate `python -I` process with an allow-listed namespace (only build123d's own geometry API, no `os`, `sys`, `ctypes`, file or network functions, no `export_*`/`import_*`, no dunder access or `str.format`), CPU / wall-clock / memory limits, and result gates. The web app binds to localhost, disables `/docs`, validates upload types and sizes, clamps every numeric contract value, and can require a token. It is still a local developer tool, do not expose it unauthenticated.
 
 ## Limitations / roadmap
 Assembly: six presets (power train with one or two parallel shafts, eccentric slider, gear pump, drill jig, bench vise, cam strap clamp); threads, springs and bearings are simplified solids (bought parts); no helical/bevel gears, no belt, threads are not modelled (bolt holes use the nominal diameter), tolerances are nominal (fit classes are reported, not applied as deviations). Only 6203/6204/6205 bearing shoulder values and the 20×35×7 seal were cross-checked against maker catalogues, the rest are ISO 15 / JIS series values. True edge distance against arbitrary outlines, multi-axis splitting, more board presets, wrench-swing (open-end) clearance, teardrop holes for horizontal axes, snap-fit beam sizing. Organic high-detail figures are out of scope (parametric CAD ≠ sculpting).
+
+## Third-party code and data
+Everything in this repo was written during the hackathon, except:
+- **three.js r128** (MIT), with OrbitControls, STLLoader and STLExporter: copied into `web/vendor/three` with its license. It draws the 3D viewer.
+
+Used but not stored in this repo:
+- **Python packages** from `pyproject.toml`: build123d (with OpenCascade), trimesh, FastAPI, Uvicorn, python-multipart, shapely, rtree, manifold3d, networkx, lxml. Each keeps its own license.
+- **whisper.cpp** (`whisper-cli` with the `ggml-small` model): installed separately, turns voice input into text on your machine.
+
+Fastener sizes come from published standards (ASME B18.2.1, B18.2.2, B18.2.8, B18.6.3, ISO 273, 4014, 4017, 4032, 7089), typed in as numbers; no standards text is copied. Pictures in `web/examples` show models built by this project. There are no third-party datasets.
 
 ## License
 MIT © 2026 Mary Jeon

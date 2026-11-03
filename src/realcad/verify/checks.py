@@ -230,6 +230,40 @@ def e_floor(part, holes: list, min_floor: float = 1.0) -> Finding:
                    standard="FDM 바닥 ≥ 1 mm", suggestion={} if ok else {"option_a": "base 두께 또는 standoff_h 증가"})
 
 
+def e_ports(part, e, b: dict) -> Finding:
+    """E3 connectors (measured): a box the size of each connector, through the wall, must not touch the case."""
+    from build123d import Box, Pos
+    from ..geometry.builder import port_boxes
+    outer_l = b["l"] + 2 * (e.clearance + e.wall)
+    outer_w = b["w"] + 2 * (e.clearance + e.wall)
+    blocked, unknown, names = [], [], []
+    for p in port_boxes(e, b):
+        names.append(p["name"])
+        h, zc = p["z1"] - p["z0"], (p["z0"] + p["z1"]) / 2
+        sign = 1 if p["side"][1] == "+" else -1
+        if p["side"][0] == "x":
+            box = Pos(sign * (outer_l - e.wall) / 2, p["at"], zc) * Box(e.wall, p["width"], h)
+        else:
+            box = Pos(p["at"], sign * (outer_w - e.wall) / 2, zc) * Box(p["width"], e.wall, h)
+        v = _intersection_volume(part, box)
+        if v is None:
+            unknown.append(p["name"])
+        elif v > 1e-3:
+            blocked.append(p["name"])
+    ok = not blocked and not unknown
+    msg = f"포트 {len(names)}곳 열림 / connectors clear: {', '.join(names)}"
+    if blocked: msg = f"벽에 막힌 포트 / connector blocked by a wall: {', '.join(blocked)}"
+    if unknown: msg += f", 확인 못함 / not measured: {', '.join(unknown)}"
+    return Finding("E3", "HARD", ok, msg, actual=float(len(blocked) + len(unknown)), required=0.0, standard="board drawing",
+                   suggestion={} if ok else {"option_a": "open_ports 를 켜서 포트 자리를 열기"})
+
+
+def e_ports_unknown() -> Finding:
+    """E3 for a custom board: we do not know where its connectors are, so say so instead of passing silently."""
+    return Finding("E3", "SOFT", False, "포트 위치를 몰라 긴 벽 양쪽을 열어 뒀어요 / connector positions unknown, both long walls left open",
+                   standard="custom board")
+
+
 def g1_mesh(gear_part, teeth: int, module: float, thickness: float) -> Finding:
     """G1 meshing (measured): place a copy of the gear at the theoretical center distance m*z, rotated by half a pitch, and check intersection volume = 0."""
     from build123d import Pos, Rot
