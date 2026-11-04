@@ -110,3 +110,42 @@ def image(prompt: str, size: str = "1024x1024", model: str = IMAGE_MODEL) -> byt
     except Exception:
         pass
     return base64.b64decode(resp["data"][0]["b64_json"])
+
+
+VOICE_MODEL = "muse-voice-transcribe-1.0"
+# Words people say to a CAD tool. They bias recognition; they do not force a spelling.
+VOICE_KEYWORDS = {
+    "ko": ["쿼터 트웬티", "볼트", "너트", "밀리", "구멍", "지름", "두께", "간격", "M3", "M4", "M5", "M6", "M8"],
+    "en": ["quarter-twenty", "bolt", "nut", "millimeters", "diameter", "thickness", "spacing", "M3", "M4", "M5", "M6", "M8"],
+}
+
+
+def transcribe(wav: bytes, lang: str = "ko") -> str:
+    """Mono 16-bit PCM WAV (16 or 24 kHz) -> text, with Meta Muse Voice Transcribe."""
+    import time
+    import uuid
+    lg = "en" if str(lang).lower().startswith("en") else "ko"
+    settings = {"mode": "PUSH_TO_TALK", "model": VOICE_MODEL, "audioEncoding": "WAV",
+                "languageBias": ["English" if lg == "en" else "Korean"], "keywords": VOICE_KEYWORDS[lg]}
+    bnd = uuid.uuid4().hex
+    body = (f'--{bnd}\r\nContent-Disposition: form-data; name="request"\r\nContent-Type: application/json\r\n\r\n'
+            f'{json.dumps(settings, ensure_ascii=False)}\r\n'
+            f'--{bnd}\r\nContent-Disposition: form-data; name="audio"; filename="a.wav"\r\nContent-Type: audio/wav\r\n\r\n'
+            ).encode("utf-8") + wav + f"\r\n--{bnd}--\r\n".encode("utf-8")
+    req = urllib.request.Request(
+        f"{BASE_URL}/asr/transcribe?sessionId={uuid.uuid4().hex}", data=body, method="POST",
+        headers={"Authorization": f"Bearer {_load_key()}", "Content-Type": f"multipart/form-data; boundary={bnd}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            resp = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Meta API {e.code}: {e.read().decode()[:400]}") from e
+    try:
+        USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with USAGE_LOG.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": VOICE_MODEL,
+                                 "audio_ms": resp.get("audioDurationMs")}) + "\n")
+    except Exception:
+        pass
+    return str(resp.get("transcript") or "").strip()

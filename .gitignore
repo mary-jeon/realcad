@@ -6,3 +6,5 @@ __pycache__/
 *.stl
 .env
 web/gen/
+!samples/**/*.step
+!samples/**/*.stl

@@ -2,7 +2,7 @@
 
 **Describe a part by voice, text or a photo and get a real 3D model: bolt holes that match real fasteners, bolt heads that do not collide, gears that actually mesh, every rule measured on the CAD engine, not eyeballed.** Use it as CAD (STEP, DXF, a 3-view drawing PDF, bolt list) or send it straight to a printer (STL, 3MF, OBJ). Before you print, it also tells you how thin the thinnest wall is and which way to lay the part so it needs the least support. Built after reading 100 community threads about 3D printing and CAD.
 
-Built for the **Meta Global AI Developer Hackathon** (Indie track, *Push the Frontier* / manufacturing), all project code written after the Oct 26 kickoff (third-party code is listed below). The only cloud AI is Meta, through the Meta Model API: **Muse Spark 1.3** designs and reviews, **Muse Image 1.0** draws reference sheets for figures; the CAD engine ([build123d](https://github.com/gumyr/build123d) / OpenCascade), verification and export run locally.
+Built for the **Meta Global AI Developer Hackathon** (Indie track, *Push the Frontier* / manufacturing), all project code written after the Oct 26 kickoff (third-party code is listed below). Every AI model it calls is a Meta model, through the Meta Model API: **Muse Spark 1.3** designs and reviews, **Muse Image 1.0** draws reference sheets for figures, **Muse Voice Transcribe 1.0** turns speech into text; the CAD engine ([build123d](https://github.com/gumyr/build123d) / OpenCascade), verification and export run locally.
 
 > RealCAD treats the model as a designer and the engine as a referee: it **measures** the result (hole diameters, interference volumes, thread engagement, gear meshing, floor thickness, watertightness) and, when something fails, tells Muse Spark exactly which parameter to change.
 
@@ -49,7 +49,7 @@ Fastener table: UNC/UNF #4 to 1/2 and ISO M2 to M12 with B18.2.8 clearance holes
 ```bash
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e ".[dev]"        # or: -r requirements.lock
-echo "META_API_KEY=..." > .env                               # Meta Model API key (dev.meta.ai)
+cp .env.example .env                                         # then paste your Meta Model API key (dev.meta.ai); optional, see below
 
 # engine-only demo (no API): verification of a wall bracket, fixed by moving a hole
 PYTHONPATH=src .venv/bin/python examples/poc_bracket.py
@@ -63,7 +63,13 @@ PYTHONPATH=src .venv/bin/python examples/record_tour.py --preset eccentric_slide
 # tests
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
-Optional env: `REALCAD_TOKEN` (require `X-RealCAD-Token` on `/api/*` when you expose the server). The only cloud AI is Meta (Muse Spark, Muse Image); voice input is transcribed on your machine by whisper.cpp. `REALCAD_CONCEPT=0` builds figures without drawing a reference sheet first.
+Optional env: `REALCAD_TOKEN` (require `X-RealCAD-Token` on `/api/*` when you expose the server). Every AI model it calls is a Meta model (Muse Spark, Muse Image, Muse Voice Transcribe). Spoken replies use the browser's built-in system voice. `REALCAD_CONCEPT=0` builds figures without drawing a reference sheet first.
+
+## Run it without a key
+No account or key is needed for any of these:
+- **Web UI:** start the server as above with no `.env`. The Examples button builds the code-built gallery parts, and their checks and exports work. Designing from words or voice, and the assembly examples, need a key.
+- **Engine checks:** `examples/poc_bracket.py` and `examples/eval_seeded.py` above.
+- **Recorded runs:** `samples/` holds live runs with the Meta calls they made, the verdicts and the output files. See `samples/README.md`.
 
 ## Security notes
 Generated code runs in a separate `python -I` process with an allow-listed namespace (only build123d's own geometry API, no `os`, `sys`, `ctypes`, file or network functions, no `export_*`/`import_*`, no dunder access or `str.format`), CPU / wall-clock / memory limits, and result gates. The web app binds to localhost, disables `/docs`, validates upload types and sizes, clamps every numeric contract value, and can require a token. It is still a local developer tool, do not expose it unauthenticated.
@@ -77,7 +83,6 @@ Everything in this repo was written during the hackathon, except:
 
 Used but not stored in this repo:
 - **Python packages** from `pyproject.toml`: build123d (with OpenCascade), trimesh, FastAPI, Uvicorn, python-multipart, shapely, rtree, manifold3d, networkx, lxml. Each keeps its own license.
-- **whisper.cpp** (`whisper-cli` with the `ggml-small` model): installed separately, turns voice input into text on your machine.
 
 Fastener sizes come from published standards (ASME B18.2.1, B18.2.2, B18.2.8, B18.6.3, ISO 273, 4014, 4017, 4032, 7089), typed in as numbers; no standards text is copied. Pictures in `web/examples` show models built by this project. There are no third-party datasets.
 

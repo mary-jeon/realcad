@@ -613,46 +613,18 @@ def register_code_ep(req: RegisterCodeReq):
         return {"error": _safe_err(e), "mode": "code"}
 
 
-_WHISPER_MODEL = _os.environ.get("REALCAD_WHISPER_MODEL", str(Path.home() / ".cache/whisper/ggml-small.bin"))
-# Giving whisper an example sentence (--prompt) makes it emit that sentence verbatim on noise or unclear audio (it once auto-ran
-# "set the hole diameter to 5mm"). So no example sentence is used, and old example sentences are discarded if they show up.
-# Descriptive sentence, not a command (cannot execute if it leaks, and is filtered by the list below). A word list would invite comma-list transcription.
-_WHISPER_PROMPT = {"ko": "부품의 턱과 홀이 몇 밀리미터로 뚫려 있는지, 옆 벽 높이와 두께에 관한 대화입니다.",
-                   "en": "A conversation about a part's ledges, holes, wall height and thickness in millimeters."}
-_WHISPER_PROMPT_LEAK = ("부품의 턱과 홀이 몇 밀리미터로 뚫려 있는지", "옆 벽 높이와 두께에 관한 대화입니다", "관한 대화", "대화입니다", "엔터라고 하면", "바로 보냅니다",
-                        "A conversation about a part", "구멍 지름을 5mm로 해줘", "홀이 몇 mm로 뚫려 있어", "이 턱 두 면을 옆 벽 높이까지 올려줘",
-                        "부품 설계 프로그램에 말하는 명령입니다", "RealCAD 설계 명령", "face, wall, floor")
-# Common sentences whisper hallucinates on silence or noise (artifacts of YouTube caption training)
-_WHISPER_JUNK = re.compile(r"(이 영상은|영상의 정보|정보를 포함하고|시청해\s*주셔서|구독|좋아요\s*(와|,)\s*구독|알림\s*설정|MBC|KBS|자막|thank(s| you) for watching|subscribe)", re.I)
-
-
 @app.post("/api/transcribe")
 async def transcribe_ep(audio: UploadFile = File(...), lang: str = Form("ko")):
-    """Conversation mode speech -> text. The browser sends each utterance as 16 kHz WAV and local whisper.cpp transcribes it.
-    Does not rely on the browser's built-in speech recognition (external servers), so it behaves the same in Safari and Chrome."""
-    import shutil, subprocess, tempfile
+    """Speech -> text with Meta Muse Voice Transcribe. The browser sends each utterance as 16 kHz WAV."""
+    from ..agent import meta_client
     try:
         data = await _read_limited(audio, 8 * 1024 * 1024)
         if len(data) < 3200:                      # under 0.1 s
             return {"text": ""}
-        exe = shutil.which("whisper-cli")
-        if not exe or not Path(_WHISPER_MODEL).exists():
-            return {"error": "whisper-cli 또는 모델이 없어요(brew install whisper-cpp, ~/.cache/whisper/ggml-small.bin)"}
-        lg = "en" if str(lang).lower().startswith("en") else "ko"
-        with tempfile.TemporaryDirectory() as td:
-            wav = Path(td) / "a.wav"
-            wav.write_bytes(data)
-            out = subprocess.run([exe, "-m", _WHISPER_MODEL, "-l", lg, "-nt", "-np", "-t", "6", "-sns",
-                                  "--prompt", _WHISPER_PROMPT[lg], "-f", str(wav)],
-                                 capture_output=True, text=True, timeout=60)
-        text = " ".join(out.stdout.split()).strip().lstrip("-–~ ").strip()
+        text = " ".join(meta_client.transcribe(data, lang).split())
         core = re.sub(r"[\W_]+", "", text)
         short_ok = core in ("응", "네", "예", "아니", "아뇨", "좋아", "그래", "ok", "OK", "yes", "no")
-        _flat = re.sub(r"[\W_]+", "", text)
-        if any(re.sub(r"[\W_]+", "", k) in _flat or (len(_flat) >= 8 and _flat in re.sub(r"[\W_]+", "", k)) for k in _WHISPER_PROMPT_LEAK):
-            print(f"[voice] dropped prompt leak: {text!r}", flush=True)
-            return {"text": "", "dropped": text}
-        if _WHISPER_JUNK.search(text) or (len(core) < 2 and not short_ok) or core in ("끝", "음", "어", "감사합니다", "고맙습니다", "안녕하세요"):
+        if (len(core) < 2 and not short_ok) or core in ("끝", "음", "어"):
             print(f"[voice] dropped: {text!r} ({len(data)} B)", flush=True)
             return {"text": "", "dropped": text}
         print(f"[voice] heard: {text!r} ({len(data)} B)", flush=True)

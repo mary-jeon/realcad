@@ -1,0 +1,156 @@
+{
+ "recorded_at": "2026-11-04T20:40:21+0900",
+ "commit_before_this_run": "d34a9d8",
+ "seconds": 27.8,
+ "steps": [
+  {
+   "voice_said": "Make a mounting plate, eighty by forty millimeters, five millimeters thick, with two quarter-twenty bolts, nine millimeters apart."
+  },
+  {
+   "muse_voice_transcribe_heard": "make a mounting plate eighty by forty millimeters five millimeters thick with two quartertwenty bolts nine millimeters apart."
+  }
+ ],
+ "meta_calls": [
+  {
+   "t": "2026-11-04T20:39:59",
+   "model": "muse-voice-transcribe-1.0",
+   "audio_ms": 7840
+  },
+  {
+   "t": "2026-11-04T20:40:07",
+   "model": "muse-spark-1.3",
+   "in": 3774,
+   "out": 1129,
+   "cached": 0,
+   "usd": 0.00952
+  },
+  {
+   "t": "2026-11-04T20:40:21",
+   "model": "muse-spark-1.3",
+   "in": 525,
+   "out": 1992,
+   "cached": 497,
+   "usd": 0.00858
+  }
+ ],
+ "passed": true,
+ "meta_fix_rounds": 1,
+ "fixed": true,
+ "findings": [
+  {
+   "code": "H2",
+   "severity": "HARD",
+   "ok": true,
+   "message": "홀-볼트 공차 (1/4-20 UNC, normal fit, 커널 실측)",
+   "actual": 7.34,
+   "required": 7.1374,
+   "standard": "ASME B18.2.8",
+   "suggestion": {}
+  },
+  {
+   "code": "H4",
+   "severity": "HARD",
+   "ok": true,
+   "message": "연단거리(구멍 중심↔모서리)",
+   "actual": 20.0,
+   "required": 9.524999999999999,
+   "standard": "실무 1.5×D",
+   "suggestion": {}
+  },
+  {
+   "code": "H2",
+   "severity": "HARD",
+   "ok": true,
+   "message": "홀-볼트 공차 (1/4-20 UNC, normal fit, 커널 실측)",
+   "actual": 7.34,
+   "required": 7.1374,
+   "standard": "ASME B18.2.8",
+   "suggestion": {}
+  },
+  {
+   "code": "H4",
+   "severity": "HARD",
+   "ok": true,
+   "message": "연단거리(구멍 중심↔모서리)",
+   "actual": 20.0,
+   "required": 9.524999999999999,
+   "standard": "실무 1.5×D",
+   "suggestion": {}
+  },
+  {
+   "code": "H1",
+   "severity": "HARD",
+   "ok": true,
+   "message": "볼트 머리 간섭 체크 (hole1-hole2)",
+   "actual": 0.0,
+   "required": 0.0,
+   "standard": "",
+   "suggestion": {}
+  },
+  {
+   "code": "S2",
+   "severity": "SOFT",
+   "ok": false,
+   "message": "홀 간 거리(렌치 공간)",
+   "actual": 14.0,
+   "required": 22.224999999999998,
+   "standard": "실무 2×머리폭",
+   "suggestion": {}
+  },
+  {
+   "code": "M1",
+   "severity": "SOFT",
+   "ok": true,
+   "message": "판 두께 / plate thickness",
+   "actual": 5.0,
+   "required": 0.8,
+   "standard": "FDM 노즐×2",
+   "suggestion": {}
+  },
+  {
+   "code": "P1",
+   "severity": "SOFT",
+   "ok": true,
+   "message": "FDM 구멍 보정 / hole compensation +0.20 mm 적용 (프린터별 0.1~0.3, 테스트 쿠폰으로 맞추세요)",
+   "actual": 0.2,
+   "required": null,
+   "standard": "커뮤니티 실측(Bambu/Prusa 포럼)",
+   "suggestion": {}
+  },
+  {
+   "code": "M2",
+   "severity": "HARD",
+   "ok": true,
+   "message": "매니폴드 / watertight solid",
+   "actual": null,
+   "required": null,
+   "standard": "출력 가능",
+   "suggestion": {}
+  },
+  {
+   "code": "C1",
+   "severity": "HARD",
+   "ok": true,
+   "message": "솔리드 융합 / fused",
+   "actual": 0.0,
+   "required": 0.0,
+   "standard": "단일 바디(또는 의도된 분리 부품)",
+   "suggestion": {}
+  },
+  {
+   "code": "M3",
+   "severity": "SOFT",
+   "ok": true,
+   "message": "오버행 / overhang >45° 면적 0.0%",
+   "actual": 0.0,
+   "required": 10.0,
+   "standard": "FDM 45° 규칙 (10% 넘으면 서포트 필요)",
+   "suggestion": {}
+  }
+ ],
+ "summary": null,
+ "files": {
+  "STL": "part.stl",
+  "STEP": "part.step"
+ }
+}

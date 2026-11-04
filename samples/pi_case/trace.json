@@ -1,0 +1,110 @@
+{
+ "recorded_at": "2026-11-04T20:40:33+0900",
+ "commit_before_this_run": "d34a9d8",
+ "seconds": 11.1,
+ "steps": [
+  {
+   "typed": "A case for a Raspberry Pi 4 with a lid held on by four M3 bolts."
+  }
+ ],
+ "meta_calls": [
+  {
+   "t": "2026-11-04T20:40:28",
+   "model": "muse-spark-1.3",
+   "in": 3773,
+   "out": 916,
+   "cached": 0,
+   "usd": 0.00861
+  }
+ ],
+ "passed": true,
+ "meta_fix_rounds": 0,
+ "fixed": false,
+ "findings": [
+  {
+   "code": "E1",
+   "severity": "HARD",
+   "ok": true,
+   "message": "보드 고정 / standoffs match raspberry_pi_4 (M2.5, 구멍 4개 실측)",
+   "actual": null,
+   "required": null,
+   "standard": "board hole pattern",
+   "suggestion": {}
+  },
+  {
+   "code": "E2",
+   "severity": "HARD",
+   "ok": true,
+   "message": "기둥 아래 바닥 두께 / floor under standoff",
+   "actual": 1.2000000000000002,
+   "required": 1.0,
+   "standard": "FDM 바닥 ≥ 1 mm",
+   "suggestion": {}
+  },
+  {
+   "code": "E3",
+   "severity": "HARD",
+   "ok": true,
+   "message": "포트 6곳 열림 / connectors clear: Ethernet / USB, microSD, USB-C, HDMI 0, HDMI 1, audio",
+   "actual": 0.0,
+   "required": 0.0,
+   "standard": "board drawing",
+   "suggestion": {}
+  },
+  {
+   "code": "M1",
+   "severity": "SOFT",
+   "ok": true,
+   "message": "벽 두께 / wall",
+   "actual": 2.0,
+   "required": 0.8,
+   "standard": "FDM 노즐×2",
+   "suggestion": {}
+  },
+  {
+   "code": "M1",
+   "severity": "SOFT",
+   "ok": true,
+   "message": "바닥 두께 / base",
+   "actual": 2.0,
+   "required": 0.8,
+   "standard": "FDM 노즐×2",
+   "suggestion": {}
+  },
+  {
+   "code": "M2",
+   "severity": "HARD",
+   "ok": true,
+   "message": "매니폴드 / watertight solid",
+   "actual": null,
+   "required": null,
+   "standard": "출력 가능",
+   "suggestion": {}
+  },
+  {
+   "code": "C1",
+   "severity": "HARD",
+   "ok": true,
+   "message": "솔리드 융합 / fused",
+   "actual": 0.0,
+   "required": 0.0,
+   "standard": "단일 바디(또는 의도된 분리 부품)",
+   "suggestion": {}
+  },
+  {
+   "code": "M3",
+   "severity": "SOFT",
+   "ok": true,
+   "message": "오버행 / overhang >45° 면적 0.0%",
+   "actual": 0.0,
+   "required": 10.0,
+   "standard": "FDM 45° 규칙 (10% 넘으면 서포트 필요)",
+   "suggestion": {}
+  }
+ ],
+ "summary": null,
+ "files": {
+  "STL": "part.stl",
+  "STEP": "part.step"
+ }
+}

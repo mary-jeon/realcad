@@ -1573,7 +1573,7 @@ async function runSplitUpload(blob,name,method,build,dowel){
   }catch(e){ wait.innerHTML='<span class="bad">오류 / error: '+esc(e.message)+'</span>'; }
 }
 // ---- Voice conversation mode: once the mic is on it keeps listening, runs when speech ends (about 1.2 s of silence), and asks follow-ups by voice ----
-// Transcription uses the server's local whisper (/api/transcribe). Browser speech recognition (external server) drops too often.
+// Transcription uses Meta Muse Voice Transcribe through the server (/api/transcribe).
 const _isSafari=/^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
 function voiceLang(){ const sel=document.getElementById('micLang'); return (sel&&sel.value)||localStorage.getItem('rc_voice_lang')||'ko-KR'; }
 function setVoiceLang(l){ const sel=document.getElementById('micLang'); if(sel) sel.value=l; try{ localStorage.setItem('rc_voice_lang',l); }catch(e){} logline('sys','🎙 음성 언어 / voice language: '+(l==='en-US'?'English':'한국어')); }
