@@ -576,7 +576,9 @@ def dimension_check(code: str, info: dict, tol: float = 0.6) -> str | None:
         if built < 8.0:
             return (f"결과가 너무 작습니다(최대 {built:.1f} mm). 실물 크기(mm)로 만드세요. 코드 첫 줄 주석에 전체 크기를 적고 그대로 쓰세요.")
         return None
-    if built < decl * (1 - tol) or built > decl * (1 + tol):
+    # Separate pieces (a case and its lid) are laid side by side, so the layout can be longer than the declared part.
+    too_big = built > decl * (1 + tol) and int(info.get("nsolids") or 1) < 2
+    if built < decl * (1 - tol) or too_big:
         return (f"치수 불일치: 주석에 전체 크기 {decl:.0f} mm 라고 선언했는데 실제 바운딩박스 최대 치수는 {built:.1f} mm 입니다 "
                 f"(bbox {bb}). 선언한 실물 치수대로 좌표와 크기를 다시 계산하세요. 형상을 작게 뭉개서 통과시키지 마세요.")
     return None
@@ -595,7 +597,7 @@ def _findings(info: dict) -> list[dict]:
     out.append({
         "code": "C1", "severity": "HARD", "ok": nsolids >= 1,
         "message": f"솔리드 개수 / solids = {nsolids} (겹친 미융합 솔리드 없음, 실행 단계에서 검사)",
-        "actual": float(nsolids), "required": 1.0,
+        "actual": float(nsolids), "required": 1.0 if nsolids <= 1 else None,
         "standard": "1개=단일부품, 2개↑=조립/뚜껑분리", "suggestion": {},
     })
     bb = info.get("bbox") or [0, 0, 0]

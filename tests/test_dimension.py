@@ -11,3 +11,10 @@ def test_dimension_check_flags_collapse_and_passes_match():
     assert dimension_check(code, {"bbox": [12, 24, 103]}) is not None
     assert dimension_check(code, {"bbox": [240, 160, 290]}) is None
     assert dimension_check("x=1", {"bbox": [3, 3, 3]}) is not None     # under 8mm is suspicious even without a declaration
+
+
+def test_separate_pieces_laid_side_by_side_are_not_too_big():
+    code = "# overall 90 x 60 x 25 mm\n"
+    assert dimension_check(code, {"bbox": [190.4, 61.4, 28.0], "nsolids": 2}) is None
+    assert dimension_check(code, {"bbox": [190.4, 61.4, 28.0], "nsolids": 1}) is not None
+    assert dimension_check(code, {"bbox": [20, 15, 8], "nsolids": 2}) is not None
